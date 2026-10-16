@@ -10,6 +10,17 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_exact_radix_source_and_telex_finalization(self) -> None:
+        for literal, invalid in (("2.00", False), ("2e0", False), ("20e-1", False), ("2.0000000000000001", True)):
+            for payload in ("1", "2"):
+                source = f"mask:radix[{literal}]=%{payload}"
+                self.assertTrue(aeon.compile(source).ok)
+                legacy = aeon.load_text(source, mode="strict")
+                portable = aeon.load_telex_text(aeon.compile_to_telex(source), mode="strict")
+                self.assertEqual(legacy.document, portable.document)
+                for result in (legacy, portable):
+                    self.assertEqual(invalid or payload == "2", any(d.code == "FINALIZE_INVALID_RADIX_BASE" for d in result.finalization_errors))
+
     def test_generic_arguments_are_type_descriptors_not_numeric_literals(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text())
         for fixture in fixtures:

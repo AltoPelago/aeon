@@ -1,5 +1,5 @@
 import {
-    aeonRadixBaseFromDatatype,
+    resolveAeonRadixBaseFromDatatype,
     aeonRadixDigitValue,
     formatPath,
     type AssignmentEvent,
@@ -337,12 +337,15 @@ function valueToJson(
             return value.value.replace(/_/g, '');
         case 'RadixLiteral': {
             const normalized = value.value.replace(/_/g, '');
-            const radixBase = declaredRadixBase(datatype ?? datatypeForPath(path, ctx));
-            if (radixBase != null && exceedsDeclaredRadix(normalized, radixBase)) {
+            const resolved = resolveAeonRadixBaseFromDatatype(datatype ?? datatypeForPath(path, ctx));
+            const radixBase = resolved.kind === 'base' ? resolved.base : undefined;
+            if (resolved.kind === 'invalid' || radixBase !== undefined && exceedsDeclaredRadix(normalized, radixBase)) {
                 ctx[ctx.strict ? 'errors' : 'warnings'].push({
                     ...toDiagnostic(
                         ctx.strict ? 'error' : 'warning',
-                        `Radix literal exceeds declared radix ${radixBase}: %${value.value}`,
+                        resolved.kind === 'invalid'
+                            ? 'Invalid declared radix base: expected one integral number from 2 to 64'
+                            : `Radix literal exceeds declared radix ${radixBase}: %${value.value}`,
                         path,
                         value.span
                     ),
@@ -830,10 +833,6 @@ function canonicalFinalizePath(path: string): string {
     if (path.startsWith('$.header.')) return `$.${path.slice('$.header.'.length)}`;
     if (path.startsWith('$.header.@')) return `$.${path.slice('$.header'.length)}`;
     return path;
-}
-
-function declaredRadixBase(datatype: string | undefined): number | null {
-    return aeonRadixBaseFromDatatype(datatype) ?? null;
 }
 
 function exceedsDeclaredRadix(value: string, base: number): boolean {

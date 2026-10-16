@@ -23,6 +23,13 @@ repositories.
 
 ### Fixed
 
+- Radix-base consumers now interpret integral decimal and exponent clarifiers
+  exactly without changing their preserved spelling. Finalization, AEOS radix
+  constraints, and SDK/SANSA metadata agree that `2.00`, `2e0`, and `20e-1`
+  mean base 2, while `2.0000000000000001` does not. Source and portable JSON
+  finalization diagnose invalid explicit bases rather than treating them as
+  unspecified; AEOS does not let `allow_unspecified_radix` bypass that check.
+  This does not change Core parsing or the separate GP clarifier validator.
 - Numeric datatype clarifiers now follow value-number normalization without
   host floating-point conversion. Large integers, long decimals, signed zero,
   and large exponents retain their exact values across TypeScript, Python,

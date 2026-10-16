@@ -1,0 +1,232 @@
+[
+  {
+    "literal": "2",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "2.00",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "2e0",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "2E+000",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "20e-1",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": ".2e1",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "0.02e2",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "+2.0",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "2.5e1",
+    "base": 25,
+    "testSource": true
+  },
+  {
+    "literal": "2.56e2",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "10",
+    "base": 10,
+    "testSource": true
+  },
+  {
+    "literal": "1e1",
+    "base": 10,
+    "testSource": true
+  },
+  {
+    "literal": "64.000",
+    "base": 64,
+    "testSource": true
+  },
+  {
+    "literal": "6.4e1",
+    "base": 64,
+    "testSource": true
+  },
+  {
+    "literal": "640e-1",
+    "base": 64,
+    "testSource": true
+  },
+  {
+    "literal": "0.64e2",
+    "base": 64,
+    "testSource": true
+  },
+  {
+    "literal": "200000000000000000000000e-23",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "0",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "-0.00",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "-2",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "1",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "65",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "2.5",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "2.0000000000000001",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "1.9999999999999999",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "63.99999999999999999",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "64.00000000000000001",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "2e999999999999999999999999999999",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "2e-999999999999999999999999999999",
+    "base": null,
+    "testSource": true
+  },
+  {
+    "literal": "2e000000000000000000000000000000",
+    "base": 2,
+    "testSource": true
+  },
+  {
+    "literal": "",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "+",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "NaN",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "Infinity",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "02",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2.",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2e",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2e+",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2_0",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "\"2\"",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2, 10",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "0x2",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": " 2",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2\n",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "２",
+    "base": null,
+    "testSource": false
+  },
+  {
+    "literal": "2e1.0",
+    "base": null,
+    "testSource": false
+  }
+]

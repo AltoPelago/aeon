@@ -2,6 +2,7 @@ import {
     AEON_DOCUMENT_PROJECTION,
     COMPLETE_AES_PROFILE,
     aeonRadixDigitValue,
+    resolveAeonRadixBaseFromComponents,
     validateTelexRecords,
     type AesDiagnostic,
     type PortableAesEvent,
@@ -431,24 +432,14 @@ function nullValue(value: string, path: string, ctx: MaterializeContext): JsonVa
 
 function radixValue(record: PortableRecord, path: string, ctx: MaterializeContext): string {
     const value = (record.value ?? '').replaceAll('_', '');
-    const base = declaredRadixBase(record);
-    if (base !== null && exceedsDeclaredRadix(value, base)) {
-        report(ctx, `Radix literal exceeds declared radix ${base}: %${value}`, 'FINALIZE_INVALID_RADIX_BASE', path);
+    const resolved = resolveAeonRadixBaseFromComponents(record.datatype, record.clarifiers);
+    const base = resolved.kind === 'base' ? resolved.base : undefined;
+    if (resolved.kind === 'invalid' || base !== undefined && exceedsDeclaredRadix(value, base)) {
+        report(ctx, resolved.kind === 'invalid'
+            ? 'Invalid declared radix base: expected one integral number from 2 to 64'
+            : `Radix literal exceeds declared radix ${base}: %${value}`, 'FINALIZE_INVALID_RADIX_BASE', path);
     }
     return value;
-}
-
-function declaredRadixBase(record: PortableRecord): number | null {
-    if (record.datatype === 'decimal') return 10;
-    if (record.datatype === 'radix2') return 2;
-    if (record.datatype === 'radix6') return 6;
-    if (record.datatype === 'radix8') return 8;
-    if (record.datatype === 'radix12') return 12;
-    if (record.datatype !== 'radix' || record.clarifiers?.length !== 1) return null;
-    const clarifier = record.clarifiers[0];
-    if (clarifier?.kind !== 'NumberLiteral') return null;
-    const base = Number(clarifier.value);
-    return Number.isInteger(base) && base >= 2 && base <= 64 ? base : null;
 }
 
 function exceedsDeclaredRadix(value: string, base: number): boolean {

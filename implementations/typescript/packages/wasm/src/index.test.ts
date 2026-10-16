@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
+import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -15,6 +16,22 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm agrees on exact radix bases in source and portable finalization', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { literal, base } of radixBases.filter(f => f.testSource)) {
+    for (const payload of ['1', '2']) {
+      const source = `mask:radix[${literal}]=%${payload}`;
+      assert.deepEqual(runtime.processAeon(source, { validationMode: 'strict', finalize: false }).errors, []);
+      const legacy = runtime.processAeon(source, { validationMode: 'strict' });
+      const portable = runtime.materializeTelex(`telex.aes=1\n\npath=$.mask\nkind=RadixLiteral\ndatatype=radix[${literal}]\nvalue=${payload}\n`, { finalizeMode: 'strict' });
+      const expectedInvalid = base === null || Number(payload) >= base;
+      assert.equal(legacy.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expectedInvalid, source);
+      assert.equal(portable.meta.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expectedInvalid, source);
+      assert.deepEqual(portable.document, legacy.finalized.document);
+    }
+  }
+});
 
 test('generated wasm enforces type-only generic arguments in one-shot, canonical and streaming paths', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

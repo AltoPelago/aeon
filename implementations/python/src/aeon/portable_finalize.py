@@ -7,6 +7,7 @@ from dataclasses import field
 from typing import Mapping
 
 from ._compat import dataclass
+from ._radix import resolve_radix_base_from_components
 from .telex import (
     AEON_DOCUMENT_PROJECTION,
     COMPLETE_AES_PROFILE,
@@ -407,34 +408,17 @@ def _null_value(value: str, path: str, ctx: _Context) -> object:
 
 def _radix_value(record: Mapping[str, object], value: str, path: str, ctx: _Context) -> str:
     normalized = value.replace("_", "")
-    base = _declared_radix_base(record)
-    if base is not None:
+    resolved = resolve_radix_base_from_components(record.get("datatype"), record.get("clarifiers", []))
+    base = resolved.base
+    if resolved.invalid:
+        ctx.report("FINALIZE_INVALID_RADIX_BASE", "Invalid declared radix base: expected one integral number from 2 to 64", path)
+    elif base is not None:
         for char in normalized:
             digit = _radix_digit_value(char)
             if char not in "+-." and (digit is None or digit >= base):
                 ctx.report("FINALIZE_INVALID_RADIX_BASE", f"Radix literal exceeds declared radix {base}: %{normalized}", path)
                 break
     return normalized
-
-
-def _declared_radix_base(record: Mapping[str, object]) -> int | None:
-    datatype = record.get("datatype")
-    fixed = {"decimal": 10, "radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
-    if datatype in fixed:
-        return fixed[str(datatype)]
-    if datatype != "radix":
-        return None
-    clarifiers = record.get("clarifiers")
-    if not isinstance(clarifiers, list) or not clarifiers or not isinstance(clarifiers[0], Mapping):
-        return None
-    first = clarifiers[0]
-    if first.get("kind") != "NumberLiteral":
-        return None
-    try:
-        value = int(str(first.get("value")))
-    except ValueError:
-        return None
-    return value if 2 <= value <= 64 else None
 
 
 def _radix_digit_value(char: str) -> int | None:
