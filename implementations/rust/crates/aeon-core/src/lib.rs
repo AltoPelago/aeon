@@ -1092,6 +1092,10 @@ fn finalize_compile(
 ) -> CompileResult {
     let warnings = compile_portability_warnings(&options);
     trace_compile("compile:finalize:start");
+    // Check the authored tree before header lowering can discard envelope
+    // metadata. Pass these diagnostics through the compact path unchanged.
+    let mut errors = Vec::new();
+    let has_nested_duplicate_keys = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let bindings = match lower_header(bindings) {
         Ok(bindings) => bindings,
         Err(error) => {
@@ -1106,9 +1110,7 @@ fn finalize_compile(
             };
         }
     };
-    let mut errors = Vec::new();
     let root = CanonicalPath::root();
-    let has_nested_duplicate_keys = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let has_top_level_duplicate_paths =
         validation::top_level_canonical_paths_have_duplicates(&bindings);
     let validation_only = options.shallow_event_values
@@ -1118,7 +1120,7 @@ fn finalize_compile(
         && !options.recovery;
     if validation_only {
         trace_compile("compile:validation_only");
-        return validate_only_compile(source, bindings, options, &root, warnings);
+        return validate_only_compile(source, bindings, options, &root, warnings, errors);
     }
     trace_compile("compile:flatten_document");
     let mut flattened = flatten_document(
@@ -1261,10 +1263,9 @@ fn validate_only_compile(
     options: CompileOptions,
     root: &CanonicalPath,
     warnings: Vec<Diagnostic>,
+    mut errors: Vec<Diagnostic>,
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
-    let mut errors = Vec::new();
-    let _ = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
     if let Some(max_events) = options.max_events
         && flattened.events.len() > max_events

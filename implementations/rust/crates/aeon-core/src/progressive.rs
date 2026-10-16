@@ -213,7 +213,7 @@ impl ProgressiveValidationState {
         for binding in bindings {
             self.header.observe(binding);
         }
-        for binding in bindings.iter().filter(|binding| !binding.is_header) {
+        for binding in bindings {
             validate_duplicate_object_member_keys(
                 std::slice::from_ref(binding),
                 &mut self.duplicate_object_errors,

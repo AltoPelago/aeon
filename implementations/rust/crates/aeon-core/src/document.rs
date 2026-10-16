@@ -322,6 +322,150 @@ b = ~>["line\nbreak"][0]"#,
     }
 
     #[test]
+    fn rejects_duplicate_objects_in_every_metadata_location() {
+        let sources = [
+            "a@{m = [{z = 1, z = 2}]} = 0",
+            "a = {b@{m = [{z = 1, z = 2}]} = 0}",
+            "a = [@{m = [{z = 1, z = 2}]} = 0]",
+            "a = (@{m = [{z = 1, z = 2}]} = 0,)",
+            "a = <tag(@{m = [{z = 1, z = 2}]} = 0)>",
+            "a = [@{m = [{z = 1, z = 2}]} = {leaf = 0}]",
+            "a = <tag@{m = [{z = 1, z = 2}]}>",
+            "a = [<tag@{m = [{z = 1, z = 2}]}>]",
+            "a@{m@{n = [{z = 1, z = 2}]} = 0} = 0",
+            "a@{m = {n = [{z = 1, z = 2}]}} = 0",
+            "a@{m = {n@{p = [{z = 1, z = 2}]} = 0}} = 0",
+            "a@{m = ({z = 1, z = 2},)} = 0",
+            "a@{m = <tag({z = 1, z = 2})>} = 0",
+            "a@{m = <tag@{n = [{z = 1, z = 2}]}>} = 0",
+            "aeon:header = {x@{m = [{z = 1, z = 2}]} = 0}",
+            "aeon:header = {x = {leaf@{m = [{z = 1, z = 2}]} = 0}}",
+            "aeon:header@{m = [{z = 1, z = 2}]} = {x = 0}",
+            "aeon:header@{m = {n = [{z = 1, z = 2}]}} = {}",
+        ];
+        for source in sources {
+            let limits = AeonCompileLimits {
+                max_attribute_depth: 4,
+                ..AeonCompileLimits::default()
+            };
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let errors = parse_with_implementation(source, &limits, implementation)
+                    .expect_err("duplicate object inside metadata must fail closed");
+                assert_eq!(
+                    errors
+                        .iter()
+                        .map(|error| error.code.as_str())
+                        .collect::<Vec<_>>(),
+                    ["DUPLICATE_KEY"],
+                    "{source}, {implementation:?}"
+                );
+                let span = errors[0].span.expect("duplicate member span");
+                assert_eq!(
+                    &source[span.start.offset..span.end.offset],
+                    "z = 2",
+                    "{source}"
+                );
+                for validation_only in [false, true] {
+                    let result = crate::compile_owned_with_implementation(
+                        source.to_owned(),
+                        CompileOptions {
+                            max_attribute_depth: limits.max_attribute_depth,
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    assert_eq!(
+                        result.errors, errors,
+                        "{source}, {implementation:?}, validation_only={validation_only}"
+                    );
+                    assert!(
+                        result.events.is_empty(),
+                        "compiler must fail closed: {source}"
+                    );
+                }
+            }
+            let valid = source.replace("z = 2", "y = 2");
+            assert!(
+                parse_document(&valid, &limits).is_ok(),
+                "distinct members must remain legal: {valid}"
+            );
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                assert!(
+                    crate::compile_owned_with_implementation(
+                        valid.clone(),
+                        CompileOptions {
+                            max_attribute_depth: limits.max_attribute_depth,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    )
+                    .errors
+                    .is_empty(),
+                    "distinct metadata members must compile: {valid}, {implementation:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_duplicate_diagnostics_preserve_namespaces_and_quoted_keys() {
+        for (source, expected_path) in [
+            (
+                r#""literal.@key"@{"m.@x" = [{"z.y" = 1, "z.y" = 2}]} = 0"#,
+                r#"$.["literal.@key"].@.["m.@x"][0].["z.y"]"#,
+            ),
+            ("a@{m = 1} = <tag@{m = [{z = 1, z = 2}]}>", "$.a"),
+            ("a = [@{m = 1} = <tag@{m = [{z = 1, z = 2}]}>]", "$.a[0]"),
+            (
+                "a@{m = {n@{p = [{z = 1, z = 2}]} = 0}} = 0",
+                "$.a.@.m.n.@.p[0].z",
+            ),
+            ("a@{m = <tag@{n = [{z = 1, z = 2}]}>} = 0", "$.a.@.m"),
+        ] {
+            let errors = parse_document(
+                source,
+                &AeonCompileLimits {
+                    max_attribute_depth: 4,
+                    ..AeonCompileLimits::default()
+                },
+            )
+            .expect_err("metadata duplicate must be rejected");
+            assert_eq!(errors.len(), 1, "{source}");
+            assert_eq!(errors[0].code, "DUPLICATE_KEY");
+            assert_eq!(errors[0].path.as_deref(), Some(expected_path), "{source}");
+        }
+    }
+
+    #[test]
+    fn repeated_keys_in_independent_metadata_scopes_remain_valid() {
+        for source in [
+            "a@{m = {z = 1}, n = {z = 2}} = {z = 3}",
+            "a@{m = 1} = <tag@{m = 2}>",
+            "a = [@{m = 1} = <tag@{m = 2}>]",
+            "a@{m@{z = 1} = {z = 2}} = 0",
+            r#""aeon:x"@{m = [{z = 1}]} = 0"#,
+            r#"aeon:header = {x@{m = [{z = 1}]} = 0}
+"aeon:x"@{m = [{z = 2}]} = 0"#,
+        ] {
+            assert!(
+                parse_document(
+                    source,
+                    &AeonCompileLimits {
+                        max_attribute_depth: 4,
+                        ..AeonCompileLimits::default()
+                    }
+                )
+                .is_ok(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn retains_exact_original_utf8_coordinates_and_counts_preamble_bytes() {
         let source = "\u{feff}#!/usr/bin/env aeon\r\n//! format:aeon.test.v1\r\n\"é\" = |😀|";
         let binding = &parse(source)[0];
