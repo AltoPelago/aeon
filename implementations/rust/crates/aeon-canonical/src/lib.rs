@@ -6,6 +6,9 @@ use aeon_core::{Diagnostic, Position, Span, normalize_number_literal, strip_lead
 
 pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
 
+mod reference_safe;
+pub use reference_safe::{CanonicalOrdering, CanonicalizeOptions, canonicalize_with_options};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalResult {
     pub text: String,
@@ -14,6 +17,8 @@ pub struct CanonicalResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Binding {
+    rank: Option<usize>,
+    canonical_key: bool,
     key: String,
     structural_id: Option<String>,
     datatype: Option<String>,
@@ -23,6 +28,7 @@ struct Binding {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AttributeEntry {
+    rank: Option<usize>,
     structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeEntry>,
@@ -31,6 +37,7 @@ struct AttributeEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NodeValue {
+    canonical_key: bool,
     tag: String,
     structural_id: Option<String>,
     datatype: Option<String>,
@@ -41,6 +48,7 @@ struct NodeValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Value {
     Attributed {
+        canonical_head: bool,
         structural_id: Option<String>,
         attributes: BTreeMap<String, AttributeEntry>,
         datatype: Option<String>,
@@ -51,6 +59,7 @@ enum Value {
         trimticks: bool,
     },
     Symbol(String),
+    Separator(String),
     Number(String),
     Infinity(String),
     Null {
@@ -62,6 +71,11 @@ enum Value {
     Tuple(Vec<Value>),
     Node(NodeValue),
     Raw(String),
+    Reference {
+        segments: Vec<reference_safe::Segment>,
+        pointer: bool,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +144,8 @@ fn split_header(bindings: Vec<Binding>) -> Result<(Vec<Binding>, Vec<Binding>), 
                 .at_path("$"));
             }
             shorthand_header.push(Binding {
+                rank: binding.rank,
+                canonical_key: binding.canonical_key,
                 key: String::from(key),
                 structural_id: binding.structural_id,
                 datatype: binding.datatype,
@@ -208,8 +224,8 @@ fn default_header() -> Vec<Binding> {
 }
 
 fn render_document(mut header: Vec<Binding>, mut body: Vec<Binding>) -> String {
-    header.sort_by(|left, right| left.key.cmp(&right.key));
-    body.sort_by(|left, right| left.key.cmp(&right.key));
+    header.sort_by(compare_bindings);
+    body.sort_by(compare_bindings);
 
     let mut lines = Vec::new();
     lines.push(String::from("aeon:header = {"));
@@ -232,16 +248,16 @@ fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
     let left = format!(
         "{}{}{}{}{}",
         prefix,
-        render_key(&binding.key),
+        render_binding_key(binding),
         render_structural_identity(binding.structural_id.as_deref()),
         render_attributes(&binding.attributes),
-        render_datatype(binding.datatype.as_deref())
+        render_canonical_datatype(binding.datatype.as_deref(), binding.canonical_key)
     );
 
     match &binding.value {
         Value::Object(bindings) => {
             let mut nested = bindings.clone();
-            nested.sort_by(|left, right| left.key.cmp(&right.key));
+            nested.sort_by(compare_bindings);
             let mut lines = vec![format!("{left} = {{")];
             for binding in nested {
                 lines.extend(render_binding(&binding, indent + 2));
@@ -309,6 +325,7 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
     let prefix = " ".repeat(indent);
     match value {
         Value::Attributed {
+            canonical_head,
             structural_id,
             attributes,
             datatype,
@@ -319,7 +336,7 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
                 "{}{}{}",
                 render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
-                render_datatype(datatype.as_deref())
+                render_canonical_datatype(datatype.as_deref(), *canonical_head)
             );
             if let Some((first, rest)) = rendered.split_first() {
                 let first = first.strip_prefix(&prefix).unwrap_or(first);
@@ -342,7 +359,7 @@ fn render_value_multiline(value: &Value, indent: usize) -> Vec<String> {
         }
         Value::Object(bindings) => {
             let mut nested = bindings.clone();
-            nested.sort_by(|left, right| left.key.cmp(&right.key));
+            nested.sort_by(compare_bindings);
             let mut lines = vec![format!("{prefix}{{")];
             for binding in nested {
                 lines.extend(render_binding(&binding, indent + 2));
@@ -387,10 +404,16 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
     let prefix = " ".repeat(indent);
     let head = format!(
         "<{}{}{}{}",
-        render_key(&node.tag),
+        render_head_key(
+            &node.tag,
+            node.canonical_key,
+            node.structural_id.as_deref(),
+            &node.attributes,
+            node.datatype.as_deref()
+        ),
         render_structural_identity(node.structural_id.as_deref()),
         render_attributes(&node.attributes),
-        render_datatype(node.datatype.as_deref())
+        render_canonical_datatype(node.datatype.as_deref(), node.canonical_key)
     );
 
     if node.children.is_empty() {
@@ -423,6 +446,26 @@ fn render_node(node: &NodeValue, indent: usize, inline_only: bool) -> Vec<String
 
 fn render_node_child(value: &Value, indent: usize) -> Vec<String> {
     match value {
+        Value::Attributed {
+            canonical_head: true,
+            structural_id,
+            attributes,
+            datatype,
+            value,
+        } => {
+            let mut rendered = render_node_child(value, indent);
+            if let Some(first) = rendered.first_mut() {
+                *first = format!(
+                    "{}{}{}{} = {}",
+                    " ".repeat(indent),
+                    render_structural_identity(structural_id.as_deref()),
+                    render_attributes(attributes),
+                    render_canonical_datatype(datatype.as_deref(), true),
+                    first.trim_start()
+                );
+            }
+            rendered
+        }
         Value::List(items) if items.iter().all(is_simple_value) => {
             vec![format!(
                 "{}{}",
@@ -453,15 +496,26 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
         return String::new();
     }
 
-    let rendered = attributes
-        .iter()
+    let mut entries: Vec<_> = attributes.iter().collect();
+    entries.sort_by(|(a, left), (b, right)| match (left.rank, right.rank) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        _ => a.cmp(b),
+    });
+    let rendered = entries
+        .into_iter()
         .map(|(key, entry)| {
             format!(
                 "{}{}{}{} = {}",
-                render_key(key),
+                render_head_key(
+                    key,
+                    entry.rank.is_some(),
+                    entry.structural_id.as_deref(),
+                    &entry.attributes,
+                    entry.datatype.as_deref()
+                ),
                 render_structural_identity(entry.structural_id.as_deref()),
                 render_attributes(&entry.attributes),
-                render_datatype(entry.datatype.as_deref()),
+                render_canonical_datatype(entry.datatype.as_deref(), entry.rank.is_some()),
                 render_value_inline(&entry.value)
             )
         })
@@ -474,6 +528,7 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
 fn render_value_inline(value: &Value) -> String {
     match value {
         Value::Attributed {
+            canonical_head,
             structural_id,
             attributes,
             datatype,
@@ -483,7 +538,7 @@ fn render_value_inline(value: &Value) -> String {
                 "{}{}{} = {}",
                 render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
-                render_datatype(datatype.as_deref()),
+                render_canonical_datatype(datatype.as_deref(), *canonical_head),
                 render_value_inline(value)
             )
         }
@@ -495,6 +550,8 @@ fn render_value_inline(value: &Value) -> String {
             }
         }
         Value::Symbol(value) => format_symbol(value),
+        // Native separators are literal data, not legacy raw/reference text.
+        Value::Separator(raw) => raw.clone(),
         Value::Number(value) => normalize_number(value),
         Value::Infinity(value) => value.clone(),
         Value::Null { mode, value } => match mode {
@@ -506,7 +563,7 @@ fn render_value_inline(value: &Value) -> String {
                 return String::from("{}");
             }
             let mut nested = bindings.clone();
-            nested.sort_by(|left, right| left.key.cmp(&right.key));
+            nested.sort_by(compare_bindings);
             format!(
                 "{{ {} }}",
                 nested
@@ -514,10 +571,13 @@ fn render_value_inline(value: &Value) -> String {
                     .map(|binding| {
                         format!(
                             "{}{}{}{} = {}",
-                            render_key(&binding.key),
+                            render_binding_key(binding),
                             render_structural_identity(binding.structural_id.as_deref()),
                             render_attributes(&binding.attributes),
-                            render_datatype(binding.datatype.as_deref()),
+                            render_canonical_datatype(
+                                binding.datatype.as_deref(),
+                                binding.canonical_key
+                            ),
                             render_value_inline(&binding.value)
                         )
                     })
@@ -543,10 +603,21 @@ fn render_value_inline(value: &Value) -> String {
         ),
         Value::Node(node) => {
             let head = format!(
-                "<{}{}{}",
-                render_key(&node.tag),
+                "<{}{}{}{}",
+                render_head_key(
+                    &node.tag,
+                    node.canonical_key,
+                    node.structural_id.as_deref(),
+                    &node.attributes,
+                    node.datatype.as_deref()
+                ),
+                if node.canonical_key {
+                    render_structural_identity(node.structural_id.as_deref())
+                } else {
+                    String::new()
+                },
                 render_attributes(&node.attributes),
-                render_datatype(node.datatype.as_deref())
+                render_canonical_datatype(node.datatype.as_deref(), node.canonical_key)
             );
             if node.children.is_empty() {
                 format!("{head}>")
@@ -562,6 +633,13 @@ fn render_value_inline(value: &Value) -> String {
             }
         }
         Value::Raw(value) => normalize_raw(value),
+        Value::Reference {
+            segments, pointer, ..
+        } => format!(
+            "{}{}",
+            if *pointer { "~>" } else { "~" },
+            reference_safe::render_path(segments)
+        ),
     }
 }
 
@@ -573,10 +651,66 @@ fn render_key(key: &str) -> String {
     }
 }
 
+fn render_canonical_key(key: &str, canonical: bool) -> String {
+    if canonical && !is_identifier(key) {
+        format!("\"{}\"", escape_string(key))
+    } else {
+        render_key(key)
+    }
+}
+
+fn render_binding_key(binding: &Binding) -> String {
+    render_head_key(
+        &binding.key,
+        binding.canonical_key,
+        binding.structural_id.as_deref(),
+        &binding.attributes,
+        binding.datatype.as_deref(),
+    )
+}
+
+fn render_head_key(
+    key: &str,
+    canonical: bool,
+    structural_id: Option<&str>,
+    attributes: &BTreeMap<String, AttributeEntry>,
+    datatype: Option<&str>,
+) -> String {
+    // Bare `aeon:` is one namespace token even inside metadata and node heads.
+    // An emitted identity or nonempty attribute head separates the key from
+    // the colon; otherwise preserve quoting when a datatype follows directly.
+    if canonical
+        && key == "aeon"
+        && structural_id.is_none()
+        && attributes.is_empty()
+        && datatype.is_some()
+    {
+        return String::from("\"aeon\"");
+    }
+    render_canonical_key(key, canonical)
+}
+
+fn compare_bindings(left: &Binding, right: &Binding) -> std::cmp::Ordering {
+    match (left.rank, right.rank) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        _ => left.key.cmp(&right.key),
+    }
+}
+
 fn render_datatype(datatype: Option<&str>) -> String {
     datatype
         .map(|datatype| format!(":{}", normalize_datatype(datatype)))
         .unwrap_or_default()
+}
+
+fn render_canonical_datatype(datatype: Option<&str>, canonical: bool) -> String {
+    if canonical {
+        datatype
+            .map(|value| format!(":{value}"))
+            .unwrap_or_default()
+    } else {
+        render_datatype(datatype)
+    }
 }
 
 fn render_structural_identity(structural_id: Option<&str>) -> String {
@@ -590,10 +724,12 @@ fn is_simple_scalar(value: &Value) -> bool {
         Value::Attributed { value, .. } => is_simple_scalar(value),
         Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
+        | Value::Separator(_)
         | Value::Number(_)
         | Value::Infinity(_)
         | Value::Null { .. }
-        | Value::Raw(_) => true,
+        | Value::Raw(_)
+        | Value::Reference { .. } => true,
         _ => false,
     }
 }
@@ -603,10 +739,12 @@ fn is_simple_value(value: &Value) -> bool {
         Value::Attributed { value, .. } => is_simple_value(value),
         Value::String { value, trimticks } => !*trimticks || !value.contains('\n'),
         Value::Symbol(_)
+        | Value::Separator(_)
         | Value::Number(_)
         | Value::Infinity(_)
         | Value::Null { .. }
-        | Value::Raw(_) => true,
+        | Value::Raw(_)
+        | Value::Reference { .. } => true,
         _ => false,
     }
 }
@@ -1484,6 +1622,8 @@ fn strip_preamble(input: &str) -> String {
 impl Binding {
     fn scalar(key: &str, value: Value) -> Self {
         Self {
+            rank: None,
+            canonical_key: false,
             key: String::from(key),
             structural_id: None,
             datatype: None,
@@ -1547,6 +1687,8 @@ impl<'a> Parser<'a> {
         self.skip_ws(true);
         let value = self.parse_value()?;
         Ok(Binding {
+            rank: None,
+            canonical_key: false,
             key,
             structural_id,
             datatype,
@@ -1616,6 +1758,7 @@ impl<'a> Parser<'a> {
             entries.insert(
                 key,
                 AttributeEntry {
+                    rank: None,
                     structural_id,
                     datatype,
                     attributes: nested,
@@ -1734,6 +1877,7 @@ impl<'a> Parser<'a> {
         self.skip_ws(true);
         let value = self.parse_value()?;
         Ok(Value::Attributed {
+            canonical_head: false,
             structural_id,
             attributes,
             datatype,
@@ -1941,6 +2085,7 @@ impl<'a> Parser<'a> {
         self.skip_ws(true);
         self.expect_char('>')?;
         Ok(Value::Node(NodeValue {
+            canonical_key: false,
             tag,
             structural_id,
             datatype,

@@ -164,6 +164,57 @@ PyO3/maturin project whose public import is `altopelago.aeon`; the generated
 an installed wheel rather than an embedded-Python Cargo test harness. See the
 crate README for local build and ownership details.
 
+## Experimental reference safe canonical ordering
+
+The unpublished internal `aeon-canonical` crate offers an explicit opt-in for
+reference-safe ordering alongside TypeScript's experimental `reference-safe-v1`
+contract:
+
+```rust
+use aeon_canonical::{CanonicalOrdering, CanonicalizeOptions, canonicalize_with_options};
+
+let result = canonicalize_with_options("d=3\nc=2\nb=~c\na=1", &CanonicalizeOptions {
+    ordering: CanonicalOrdering::ReferenceSafeV1,
+    ..CanonicalizeOptions::default()
+});
+assert!(result.errors.is_empty());
+// Canonical body order: a, c, b, d.
+```
+
+This validates references in authored order, then emits the smallest eligible
+decoded key at every sortable scope. Header fields, root and object bindings,
+and metadata entries are sorted. List, tuple, and node-child positions remain
+unchanged. References are preserved, not evaluated; this does not approve
+datatypes, profiles, or schemas.
+
+`limits` supplies native parser limits for both authored and rendered documents.
+`max_ordering_edges` caps distinct projected edges and defaults to 1,000,000.
+Failures return diagnostics and empty text. Authored heads on the structured
+header envelope currently return `CANONICAL_ORDERING_CONFLICT`; this emitter
+does not yet render those envelope heads.
+
+`canonicalize` and default options retain historical `lexical-v1` behavior.
+The CLI, integrity hashing, SDK, native Python, and WASM interfaces have not
+switched contracts. Do not mix experimental canonical hashes with historical
+hashes.
+
+From the repository root, run the explicit Rust API CTS and TypeScript parity
+gate after building the TypeScript workspace:
+
+```bash
+pnpm --dir implementations/typescript build
+node scripts/test-canonical-reference-ordering.mjs rust
+```
+
+GitHub CI runs this experimental gate alongside the historical three-runtime
+canonical lane. Released CTS claims and historical snapshots remain unchanged.
+
+Before contract promotion, numeric datatype clarifiers still need a separate
+preservation review: TypeScript currently emits `custom[9007199254740992]` for
+authored `custom[9007199254740993]`, while Rust retains the exact integer.
+Decimal/exponent spelling can also differ. The ordering gate does not claim
+complete datatype-clarifier byte parity.
+
 ## CTS
 
 Run all supported CTS lanes:

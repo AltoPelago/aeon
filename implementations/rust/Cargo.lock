@@ -15,6 +15,7 @@ version = "0.15.0"
 dependencies = [
  "altopelago-aeon-core",
  "altopelago-aes-telex",
+ "serde_json",
 ]
 
 [[package]]

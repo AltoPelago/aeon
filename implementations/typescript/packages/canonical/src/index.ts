@@ -11,7 +11,10 @@ export { CanonicalOrderingError } from './ordering.js';
 export { canonicalizeTelex } from '@altopelago/aeon-aes';
 export type { TelexLimitOptions, TelexRecord } from '@altopelago/aeon-aes';
 
-type ReferenceFormatter = (path: Parameters<typeof formatReferencePath>[0]) => string;
+interface ReferenceFormatter {
+    readonly format: (path: Parameters<typeof formatReferencePath>[0]) => string;
+    readonly referenceSafe: boolean;
+}
 
 export type CanonicalError = LexerError | ParserError | EventEmissionError | PathResolutionError | ReferenceValidationError | CanonicalOrderingError;
 
@@ -132,7 +135,9 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
     let text: string;
     try {
         const orders = referenceSafeOrders(parsed.document, maxEdges);
-        text = renderDocument(reorderDocument(parsed.document, orders), path => formatReferencePath(path, formatString));
+        text = renderDocument(reorderDocument(parsed.document, orders), {
+            format: path => formatReferencePath(path, formatString), referenceSafe: true,
+        });
     } catch (error) {
         if (!(error instanceof CanonicalOrderingError)) throw error;
         return { text: '', errors: [error] };
@@ -179,7 +184,7 @@ export function emitFromObject(
     return { text: lines.join('\n'), errors: [] };
 }
 
-function renderDocument(document: Document, referencePath: ReferenceFormatter = formatReferencePath): string {
+function renderDocument(document: Document, referencePath: ReferenceFormatter = { format: formatReferencePath, referenceSafe: false }): string {
     const lines: string[] = [];
     lines.push(...renderHeader(document, referencePath));
 
@@ -215,7 +220,7 @@ function renderHeader(document: Document, referencePath: ReferenceFormatter): st
 
 function renderBinding(binding: Binding, indent: number, referencePath: ReferenceFormatter): string[] {
     const prefix = ' '.repeat(indent);
-    const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
+    const key = `${formatHeadKey(binding.key, binding, referencePath)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
 
     if (binding.value.type === 'ObjectNode') {
         return renderObjectBinding(prefix, key, binding.value, indent, referencePath);
@@ -326,7 +331,10 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             if (rendered.length === 0) {
                 return [`${head} = `];
             }
-            const first = rendered[0] ?? '';
+            // An attributed container already includes its layout indentation;
+            // the enclosing sequence supplies the head's indentation. Keep
+            // historical bytes unchanged outside the explicit new contract.
+            const first = referencePath.referenceSafe ? (rendered[0] ?? '').trimStart() : (rendered[0] ?? '');
             return [`${head} = ${first}`, ...rendered.slice(1)];
         }
         case 'StringLiteral':
@@ -361,9 +369,9 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'TimeLiteral':
             return [value.value];
         case 'CloneReference':
-            return [`~${referencePath(value.path)}`];
+            return [`~${referencePath.format(value.path)}`];
         case 'PointerReference':
-            return [`~>${referencePath(value.path)}`];
+            return [`~>${referencePath.format(value.path)}`];
         case 'ObjectNode': {
             const lines: string[] = [];
             lines.push(`${prefix}{`.trimEnd());
@@ -430,7 +438,7 @@ function renderNodeValue(
     referencePath: ReferenceFormatter
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+    const head = `<${formatHeadKey(value.tag, value, referencePath)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -478,11 +486,14 @@ function renderAttributes(attributes: readonly Attribute[], referencePath: Refer
         }
     }
     const sorted = Array.from(entries.entries());
+    // Empty heads carry no metadata and native Core does not retain their
+    // presence. Normalize them away only for the experimental contract.
+    if (referencePath.referenceSafe && sorted.length === 0) return '';
     const rendered = sorted.map(([key, value]) => {
         const nestedAttributes = renderAttributes(value.attributes, referencePath);
         const type = value.datatype ? renderType(value.datatype) : '';
         const formatted = renderValueInline(value.value, referencePath);
-        return `${formatBindingKey(key)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
+        return `${formatHeadKey(key, value, referencePath)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
     });
     return `@{${rendered.join(', ')}}`;
 }
@@ -527,13 +538,13 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'TimeLiteral':
             return value.value;
         case 'CloneReference':
-            return `~${referencePath(value.path)}`;
+            return `~${referencePath.format(value.path)}`;
         case 'PointerReference':
-            return `~>${referencePath(value.path)}`;
+            return `~>${referencePath.format(value.path)}`;
         case 'ObjectNode': {
             const sorted = value.bindings;
             const bindings = sorted.map((binding) => {
-                const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
+                const key = `${formatHeadKey(binding.key, binding, referencePath)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
                 return `${key} = ${renderCompactInlineValue(binding.value, referencePath)}`;
             });
             return `{ ${bindings.join(', ')} }`;
@@ -543,7 +554,7 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'TupleLiteral':
             return `(${value.elements.map((element) => renderCompactInlineValue(element, referencePath)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+            const head = `<${formatHeadKey(value.tag, value, referencePath)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }
@@ -737,6 +748,14 @@ function renderScalarFromObject(value: unknown, path: string, errors: EmitError[
 
 function formatBindingKey(key: string): string {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
+}
+
+function formatHeadKey(key: string, head: Pick<Binding, 'structuralId' | 'attributes' | 'datatype'>, contract: ReferenceFormatter): string {
+    // `aeon:` is lexed as a namespace token, not a key followed by a type.
+    // Only emitted head components can separate it; empty attributes vanish.
+    const hasAttributes = head.attributes.some(attribute => attribute.entries.size > 0);
+    return contract.referenceSafe && key === 'aeon' && head.datatype !== null && !head.structuralId && !hasAttributes
+        ? formatString(key) : formatBindingKey(key);
 }
 
 function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {

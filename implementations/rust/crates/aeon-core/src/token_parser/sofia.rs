@@ -1218,14 +1218,18 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
             .fold(String::new(), |mut datatype, token| {
                 if token.kind == TokenKind::Number {
                     datatype.push_str(&crate::normalize_number_literal(&token.text));
-                } else {
+                } else if token.kind == TokenKind::String {
                     datatype.push_str(&token.text);
+                } else {
+                    datatype.extend(
+                        token
+                            .text
+                            .chars()
+                            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r')),
+                    );
                 }
                 datatype
             })
-            .chars()
-            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
-            .collect()
     }
 
     fn leave_value_container(&mut self) {
