@@ -8,6 +8,7 @@ import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.j
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
+import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -17,6 +18,32 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm GP checks exact numeric radix values across binding, generic and item contexts', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { literal, base } of radixBases.filter(f => f.testSource)) {
+    for (const { before, after } of gpRadixContexts) {
+      const source = `${before}${literal}${after}`;
+      const core = runtime.processAeon(source, { validationMode: 'strict', finalize: false });
+      assert.deepEqual(core.errors, [], source);
+      const result = runtime.processAeon(`aeon:profile="aeon.gp.profile.v1"\n${source}`, { validationMode: 'strict', finalize: false });
+      assert.deepEqual(result.errors.map(d => d.code), base === null ? ['PROFILE_DATATYPE_CLARIFIER_INVALID'] : [], source);
+    }
+  }
+  for (const [literal, valid] of [['2.00', true], ['2e0', true], ['2.0000000000000001', false]] as const) {
+    const source = `aeon:profile="aeon.gp.profile.v1"\nmask:radix[${literal}]=%1`;
+    for (let split = 0; split <= source.length; split += 1) {
+      const stream = runtime.createAeonStream({ validationMode: 'strict' });
+      assert.equal(stream.push(source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      while (stream.pullBatch() !== null) { /* drain provisional events */ }
+      const terminal = stream.takeTerminal();
+      assert.equal(terminal.status, valid ? 'accepted' : 'invalidated', `${literal}, split=${split}`);
+      if (!valid) assert.deepEqual(terminal.errors.map(d => d.code), ['PROFILE_DATATYPE_CLARIFIER_INVALID']);
+    }
+  }
+});
 
 test('generated wasm keeps custom mixed-case radix names unspecified in both finalizers', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

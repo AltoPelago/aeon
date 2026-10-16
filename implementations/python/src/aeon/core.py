@@ -6,6 +6,7 @@ import re
 
 from ._compat import dataclass
 from ._numbers import format_clarifier
+from ._radix import radix_base_from_number
 from .ast import (
     Attribute,
     AttributePathSegment,
@@ -452,6 +453,11 @@ GP_DATATYPE_CLARIFIER_RULES = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class GpNumericClarifier:
+    raw: str
+
+
 def uses_gp_profile(options: CompileOptions, document: Document) -> bool:
     if options.profile == AEON_GP_PROFILE_ID:
         return True
@@ -495,9 +501,8 @@ def validate_gp_datatype_surface(
         elif rule == "radix_base":
             valid = (
                 len(clarifiers) == 1
-                and isinstance(clarifiers[0], int)
-                and not isinstance(clarifiers[0], bool)
-                and 2 <= clarifiers[0] <= 64
+                and isinstance(clarifiers[0], GpNumericClarifier)
+                and radix_base_from_number(clarifiers[0].raw) is not None
             )
             if not valid:
                 errors.append(
@@ -570,7 +575,8 @@ def parse_gp_datatype_surface(source: str) -> dict[str, object] | None:
         if end is None:
             return None
         try:
-            parsed = json.loads("[" + text[index + 1 : end] + "]")
+            # Keep numeric tokens exact; strings still decode as strings.
+            parsed = json.loads("[" + text[index + 1 : end] + "]", parse_int=GpNumericClarifier, parse_float=GpNumericClarifier)
         except json.JSONDecodeError:
             return None
         if not isinstance(parsed, list):

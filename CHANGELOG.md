@@ -23,6 +23,11 @@ repositories.
 
 ### Fixed
 
+- GP radix-base validation now uses exact numeric values in TypeScript, Rust,
+  and Python. Integral decimal and exponent clarifiers such as `2.00` and
+  `2e0` are accepted; genuinely fractional values such as `2.0000000000000001`
+  are rejected without host floating-point rounding. Core-only parsing and
+  preserved numeric spellings are unchanged.
 - Radix-base consumers now interpret integral decimal and exponent clarifiers
   exactly without changing their preserved spelling. Finalization, AEOS radix
   constraints, and SDK/SANSA metadata agree that `2.00`, `2e0`, and `20e-1`
