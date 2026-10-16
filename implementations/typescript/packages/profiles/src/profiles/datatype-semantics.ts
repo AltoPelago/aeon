@@ -19,7 +19,7 @@ export function validateDatatypeSemantics(
         if (!parsed) continue;
         validateParsedDatatype(parsed, semantics, ctx, event.normalizedPath, event.value.type);
     }
-    validateMetadata(aes, semantics, ctx);
+    validateUnprojectedClaims(aes, semantics, ctx);
 }
 
 type Value = AssignmentEvent['value'];
@@ -35,9 +35,9 @@ function parsedAnnotation(annotation: TypeAnnotation | null): ParsedDatatype | n
     };
 }
 
-/** Payload descendants already have events; metadata descendants do not.
+/** Payload descendants already have events; metadata and node-head claims do not.
  * Walk each authored body root once, independently of metadata projection. */
-function validateMetadata(aes: readonly AssignmentEvent[], semantics: Readonly<Record<string, DatatypeSemantics>>, ctx: Pick<CompileCtx, 'error'>): void {
+function validateUnprojectedClaims(aes: readonly AssignmentEvent[], semantics: Readonly<Record<string, DatatypeSemantics>>, ctx: Pick<CompileCtx, 'error'>): void {
     interface Task {
         value: Value;
         path: string;
@@ -46,6 +46,7 @@ function validateMetadata(aes: readonly AssignmentEvent[], semantics: Readonly<R
         attributes?: Attributes;
         annotations?: ReadonlyMap<string, AttributeEntry> | undefined;
         span?: Span;
+        checkOnly?: boolean;
     }
     const member = (path: string, key: string) => path + formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
     const body = aes.filter(event => event.sourcePlane !== 'header');
@@ -72,6 +73,7 @@ function validateMetadata(aes: readonly AssignmentEvent[], semantics: Readonly<R
         const task = tasks.pop()!;
         const { value, path, metadata } = task;
         if (metadata) check(task.datatype, value, path, task.span);
+        if (task.checkOnly) continue;
         switch (value.type) {
             case 'TypedValue':
                 if (metadata) check(parsedAnnotation(value.datatype), value.value, path, value.span);
@@ -91,9 +93,11 @@ function validateMetadata(aes: readonly AssignmentEvent[], semantics: Readonly<R
                 break;
             case 'NodeLiteral': {
                 const head = `${path}[0]`;
-                if (metadata) check(parsedAnnotation(value.datatype), value, head, value.headSpan ?? value.span);
                 for (let index = value.children.length - 1; index >= 0; index--) tasks.push({ value: value.children[index]!, path: `${head}[${index}]`, metadata });
                 attributes(value.attributes, head);
+                // Queue the head claim so owning key attributes run first,
+                // matching the authored order and the Rust traversal.
+                tasks.push({ value, path: head, metadata: true, datatype: parsedAnnotation(value.datatype), span: value.headSpan ?? value.span, checkOnly: true });
                 break;
             }
         }

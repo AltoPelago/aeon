@@ -25,7 +25,7 @@ use crate::{
     CompileResult, Diagnostic, EventBatch, EventBatches, SourcePlane, SourceRetention, Value,
     compile_owned_sofia_whole, compile_owned_with_implementation, compile_portability_warnings,
     event_count_exceeded_error, format_path, input_size_diagnostic_for_len,
-    validate_gp_attribute_clarifiers, validate_gp_datatype_clarifiers,
+    validate_gp_datatype_clarifiers, validate_gp_unprojected_clarifiers,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,7 +142,7 @@ struct ProgressiveValidationState {
     datatype_event_errors: ModeOrderedDiagnosticLedger,
     datatype_attribute_errors: ModeDiagnosticLedger,
     gp_profile_errors: Vec<Diagnostic>,
-    gp_attribute_errors: Vec<Diagnostic>,
+    gp_unprojected_errors: Vec<Diagnostic>,
     reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
     datatype_targets: HashMap<String, CompactDatatypeValue>,
     reference_targets: HashSet<String>,
@@ -192,7 +192,7 @@ impl ProgressiveValidationState {
             datatype_event_errors: ModeOrderedDiagnosticLedger::default(),
             datatype_attribute_errors: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
-            gp_attribute_errors: Vec::new(),
+            gp_unprojected_errors: Vec::new(),
             reference_datatype_claims: Vec::new(),
             datatype_targets: HashMap::new(),
             reference_targets: HashSet::new(),
@@ -209,7 +209,7 @@ impl ProgressiveValidationState {
     }
 
     fn observe_bindings(&mut self, bindings: &[Binding]) {
-        validate_gp_attribute_clarifiers(bindings, &mut self.gp_attribute_errors);
+        validate_gp_unprojected_clarifiers(bindings, &mut self.gp_unprojected_errors);
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
         }
@@ -373,7 +373,7 @@ impl ProgressiveValidationState {
         errors.extend(self.effective_datatype_attribute_errors().iter().cloned());
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.gp_profile_errors.iter().cloned());
-            errors.extend(self.gp_attribute_errors.iter().cloned());
+            errors.extend(self.gp_unprojected_errors.iter().cloned());
         }
         errors.extend(self.reference_errors());
         errors.extend(self.effective_typed_mode_errors().iter().cloned());
@@ -501,7 +501,7 @@ impl ProgressiveValidationState {
             retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
                 + self.datatype_attribute_errors.retained_error_count()
                 + self.gp_profile_errors.len()
-                + self.gp_attribute_errors.len()
+                + self.gp_unprojected_errors.len()
                 + self.typed_mode_errors.retained_error_count(),
             event_count: self.event_count,
             seen_path_count: self.seen_event_paths.len(),
@@ -3522,6 +3522,20 @@ mod tests {
                 CompileOptions::default(),
             ),
             (
+                "late GP node-head validation",
+                "value:node=<tag:node<radix[2.5]>>\naeon:profile=\"aeon.gp.profile.v1\"",
+                CompileOptions::default(),
+            ),
+            (
+                "GP payload errors precede node-head and metadata errors across chunks",
+                concat!(
+                    "aeon:profile=\"aeon.gp.profile.v1\"\n",
+                    "first:node=<tag:node<radix[2.5]>>\n",
+                    "second@{base:radix[2.5]=%1}:n[3]=0",
+                ),
+                CompileOptions::default(),
+            ),
+            (
                 "fail-closed duplicate suppresses event datatypes",
                 "same:string = 1\nsame:string = 2",
                 CompileOptions::default(),
@@ -3775,6 +3789,53 @@ mod tests {
         assert_eq!(retained.completed_binding_count, 0);
         assert_eq!(retained.released_completed_binding_count, 4);
         assert_eq!(retained.prevalidation_error_count, 3);
+    }
+
+    #[test]
+    fn compact_retains_unprojected_gp_candidates_until_late_profile_without_source() {
+        let mut compiler = ProgressiveCompiler::new_compact(
+            CompileOptions::default(),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+            NonZeroUsize::new(8).expect("eight is non-zero"),
+        );
+        compiler
+            .push_str(concat!(
+                "first:node=<tag:node<radix[2.5]>>\n",
+                "second@{base:radix[2.5]=%1}:n=0\n",
+                "aeon:profile =",
+            ))
+            .expect("accept initial chunk");
+        let retained = compiler.retention();
+        assert!(!retained.validation_gp_profile_active);
+        assert_eq!(retained.validation_retained_candidate_error_count, 2);
+        assert_eq!(retained.prevalidation_error_count, 0);
+        assert_eq!(retained.source_bytes, 0);
+        assert_eq!(retained.completed_binding_count, 0);
+        assert_eq!(retained.released_completed_binding_count, 2);
+        while compiler.pull_batch().is_some() {}
+        compiler
+            .push_str("\"aeon.gp.profile.v1\"\n")
+            .expect("accept late GP declaration");
+        let ProgressiveDisposition::Invalidated { result, .. } =
+            finish_progressive_compiler(&mut compiler)
+        else {
+            panic!("late GP must invalidate the retained candidates");
+        };
+        assert_eq!(
+            result
+                .errors
+                .iter()
+                .map(|error| (error.code.as_str(), error.path.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("PROFILE_DATATYPE_CLARIFIER_INVALID", Some("$.first[0]")),
+                (
+                    "PROFILE_DATATYPE_CLARIFIER_INVALID",
+                    Some("$.second.@.base")
+                ),
+            ]
+        );
+        assert!(result.source.is_empty());
     }
 
     #[test]

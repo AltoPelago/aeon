@@ -1,0 +1,146 @@
+[
+  {
+    "id": "tag-root-fractional",
+    "source": "doc:node=<tag:node<radix[2.5]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-near-integral",
+    "source": "doc:node=<tag:node<radix[2.0000000000000001]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-integral-decimal",
+    "source": "doc:node=<tag:node<radix[2.00]>>",
+    "errors": []
+  },
+  {
+    "id": "tag-root-integral-exponent",
+    "source": "doc:node=<tag:node<radix[2e0]>>",
+    "errors": []
+  },
+  {
+    "id": "tag-root-quoted-radix",
+    "source": "doc:node=<tag:node<radix[\"2\"]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-multiple-radix",
+    "source": "doc:node=<tag:node<radix[2, 10]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-custom-no-literal-exception",
+    "source": "doc:node=<tag:node<custom[2]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-case-sensitive-radix",
+    "source": "doc:node=<tag:node<Radix[2]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-symbol-clarifier",
+    "source": "doc:node=<tag:node<symbol[\"state\"]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-separator-numeric",
+    "source": "doc:node=<tag:node<sep[2]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-separator-valid",
+    "source": "doc:node=<tag:node<sep[\".\"]>>",
+    "errors": []
+  },
+  {
+    "id": "tag-root-encoding-numeric",
+    "source": "doc:node=<tag:node<encoding[58]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  },
+  {
+    "id": "tag-root-encoding-valid",
+    "source": "doc:node=<tag:node<encoding[\"base58\"]>>",
+    "errors": []
+  },
+  {
+    "id": "tag-object-child",
+    "source": "doc:object={child:node=<tag:node<radix[2.5]>>}",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc.child[0]"}]
+  },
+  {
+    "id": "tag-list-item",
+    "source": "doc:list=[<tag:node<radix[2.5]>>]",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0][0]"}]
+  },
+  {
+    "id": "tag-typed-list-item",
+    "source": "doc:list=[:node=<tag:node<radix[2.5]>>]",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0][0]"}]
+  },
+  {
+    "id": "tag-tuple-item",
+    "source": "doc:tuple=(<tag:node<radix[2.5]>>)",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0][0]"}]
+  },
+  {
+    "id": "tag-node-child",
+    "source": "doc:node=<outer(<tag:node<radix[2.5]>>)>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0][0][0]"}]
+  },
+  {
+    "id": "tag-quoted-root",
+    "source": "\"literal.@key\":node=<tag:node<radix[2.5]>>",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.[\"literal.@key\"][0]"}]
+  },
+  {
+    "id": "tag-multiple-generic-arguments",
+    "source": "doc:node=<tag:node<radix[2.5], sep[2]>>",
+    "errors": [
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"},
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}
+    ]
+  },
+  {
+    "id": "tag-siblings-authored-order",
+    "source": "z:node=<tag:node<radix[2.5]>>\na:node=<tag:node<radix[2.5]>>",
+    "errors": [
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.z[0]"},
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.a[0]"}
+    ]
+  },
+  {
+    "id": "tag-payload-before-unprojected-claims",
+    "source": "doc@{key:radix[2.5]=%1}:node=<tag@{head:radix[2.5]=%1}:node<radix[2.5]>>\nmask:radix[2.5]=%1",
+    "errors": [
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.mask"},
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc.@.key"},
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"},
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0].@.head"}
+    ]
+  },
+  {
+    "id": "tag-metadata-owned-not-doubled",
+    "source": "doc@{meta:node=<tag:node<radix[2.5]>>}:n=0",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc.@.meta[0]"}]
+  },
+  {
+    "id": "tag-no-clarifiers",
+    "source": "doc:node=<tag:node<custom>>",
+    "errors": []
+  },
+  {
+    "id": "tag-distinct-payload-and-head-claims",
+    "source": "doc:node<custom[2]> = <tag:node<radix[2.5]>>",
+    "errors": [
+      {"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.doc"},
+      {"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}
+    ]
+  },
+  {
+    "id": "tag-references-not-traversed-again",
+    "source": "doc:node=<tag:node<radix[2.5]>>\ncopy:node=~doc\npointer:node=~>doc",
+    "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_INVALID", "path": "$.doc[0]"}]
+  }
+]

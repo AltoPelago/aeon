@@ -10,6 +10,7 @@ import radixBases from '../../../../../test-fixtures/radix-bases.json' with { ty
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
 import gpAttributeFixtures from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
+import gpTagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -20,26 +21,29 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('generated wasm validates GP metadata in one-shot and every two-chunk split', async () => {
+test('generated wasm validates GP unprojected claims in one-shot and every two-chunk split', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
-  const options = { validationMode: 'loose', datatypePolicy: 'allow_custom', maxAttributeDepth: 2, maxClarifierValues: 2 } as const;
-  for (const fixture of gpAttributeFixtures) {
-    assert.deepEqual(runtime.processAeon(fixture.source, { ...options, finalize: false }).errors, [], fixture.id);
-    for (const source of [`aeon:profile="aeon.gp.profile.v1"\n${fixture.source}`, `${fixture.source}\naeon:profile="aeon.gp.profile.v1"`]) {
-      const result = runtime.processAeon(source, { ...options, finalize: false });
-      assert.deepEqual(result.errors.map(({ code, path }) => ({ code, path })), fixture.errors, fixture.id);
-      for (let split = 0; split <= source.length; split += 1) {
-        const stream = runtime.createAeonStream(options);
-        const drain = () => { while (stream.pullBatch() !== null) { /* drain provisional events */ } };
-        assert.equal(stream.push(source.slice(0, split)).accepted, true);
-        drain();
-        assert.equal(stream.push(source.slice(split)).accepted, true);
-        drain();
-        assert.equal(stream.finish().accepted, true);
-        drain();
-        const terminal = stream.takeTerminal();
-        assert.equal(terminal.status, fixture.errors.length ? 'invalidated' : 'accepted', `${fixture.id}, split=${split}`);
-        assert.deepEqual(terminal.errors.map(({ code, path }) => ({ code, path })), fixture.errors, `${fixture.id}, split=${split}`);
+  for (const validationMode of ['loose', 'strict'] as const) {
+    const options = { validationMode, datatypePolicy: 'allow_custom', maxAttributeDepth: 2, maxClarifierValues: 2 } as const;
+    const fixtures = validationMode === 'strict' ? gpTagHeadFixtures : [...gpAttributeFixtures, ...gpTagHeadFixtures];
+    for (const fixture of fixtures) {
+      assert.deepEqual(runtime.processAeon(fixture.source, { ...options, finalize: false }).errors, [], fixture.id);
+      for (const source of [`aeon:profile="aeon.gp.profile.v1"\n${fixture.source}`, `${fixture.source}\naeon:profile="aeon.gp.profile.v1"`]) {
+        const result = runtime.processAeon(source, { ...options, finalize: false });
+        assert.deepEqual(result.errors.map(({ code, path }) => ({ code, path })), fixture.errors, fixture.id);
+        for (let split = 0; split <= source.length; split += 1) {
+          const stream = runtime.createAeonStream(options);
+          const drain = () => { while (stream.pullBatch() !== null) { /* drain provisional events */ } };
+          assert.equal(stream.push(source.slice(0, split)).accepted, true);
+          drain();
+          assert.equal(stream.push(source.slice(split)).accepted, true);
+          drain();
+          assert.equal(stream.finish().accepted, true);
+          drain();
+          const terminal = stream.takeTerminal();
+          assert.equal(terminal.status, fixture.errors.length ? 'invalidated' : 'accepted', `${fixture.id}, ${validationMode}, split=${split}`);
+          assert.deepEqual(terminal.errors.map(({ code, path }) => ({ code, path })), fixture.errors, `${fixture.id}, ${validationMode}, split=${split}`);
+        }
       }
     }
   }

@@ -1,17 +1,26 @@
 use aeon_core::{CompileOptions, CompileResult, DatatypePolicy, compile};
 
 #[test]
-fn gp_checks_metadata_occurrences_once_at_their_exact_paths() {
+fn gp_checks_unprojected_occurrences_once_at_their_exact_paths() {
     let fixtures: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../test-fixtures/gp-attribute-clarifiers.json"
     ))
     .expect("fixtures");
+    let tag_heads: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/gp-tag-head-clarifiers.json"
+    ))
+    .expect("tag-head fixtures");
     let compilers: &[fn(&str, CompileOptions) -> CompileResult] = &[
         compile,
         #[cfg(feature = "sofia")]
         aeon_core::compile_sofia,
     ];
-    for fixture in fixtures.as_array().expect("array") {
+    for fixture in fixtures
+        .as_array()
+        .expect("array")
+        .iter()
+        .chain(tag_heads.as_array().expect("array"))
+    {
         let source = fixture["source"].as_str().expect("source");
         let options = CompileOptions {
             max_attribute_depth: 2,
