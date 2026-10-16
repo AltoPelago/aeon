@@ -1032,42 +1032,90 @@ def should_skip_header_binding_for_mode(document: Document, binding: ResolvedBin
 
 
 def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: int) -> list[AeonError]:
+    # Index actual occurrences, including metadata members, rather than assigning
+    # every metadata target the ordinal of its enclosing payload binding.
+    targets: dict[str, int] = {}
+    claims: list[tuple[CloneReference | PointerReference, list[object], int]] = []
+    ordinal = 0
+
+    def raw_attributes(attributes: list[Attribute], path: list[object], targetable=True, owner=None) -> None:
+        for attribute in attributes:
+            for key, entry in attribute.entries.items():
+                child = [*path, AttributePathSegment(key=key)]
+                raw_attributes(entry.attributes, child, targetable, child if targetable else owner)
+                headed(entry.value, child, targetable=targetable, owner=child if targetable else owner)
+
+    def headed(value: Value | None, path: list[object], annotations=None, targetable=True, owner=None) -> None:
+        nonlocal ordinal
+        owner = path if owner is None else owner
+        for key, entry in (annotations or {}).items():
+            headed(entry["value"], [*path, AttributePathSegment(key=key)], entry.get("annotations"))
+        while isinstance(value, TypedValue):
+            raw_attributes(value.attributes, path, targetable, owner)
+            value = value.value
+        if isinstance(value, (ObjectNode, ListNode, TupleLiteral)):
+            raw_attributes(value.attributes, path, targetable, owner)
+        elif isinstance(value, NodeLiteral):
+            # The implicit node head is not source-addressable in AEON v1.
+            raw_attributes(value.attributes, path, False, owner)
+        if isinstance(value, (CloneReference, PointerReference)):
+            claims.append((value, path if targetable else owner, ordinal))
+            ordinal += 1
+        if targetable:
+            targets.setdefault(format_reference_target_path(path), ordinal)
+        ordinal += 1
+        if isinstance(value, ObjectNode):
+            for binding in value.bindings:
+                child = [*path, binding.key]
+                raw_attributes(binding.attributes, child, targetable, child if targetable else owner)
+                headed(binding.value, child, targetable=targetable, owner=child if targetable else owner)
+        elif isinstance(value, (ListNode, TupleLiteral, NodeLiteral)):
+            children = value.children if isinstance(value, NodeLiteral) else value.elements
+            for index, child in enumerate(children):
+                child_path = [*path, index]
+                headed(child, child_path, targetable=targetable, owner=child_path if targetable else owner)
+
+    paths = {(binding.source_plane, format_path(binding.path)) for binding in bindings}
+    for binding in bindings:
+        segments = binding.path.segments
+        if any(
+            (binding.source_plane, format_path(CanonicalPath(segments=segments[:length]))) in paths
+            for length in range(len(segments) - 1, 1, -1)
+        ):
+            continue
+        path = [
+            segment.key if segment.type == "member" else segment.index
+            for segment in segments if segment.type != "root"
+        ]
+        headed(binding.value, path, binding.annotations)
+
     errors: list[AeonError] = []
-    lookup = {format_path(binding.path): binding for binding in bindings}
-    order = {format_path(binding.path): index for index, binding in enumerate(bindings)}
-    for source_index, binding in enumerate(bindings):
-        source_path = format_path(binding.path)
-        for reference in iter_owned_references(binding.value):
-            target_path = format_reference_target_path(reference.path)
-            attr_depth = sum(1 for segment in reference.path if isinstance(segment, AttributePathSegment))
-            if attr_depth > max_attribute_depth:
-                errors.append(AttributeDepthExceededError(target_path, attr_depth, max_attribute_depth, reference.span))
-                continue
-            if target_path == source_path:
-                errors.append(SelfReferenceError(source_path, reference.span))
-                continue
-            target_index = resolve_reference_target(reference.path, lookup, order)
-            if target_index is None:
-                errors.append(MissingReferenceTargetError(target_path, reference.span))
-                continue
-            if target_index > source_index:
-                errors.append(ForwardReferenceError(source_path, target_path, reference.span))
-        for reference in iter_annotation_references(binding.annotations):
-            target_path = format_reference_target_path(reference.path)
-            attr_depth = sum(1 for segment in reference.path if isinstance(segment, AttributePathSegment))
-            if attr_depth > max_attribute_depth:
-                errors.append(AttributeDepthExceededError(target_path, attr_depth, max_attribute_depth, reference.span))
-                continue
-            if target_path == source_path:
-                errors.append(SelfReferenceError(source_path, reference.span))
-                continue
-            target_index = resolve_reference_target(reference.path, lookup, order)
-            if target_index is None:
-                errors.append(MissingReferenceTargetError(target_path, reference.span))
-                continue
-            if target_index > source_index:
-                errors.append(ForwardReferenceError(source_path, target_path, reference.span))
+    for reference, path, source_index in claims:
+        source_path = format_reference_target_path(path)
+        target_path = format_reference_target_path(reference.path)
+        depth = sum(isinstance(segment, AttributePathSegment) for segment in reference.path)
+        if depth > max_attribute_depth:
+            errors.append(AttributeDepthExceededError(target_path, depth, max_attribute_depth, reference.span))
+        elif reference_is_self(path, reference.path):
+            errors.append(SelfReferenceError(source_path, reference.span))
+        elif target_path not in targets:
+            errors.append(MissingReferenceTargetError(target_path, reference.span))
+        elif targets[target_path] > source_index:
+            errors.append(ForwardReferenceError(source_path, target_path, reference.span))
     return errors
+
+
+def reference_is_self(source: list[object], target: list[object]) -> bool:
+    if source == target:
+        return True
+    attribute_indices = [index for index, segment in enumerate(source) if isinstance(segment, AttributePathSegment)]
+    if any(source[:index] == target for index in attribute_indices):
+        return True
+    payload = source[:attribute_indices[0]] if attribute_indices else source
+    owner_length = len(payload)
+    while owner_length > 0 and isinstance(payload[owner_length - 1], int):
+        owner_length -= 1
+    return owner_length < len(payload) and payload[:owner_length] == target
 
 
 def datatype_check_kind(

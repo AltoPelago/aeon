@@ -762,6 +762,28 @@ fn track_reference_sequence_item(
     shallow_event_values: bool,
 ) {
     let item_target = render_child_index_path(parent_path, index);
+    if let Value::TypedValue {
+        attributes,
+        attribute_order,
+        ..
+    } = value
+    {
+        collect_attribute_targets(
+            &item_target,
+            attributes,
+            attribute_order,
+            reference_targets,
+            String::new(),
+        );
+        collect_attribute_reference_steps(
+            &item_target,
+            attributes,
+            attribute_order,
+            reference_steps,
+            shallow_event_values,
+            String::new(),
+        );
+    }
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: item_target.clone(),
         owner_path: String::from(parent_path),
@@ -817,6 +839,28 @@ fn track_compact_reference_sequence_item(
     shallow_event_values: bool,
 ) {
     let item_target = render_child_index_path(parent_path, index);
+    if let Value::TypedValue {
+        attributes,
+        attribute_order,
+        ..
+    } = value
+    {
+        collect_attribute_targets(
+            &item_target,
+            attributes,
+            attribute_order,
+            reference_targets,
+            String::new(),
+        );
+        collect_compact_attribute_reference_steps(
+            &item_target,
+            attributes,
+            attribute_order,
+            reference_steps,
+            shallow_event_values,
+            String::new(),
+        );
+    }
     append_compact_value_references(
         unwrap_typed_value(value),
         &item_target,
@@ -1705,12 +1749,17 @@ fn clone_validation_value(value: &Value, shallow_event_values: bool) -> Value {
         },
         Value::TimeLiteral { .. } => Value::TimeLiteral { raw: String::new() },
         Value::SansaAddressLiteral { .. } => unwrap_typed_value(value).clone(),
-        Value::NodeLiteral { head_span, .. } => Value::NodeLiteral {
+        Value::NodeLiteral {
+            head_span,
+            attributes,
+            attribute_order,
+            ..
+        } => Value::NodeLiteral {
             raw: String::new(),
             tag: String::new(),
             structural_id: None,
-            attributes: Vec::new(),
-            attribute_order: Vec::new(),
+            attributes: attributes.clone(),
+            attribute_order: attribute_order.clone(),
             datatype: None,
             children: Vec::new(),
             head_span: *head_span,
@@ -1829,12 +1878,23 @@ fn collect_attribute_reference_steps(
             format!("{prefix}{attr_segment}")
         };
         let current_path = format!("{base}{next_prefix}");
+        collect_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        if !value.object_members.is_empty() {
+            steps.push(ValidationReferenceStep::VisibleTarget(current_path.clone()));
+        }
         if let Some(entry_value) = &value.value {
             append_ordered_validation_value_steps(
                 entry_value,
                 &current_path,
                 &current_path,
-                shallow_event_values,
+                false, // Metadata payloads have no separate flattened events.
                 steps,
             );
         }
@@ -1842,14 +1902,6 @@ fn collect_attribute_reference_steps(
             base,
             &value.object_members,
             &value.object_member_order,
-            steps,
-            shallow_event_values,
-            next_prefix.clone(),
-        );
-        collect_attribute_reference_steps(
-            base,
-            &value.nested_attrs,
-            &value.nested_attr_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -1872,12 +1924,23 @@ fn collect_attribute_object_reference_steps(
         };
         let next_prefix = format!("{prefix}{}", render_member_segment(key));
         let current_path = format!("{base}{next_prefix}");
+        collect_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        if !value.object_members.is_empty() {
+            steps.push(ValidationReferenceStep::VisibleTarget(current_path.clone()));
+        }
         if let Some(entry_value) = &value.value {
             append_ordered_validation_value_steps(
                 entry_value,
                 &current_path,
                 &current_path,
-                shallow_event_values,
+                false, // Metadata payloads have no separate flattened events.
                 steps,
             );
         }
@@ -1885,14 +1948,6 @@ fn collect_attribute_object_reference_steps(
             base,
             &value.object_members,
             &value.object_member_order,
-            steps,
-            shallow_event_values,
-            next_prefix.clone(),
-        );
-        collect_attribute_reference_steps(
-            base,
-            &value.nested_attrs,
-            &value.nested_attr_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -1920,12 +1975,23 @@ fn collect_compact_attribute_reference_steps(
             format!("{prefix}{attr_segment}")
         };
         let current_path = format!("{base}{next_prefix}");
+        collect_compact_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        if !value.object_members.is_empty() {
+            steps.push(CompactReferenceStep::VisibleTarget(current_path.clone()));
+        }
         if let Some(entry_value) = &value.value {
             append_ordered_compact_value_steps(
                 entry_value,
                 &current_path,
                 &current_path,
-                shallow_event_values,
+                false, // Metadata payloads have no separate flattened events.
                 steps,
             );
         }
@@ -1933,14 +1999,6 @@ fn collect_compact_attribute_reference_steps(
             base,
             &value.object_members,
             &value.object_member_order,
-            steps,
-            shallow_event_values,
-            next_prefix.clone(),
-        );
-        collect_compact_attribute_reference_steps(
-            base,
-            &value.nested_attrs,
-            &value.nested_attr_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -1963,12 +2021,23 @@ fn collect_compact_attribute_object_reference_steps(
         };
         let next_prefix = format!("{prefix}{}", render_member_segment(key));
         let current_path = format!("{base}{next_prefix}");
+        collect_compact_attribute_reference_steps(
+            base,
+            &value.nested_attrs,
+            &value.nested_attr_order,
+            steps,
+            shallow_event_values,
+            next_prefix.clone(),
+        );
+        if !value.object_members.is_empty() {
+            steps.push(CompactReferenceStep::VisibleTarget(current_path.clone()));
+        }
         if let Some(entry_value) = &value.value {
             append_ordered_compact_value_steps(
                 entry_value,
                 &current_path,
                 &current_path,
-                shallow_event_values,
+                false, // Metadata payloads have no separate flattened events.
                 steps,
             );
         }
@@ -1976,14 +2045,6 @@ fn collect_compact_attribute_object_reference_steps(
             base,
             &value.object_members,
             &value.object_member_order,
-            steps,
-            shallow_event_values,
-            next_prefix.clone(),
-        );
-        collect_compact_attribute_reference_steps(
-            base,
-            &value.nested_attrs,
-            &value.nested_attr_order,
             steps,
             shallow_event_values,
             next_prefix.clone(),
@@ -1999,6 +2060,21 @@ fn append_ordered_validation_value_steps(
     shallow_value: bool,
     steps: &mut Vec<ValidationReferenceStep>,
 ) {
+    if let Value::TypedValue {
+        attributes,
+        attribute_order,
+        ..
+    } = raw_value
+    {
+        collect_attribute_reference_steps(
+            current_path,
+            attributes,
+            attribute_order,
+            steps,
+            false,
+            String::new(),
+        );
+    }
     let value = unwrap_typed_value(raw_value);
     if shallow_value
         && matches!(
@@ -2010,6 +2086,11 @@ fn append_ordered_validation_value_steps(
         )
     {
         return;
+    }
+    if has_flattened_descendants(value) {
+        steps.push(ValidationReferenceStep::VisibleTarget(
+            current_path.to_owned(),
+        ));
     }
     match value {
         Value::NodeLiteral { children, .. } => {
@@ -2045,13 +2126,6 @@ fn append_ordered_validation_value_steps(
             for binding in bindings {
                 let binding_path = format!("{current_path}{}", render_member_segment(&binding.key));
                 steps.push(ValidationReferenceStep::VisibleTarget(binding_path.clone()));
-                append_ordered_validation_value_steps(
-                    &binding.value,
-                    &binding_path,
-                    &binding_path,
-                    false,
-                    steps,
-                );
                 collect_attribute_reference_steps(
                     &binding_path,
                     &binding.attributes,
@@ -2059,6 +2133,13 @@ fn append_ordered_validation_value_steps(
                     steps,
                     false,
                     String::new(),
+                );
+                append_ordered_validation_value_steps(
+                    &binding.value,
+                    &binding_path,
+                    &binding_path,
+                    false,
+                    steps,
                 );
             }
         }
@@ -2077,6 +2158,21 @@ fn append_ordered_compact_value_steps(
     shallow_value: bool,
     steps: &mut Vec<CompactReferenceStep>,
 ) {
+    if let Value::TypedValue {
+        attributes,
+        attribute_order,
+        ..
+    } = raw_value
+    {
+        collect_compact_attribute_reference_steps(
+            current_path,
+            attributes,
+            attribute_order,
+            steps,
+            false,
+            String::new(),
+        );
+    }
     let value = unwrap_typed_value(raw_value);
     if shallow_value
         && matches!(
@@ -2088,6 +2184,9 @@ fn append_ordered_compact_value_steps(
         )
     {
         return;
+    }
+    if has_flattened_descendants(value) {
+        steps.push(CompactReferenceStep::VisibleTarget(current_path.to_owned()));
     }
     match value {
         Value::NodeLiteral { children, .. } => {
@@ -2113,13 +2212,6 @@ fn append_ordered_compact_value_steps(
             for binding in bindings {
                 let binding_path = format!("{current_path}{}", render_member_segment(&binding.key));
                 steps.push(CompactReferenceStep::VisibleTarget(binding_path.clone()));
-                append_ordered_compact_value_steps(
-                    &binding.value,
-                    &binding_path,
-                    &binding_path,
-                    false,
-                    steps,
-                );
                 collect_compact_attribute_reference_steps(
                     &binding_path,
                     &binding.attributes,
@@ -2128,6 +2220,13 @@ fn append_ordered_compact_value_steps(
                     false,
                     String::new(),
                 );
+                append_ordered_compact_value_steps(
+                    &binding.value,
+                    &binding_path,
+                    &binding_path,
+                    false,
+                    steps,
+                );
             }
         }
         _ => append_compact_value_references(value, current_path, owner_path, false, steps),
@@ -2135,6 +2234,24 @@ fn append_ordered_compact_value_steps(
 }
 
 fn collect_value_target_paths(raw_value: &Value, base: &str, emit: &mut impl FnMut(String)) {
+    if let Value::TypedValue {
+        attributes,
+        attribute_order,
+        ..
+    } = raw_value
+    {
+        let mut targets = HashSet::new();
+        collect_attribute_targets(
+            base,
+            attributes,
+            attribute_order,
+            &mut targets,
+            String::new(),
+        );
+        for target in targets {
+            emit(target);
+        }
+    }
     match unwrap_typed_value(raw_value) {
         Value::ObjectNode { bindings } => {
             for binding in bindings {

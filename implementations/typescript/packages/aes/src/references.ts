@@ -10,11 +10,11 @@
  */
 
 import type { Span } from '@altopelago/aeon-lexer';
-import type { Value, Attribute, AttributeValue, ReferencePathSegment } from '@altopelago/aeon-parser';
-import type { AssignmentEvent, AttributeEntry } from './events.js';
-import { formatDatatypeAnnotation } from './datatype.js';
-import { formatPath } from './paths.js';
+import type { AssignmentEvent } from './events.js';
+import type { ReferencePathSegment } from '@altopelago/aeon-parser';
+import { indexReferenceOrder, isReferenceToSelf } from './reference-order.js';
 import { formatReferenceTargetPath } from './reference-target.js';
+import { formatPath } from './paths.js';
 
 export type ReferenceValidationErrorCode =
     | 'MISSING_REFERENCE_TARGET'
@@ -131,351 +131,39 @@ export interface ReferenceValidationResult {
     readonly errors: readonly ReferenceValidationError[];
 }
 
-type ReferenceNode =
-    | { readonly type: 'CloneReference'; readonly path: readonly ReferencePathSegment[]; readonly span: Span }
-    | { readonly type: 'PointerReference'; readonly path: readonly ReferencePathSegment[]; readonly span: Span };
-
 export function validateReferences(
     events: readonly AssignmentEvent[],
     options: ReferenceValidationOptions = {}
 ): ReferenceValidationResult {
     const errors: ReferenceValidationError[] = [];
     const maxAttributeDepth = options.maxAttributeDepth ?? 1;
-    const pathToIndex = new Map<string, number>();
-
-    for (let i = 0; i < events.length; i++) {
-        const event = events[i]!;
-        const pathStr = formatPath(event.path);
-        pathToIndex.set(pathStr, i);
-    }
-
-    for (let i = 0; i < events.length; i++) {
-        const event = events[i]!;
-        const sourcePath = formatPath(event.path);
-
-        for (const ref of findOwnedReferences(event.value)) {
-            validateOneReference(ref, sourcePath, i, events, pathToIndex, errors, maxAttributeDepth);
+    const { targets, claims } = indexReferenceOrder(events);
+    // Preserve the public diagnostic indices as AssignmentEvent indices. The
+    // finer occurrence ordinals above are private validation state only.
+    const eventIndices = new Map(events.map((event, index) => [formatPath(event.path), index]));
+    const eventIndex = (path: readonly ReferencePathSegment[]): number => {
+        for (let length = path.length; length > 0; length -= 1) {
+            const index = eventIndices.get(formatReferenceTargetPath(path.slice(0, length)));
+            if (index !== undefined) return index;
         }
-
-        if (event.annotations) {
-            for (const [, entry] of event.annotations) {
-                for (const ref of findReferencesInAttributeEntry(entry)) {
-                    validateOneReference(ref, sourcePath, i, events, pathToIndex, errors, maxAttributeDepth);
-                }
-            }
-        }
-    }
-
-    if (errors.length > 0 && !options.recovery) {
-        return { events: [], errors };
-    }
-
-    return { events, errors };
-}
-
-function* findReferences(value: Value): Generator<ReferenceNode> {
-    switch (value.type) {
-        case 'TypedValue':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            yield* findReferences(value.value);
-            return;
-
-        case 'CloneReference':
-        case 'PointerReference':
-            yield value;
-            return;
-
-        case 'ObjectNode':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            return;
-
-        case 'ListNode':
-            for (const element of value.elements) {
-                yield* findReferences(element);
-            }
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            return;
-
-        case 'TupleLiteral':
-            for (const element of value.elements) {
-                yield* findReferences(element);
-            }
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            return;
-
-        case 'NodeLiteral':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            for (const child of value.children) {
-                yield* findReferences(child);
-            }
-            return;
-
-        default:
-            return;
-    }
-}
-
-function* findOwnedReferences(value: Value): Generator<ReferenceNode> {
-    switch (value.type) {
-        case 'TypedValue':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            yield* findOwnedReferences(value.value);
-            return;
-
-        case 'CloneReference':
-        case 'PointerReference':
-            yield value;
-            return;
-
-        case 'ObjectNode':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            return;
-
-        case 'ListNode':
-        case 'TupleLiteral':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            return;
-
-        case 'NodeLiteral':
-            for (const attr of value.attributes) {
-                yield* findReferencesInAttribute(attr);
-            }
-            // Node children have their own indexed AssignmentEvents. Validating
-            // them again through the outer node would duplicate diagnostics and
-            // report the collapsed owner path instead of the child's occurrence.
-            return;
-
-        default:
-            return;
-    }
-}
-
-function* findReferencesInAttribute(attr: Attribute): Generator<ReferenceNode> {
-    for (const [, entry] of attr.entries) {
-        yield* findReferencesInAttributeEntry(entry);
-    }
-}
-
-function* findReferencesInAttributeEntry(entry: AttributeEntry | AttributeValue): Generator<ReferenceNode> {
-    if (hasAnnotationEntries(entry)) {
-        for (const [, nestedEntry] of entry.annotations) {
-            yield* findReferencesInAttributeEntry(nestedEntry);
-        }
-    }
-    yield* findReferences(entry.value);
-    if (hasNestedAttributes(entry)) {
-        for (const nestedAttribute of entry.attributes) {
-            yield* findReferencesInAttribute(nestedAttribute);
-        }
-    }
-}
-
-function hasAnnotationEntries(entry: AttributeEntry | AttributeValue): entry is AttributeEntry & {
-    readonly annotations: ReadonlyMap<string, AttributeEntry>;
-} {
-    return 'annotations' in entry && entry.annotations !== undefined;
-}
-
-function hasNestedAttributes(entry: AttributeEntry | AttributeValue): entry is AttributeValue {
-    return 'attributes' in entry;
-}
-
-function validateOneReference(
-    ref: ReferenceNode,
-    sourcePath: string,
-    sourceIndex: number,
-    events: readonly AssignmentEvent[],
-    pathToIndex: ReadonlyMap<string, number>,
-    errors: ReferenceValidationError[],
-    maxAttributeDepth: number
-): void {
-    const targetPath = formatReferenceTargetPath(ref.path);
-    const observedDepth = ref.path.filter((segment) => typeof segment === 'object' && segment.type === 'attr').length;
-
-    if (observedDepth > maxAttributeDepth) {
-        errors.push(new AttributeDepthExceededError(ref.span, sourcePath, targetPath, observedDepth, maxAttributeDepth));
-        return;
-    }
-
-    if (targetPath === sourcePath) {
-        errors.push(new SelfReferenceError(ref.span, sourcePath, targetPath));
-        return;
-    }
-
-    const indexedOwnerPath = sourcePath.replace(/(?:\[\d+\])+$/, '');
-    if (indexedOwnerPath !== sourcePath && targetPath === indexedOwnerPath) {
-        errors.push(new SelfReferenceError(ref.span, sourcePath, targetPath));
-        return;
-    }
-
-    const target = resolveReferenceTarget(ref.path, events, pathToIndex);
-    if (!target) {
-        errors.push(new MissingReferenceTargetError(ref.span, sourcePath, targetPath));
-        return;
-    }
-
-    if (target.index > sourceIndex) {
-        errors.push(new ForwardReferenceError(ref.span, sourcePath, targetPath, sourceIndex, target.index));
-    }
-}
-
-type ResolutionContext = {
-    readonly value: Value;
-    readonly annotations: ReadonlyMap<string, AttributeEntry> | undefined;
-};
-
-function isAttrSegment(segment: ReferencePathSegment): segment is Extract<ReferencePathSegment, { readonly type: 'attr' }> {
-    return typeof segment === 'object' && segment !== null && segment.type === 'attr';
-}
-
-function resolveReferenceTarget(
-    path: readonly ReferencePathSegment[],
-    events: readonly AssignmentEvent[],
-    pathToIndex: ReadonlyMap<string, number>
-): { readonly index: number } | null {
-    // Find the longest member/index-only prefix that maps to a known binding path.
-    for (let split = path.length; split >= 1; split--) {
-        const prefix = path.slice(0, split);
-        if (prefix.some((segment) => typeof segment === 'object' && segment.type === 'attr')) {
-            continue;
-        }
-
-        const prefixPath = formatReferenceTargetPath(prefix);
-        const targetIndex = pathToIndex.get(prefixPath);
-        if (targetIndex === undefined) {
-            continue;
-        }
-
-        const remainder = path.slice(split);
-        if (remainder.length === 0) {
-            return { index: targetIndex };
-        }
-
-        const event = events[targetIndex];
-        if (!event) {
-            return null;
-        }
-
-        if (resolveSubpath(event, remainder)) {
-            return { index: targetIndex };
-        }
-    }
-
-    return null;
-}
-
-function resolveSubpath(event: AssignmentEvent, remainder: readonly ReferencePathSegment[]): boolean {
-    let context: ResolutionContext = {
-        value: event.value,
-        annotations: selectAnnotations(event.annotations, event.value),
+        return -1;
     };
-
-    for (const segment of remainder) {
-        if (isAttrSegment(segment)) {
-            const attrEntry = context.annotations?.get(segment.key);
-            if (!attrEntry) return false;
-            context = {
-                value: attrEntry.value,
-                annotations: selectAnnotations(attrEntry.annotations, attrEntry.value),
-            };
-            continue;
-        } else if (typeof segment === 'string') {
-            const value = unwrapTypedValue(context.value);
-            if (value.type !== 'ObjectNode') return false;
-            const binding = value.bindings.find((candidate) => candidate.key === segment);
-            if (!binding) return false;
-            const bindingAnnotations = buildAnnotationMap(binding.attributes);
-            context = {
-                value: binding.value,
-                annotations: selectAnnotations(bindingAnnotations, binding.value),
-            };
-            continue;
-        } else if (typeof segment === 'number') {
-            if (segment < 0 || !Number.isInteger(segment)) return false;
-            const value = unwrapTypedValue(context.value);
-            let element: Value | undefined;
-
-            if (value.type === 'ListNode' || value.type === 'TupleLiteral') {
-                element = value.elements[segment];
-            } else if (value.type === 'NodeLiteral') {
-                element = value.children[segment];
-            } else {
-                return false;
-            }
-
-            if (!element) return false;
-            context = {
-                value: element,
-                annotations: selectAnnotations(undefined, element),
-            };
+    for (const { reference, path, ordinal } of claims) {
+        const sourcePath = formatReferenceTargetPath(path);
+        const targetPath = formatReferenceTargetPath(reference.path);
+        const depth = reference.path.filter(segment => typeof segment === 'object').length;
+        if (depth > maxAttributeDepth) {
+            errors.push(new AttributeDepthExceededError(reference.span, sourcePath, targetPath, depth, maxAttributeDepth));
+        } else if (isReferenceToSelf(path, reference.path)) {
+            errors.push(new SelfReferenceError(reference.span, sourcePath, targetPath));
         } else {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-function selectAnnotations(
-    preferred: ReadonlyMap<string, AttributeEntry> | undefined,
-    value: Value
-): ReadonlyMap<string, AttributeEntry> | undefined {
-    if (preferred && preferred.size > 0) return preferred;
-    if (value.type === 'TypedValue' && value.attributes.length > 0) {
-        return buildAnnotationMap(value.attributes);
-    }
-    return buildValueAnnotationMap(unwrapTypedValue(value));
-}
-
-function unwrapTypedValue(value: Value): Value {
-    return value.type === 'TypedValue' ? value.value : value;
-}
-
-function buildValueAnnotationMap(value: Value): ReadonlyMap<string, AttributeEntry> | undefined {
-    if (
-        value.type !== 'ObjectNode'
-        && value.type !== 'ListNode'
-        && value.type !== 'TupleLiteral'
-        && value.type !== 'NodeLiteral'
-    ) {
-        return undefined;
-    }
-    return buildAnnotationMap(value.attributes);
-}
-
-function buildAnnotationMap(attributes: readonly Attribute[]): ReadonlyMap<string, AttributeEntry> | undefined {
-    if (!attributes || attributes.length === 0) return undefined;
-
-    const result = new Map<string, AttributeEntry>();
-    for (const attribute of attributes) {
-        for (const [key, entry] of attribute.entries) {
-            const mapped: AttributeEntry = {
-                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
-                value: entry.value,
-                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
-            };
-            const nested = buildAnnotationMap(entry.attributes);
-            if (nested) {
-                (mapped as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nested;
+            const target = targets.get(targetPath);
+            if (target === undefined) {
+                errors.push(new MissingReferenceTargetError(reference.span, sourcePath, targetPath));
+            } else if (target > ordinal) {
+                errors.push(new ForwardReferenceError(reference.span, sourcePath, targetPath, eventIndex(path), eventIndex(reference.path)));
             }
-            result.set(key, mapped);
         }
     }
-    return result;
+    return { events: errors.length > 0 && !options.recovery ? [] : events, errors };
 }

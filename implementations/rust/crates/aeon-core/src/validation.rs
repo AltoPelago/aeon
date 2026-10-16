@@ -346,22 +346,8 @@ fn collect_compact_value_references(
                 span: *span,
             });
         }
-        Value::ObjectNode { bindings } => {
-            for binding in bindings {
-                collect_compact_attribute_references(
-                    &binding.attributes,
-                    &binding.attribute_order,
-                    current_path,
-                    compact,
-                );
-            }
-        }
-        Value::ListNode { .. } | Value::TupleLiteral { .. } => {}
-        Value::NodeLiteral {
-            attributes,
-            children,
-            ..
-        } => {
+        Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. } => {}
+        Value::NodeLiteral { attributes, .. } => {
             for attribute in attributes {
                 let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
                 collect_compact_attribute_references(
@@ -370,9 +356,6 @@ fn collect_compact_value_references(
                     current_path,
                     compact,
                 );
-            }
-            for child in children {
-                collect_compact_value_references(child, current_path, owner_path, compact);
             }
         }
         _ => {}
@@ -389,10 +372,7 @@ pub(crate) fn append_compact_value_references(
     if shallow_value
         && matches!(
             value,
-            Value::ObjectNode { .. }
-                | Value::ListNode { .. }
-                | Value::TupleLiteral { .. }
-                | Value::NodeLiteral { .. }
+            Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. }
         )
     {
         return;
@@ -423,8 +403,51 @@ fn collect_compact_attribute_references(
             compact,
         );
         if let Some(value) = &entry.value {
-            collect_compact_value_references(value, current_path, current_path, compact);
+            collect_unaddressable_value_references(value, current_path, compact);
         }
+    }
+}
+
+// Node-head metadata has no source address of its own, but every reference in
+// its payload still needs validation. Keep it separate from binding targets.
+fn collect_unaddressable_value_references(
+    value: &Value,
+    owner: &str,
+    compact: &mut Vec<CompactReferenceStep>,
+) {
+    match value {
+        Value::TypedValue {
+            attributes,
+            attribute_order,
+            value,
+            ..
+        } => {
+            collect_compact_attribute_references(attributes, attribute_order, owner, compact);
+            collect_unaddressable_value_references(value, owner, compact);
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                collect_compact_attribute_references(
+                    &binding.attributes,
+                    &binding.attribute_order,
+                    owner,
+                    compact,
+                );
+                collect_unaddressable_value_references(&binding.value, owner, compact);
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for item in items {
+                collect_unaddressable_value_references(item, owner, compact);
+            }
+        }
+        Value::NodeLiteral { children, .. } => {
+            collect_compact_value_references(value, owner, owner, compact);
+            for child in children {
+                collect_unaddressable_value_references(child, owner, compact);
+            }
+        }
+        _ => collect_compact_value_references(value, owner, owner, compact),
     }
 }
 
@@ -497,9 +520,26 @@ fn validate_reference_claim(
 }
 
 fn is_attribute_to_own_payload_reference(current_path: &str, target: &str) -> bool {
-    current_path
-        .split_once(".@")
-        .is_some_and(|(binding_path, _)| target == binding_path)
+    // Rendered quoted member names may contain ".@"; only namespace selectors
+    // outside quotes identify an attribute's owning payload.
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, character) in current_path.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if quoted && character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            quoted = !quoted;
+        } else if !quoted
+            && character == '.'
+            && current_path[index..].starts_with(".@")
+            && target == &current_path[..index]
+        {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn validate_datatypes<P: AsRef<str>>(
