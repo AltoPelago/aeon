@@ -70,7 +70,8 @@ export function aeonRadixBaseFromNumber(value: string): number | undefined {
 /** Distinguish an absent base from an explicitly invalid radix declaration. */
 export function resolveAeonRadixBaseFromDatatype(datatype: string | undefined): RadixBaseResolution {
     if (datatype === undefined) return { kind: 'unspecified' };
-    const normalized = datatype.trim().toLowerCase();
+    // Datatype names are case-sensitive: Radix and Decimal are custom names.
+    const normalized = datatype.trim();
     if (normalized === 'decimal') return { kind: 'base', base: 10 };
     const alias = /^radix(2|6|8|12)$/u.exec(normalized);
     if (alias !== null) return { kind: 'base', base: Number(alias[1]) };

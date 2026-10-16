@@ -29,6 +29,8 @@ repositories.
   mean base 2, while `2.0000000000000001` does not. Source and portable JSON
   finalization diagnose invalid explicit bases rather than treating them as
   unspecified; AEOS does not let `allow_unspecified_radix` bypass that check.
+  Reserved datatype names are matched case-sensitively: custom names such as
+  `Radix` and `Decimal` do not acquire reserved radix semantics.
   This does not change Core parsing or the separate GP clarifier validator.
 - Numeric datatype clarifiers now follow value-number normalization without
   host floating-point conversion. Large integers, long decimals, signed zero,

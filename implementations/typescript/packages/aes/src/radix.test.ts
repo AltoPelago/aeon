@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import fixtures from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
+import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import {
     AEON_RADIX_MAX_BASE,
     AEON_RADIX_MIN_BASE,
@@ -13,6 +14,12 @@ import {
 } from './radix.js';
 
 describe('AEON radix utilities', () => {
+    for (const { datatype, base, invalid } of datatypeNames) {
+        it(`matches reserved datatype names case-sensitively: ${datatype}`, () => {
+            assert.deepEqual(resolveAeonRadixBaseFromDatatype(datatype), base !== null
+                ? { kind: 'base', base } : { kind: invalid ? 'invalid' : 'unspecified' });
+        });
+    }
     for (const { literal, base } of fixtures) {
         it(`resolves the exact numeric value of ${JSON.stringify(literal)}`, () => {
             assert.equal(aeonRadixBaseFromNumber(literal), base ?? undefined);

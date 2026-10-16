@@ -16,9 +16,36 @@ from aeon.portable import adapt_python_assignment_events_to_portable_aes
 from aeon.aeos import validate_events, validate_telex_records
 
 FIXTURES = json.loads((ROOT.parents[1] / "test-fixtures/radix-bases.json").read_text())
+DATATYPE_NAMES = json.loads((ROOT.parents[1] / "test-fixtures/radix-datatype-names.json").read_text())
 
 
 class ExactRadixTests(unittest.TestCase):
+    def test_reserved_datatype_names_are_case_sensitive(self):
+        for fixture in DATATYPE_NAMES:
+            datatype, base, invalid = fixture["datatype"], fixture["base"], fixture["invalid"]
+            with self.subTest(datatype=datatype):
+                resolved = resolve_radix_base_from_datatype(datatype)
+                self.assertEqual(base, resolved.base)
+                self.assertEqual(invalid, resolved.invalid)
+                for payload, digit in (("1", 1), ("A", 10)):
+                    compiled = compile_source(f"mask:{datatype}=%{payload}")
+                    self.assertEqual([], compiled.errors)
+                    records = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]
+                    for mode in ("strict", "loose"):
+                        legacy = finalize_json(compiled.events, FinalizeOptions(mode=mode))
+                        portable = finalize_portable_json(records, PortableFinalizeOptions(mode=mode))
+                        key = "errors" if mode == "strict" else "warnings"
+                        diagnostics = lambda r: [(d["code"], d["path"]) for d in r.get("meta", {}).get(key, [])]
+                        self.assertEqual(legacy["document"], portable["document"])
+                        self.assertEqual(diagnostics(legacy), diagnostics(portable))
+                        self.assertEqual(invalid or (base is not None and digit >= base), bool(diagnostics(legacy)))
+                    if payload == "1":
+                        for allow in (False, True):
+                            schema = {"rules": [{"path": "$.mask", "constraints": {"radix": 2, "allow_unspecified_radix": allow}}]}
+                            expected = not invalid and (base == 2 or (base is None and allow))
+                            self.assertEqual(expected, validate_events(compiled.events, schema)["ok"])
+                            self.assertEqual(expected, validate_telex_records(records, schema)["ok"])
+
     def test_exact_numeric_resolution(self):
         for fixture in FIXTURES:
             with self.subTest(literal=fixture["literal"]):

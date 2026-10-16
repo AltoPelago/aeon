@@ -87,8 +87,9 @@ pub fn resolve_radix_base_from_datatype(datatype: Option<&str>) -> RadixBaseReso
     let Some(datatype) = datatype else {
         return RadixBaseResolution::Unspecified;
     };
-    let datatype = datatype.trim().to_ascii_lowercase();
-    let alias = match datatype.as_str() {
+    // Datatype names are case-sensitive: Radix and Decimal are custom names.
+    let datatype = datatype.trim();
+    let alias = match datatype {
         "decimal" => Some(10),
         "radix2" => Some(2),
         "radix6" => Some(6),

@@ -3,6 +3,38 @@ use aeon_core::{CompileToTelexOptions, compile_to_telex};
 use serde_json::json;
 
 #[test]
+fn radix_constraints_respect_reserved_datatype_case() {
+    let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/radix-datatype-names.json"
+    ))
+    .expect("fixtures");
+    for fixture in fixtures.as_array().expect("array") {
+        let source = format!(
+            "mask:{}=%1",
+            fixture["datatype"].as_str().expect("datatype")
+        );
+        let compiled = compile_to_telex(&source, CompileToTelexOptions::default());
+        assert!(compiled.compile.errors.is_empty(), "{source}");
+        assert!(compiled.encode_error.is_none(), "{source}");
+        for allow in [false, true] {
+            let schema: Schema = serde_json::from_value(json!({"rules":[{"path":"$.mask", "constraints":{"radix":2, "allow_unspecified_radix":allow}}]})).expect("schema");
+            let result = validate_telex_records(
+                &compiled.records,
+                Some(schema),
+                ValidationOptions::default(),
+            );
+            let expected = fixture["invalid"] != true
+                && (fixture["base"] == 2 || (fixture["base"].is_null() && allow));
+            assert_eq!(
+                result.ok, expected,
+                "{source}, allow={allow}: {:?}",
+                result.errors
+            );
+        }
+    }
+}
+
+#[test]
 fn attribute_and_any_of_constraints_do_not_bypass_exact_radix_checks() {
     for literal in ["2.00", "2e0", "2.0000000000000001"] {
         let constraints = json!({"type":"RadixLiteral", "radix":2, "allow_unspecified_radix":true});

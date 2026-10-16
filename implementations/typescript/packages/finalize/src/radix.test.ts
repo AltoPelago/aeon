@@ -1,11 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fixtures from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
+import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { emitEvents, projectPortableEvents, resolvePaths } from '@altopelago/aeon-aes';
 import { finalizeJson } from './json.js';
 import { finalizePortableJson } from './portable-json.js';
+
+for (const { datatype, base, invalid } of datatypeNames) {
+    test(`source/portable finalization respects datatype case: ${datatype}`, () => {
+        for (const [payload, digit] of [['1', 1], ['A', 10]] as const) {
+            const parsed = parse(tokenize(`mask:${datatype}=%${payload}`).tokens);
+            assert.deepEqual(parsed.errors, []);
+            assert.ok(parsed.document);
+            const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+            assert.deepEqual(emitted.errors, []);
+            for (const mode of ['strict', 'loose'] as const) {
+                const legacy = finalizeJson(emitted.events, { mode });
+                const portable = finalizePortableJson(projectPortableEvents(emitted.events), { mode });
+                const key = mode === 'strict' ? 'errors' : 'warnings';
+                assert.deepEqual(portable.document, legacy.document);
+                const diagnostics = (result: typeof legacy) => result.meta?.[key]?.map(({ code, path, level }) => ({ code, path, level })) ?? [];
+                assert.deepEqual(diagnostics(portable), diagnostics(legacy));
+                assert.equal(legacy.meta?.[key]?.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE') ?? false,
+                    invalid || (base !== null && digit >= base));
+            }
+        }
+    });
+}
 
 for (const { literal, base } of fixtures.filter(f => f.testSource)) {
     test(`source/portable radix finalization agrees for ${literal}`, () => {

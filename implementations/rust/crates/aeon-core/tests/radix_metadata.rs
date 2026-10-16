@@ -1,6 +1,28 @@
 use aeon_core::{RadixBaseResolution, radix_base_from_number, resolve_radix_base_from_datatype};
 
 #[test]
+fn reserved_datatype_names_are_case_sensitive() {
+    let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/radix-datatype-names.json"
+    ))
+    .expect("fixtures");
+    for fixture in fixtures.as_array().expect("array") {
+        let expected = if let Some(base) = fixture["base"].as_u64() {
+            RadixBaseResolution::Base(base as usize)
+        } else if fixture["invalid"] == true {
+            RadixBaseResolution::Invalid
+        } else {
+            RadixBaseResolution::Unspecified
+        };
+        assert_eq!(
+            resolve_radix_base_from_datatype(fixture["datatype"].as_str()),
+            expected,
+            "{fixture}"
+        );
+    }
+}
+
+#[test]
 fn exact_radix_fixtures() {
     let fixtures: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../test-fixtures/radix-bases.json"

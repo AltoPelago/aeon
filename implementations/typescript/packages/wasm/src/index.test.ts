@@ -7,6 +7,7 @@ import referenceOrderFixtures from '../../../../../test-fixtures/reference-autho
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
+import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -16,6 +17,22 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm keeps custom mixed-case radix names unspecified in both finalizers', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { datatype, base, invalid } of datatypeNames) {
+    for (const [payload, digit] of [['1', 1], ['A', 10]] as const) {
+      const source = `mask:${datatype}=%${payload}`;
+      assert.deepEqual(runtime.processAeon(source, { validationMode: 'strict', datatypePolicy: 'allow_custom', finalize: false }).errors, [], source);
+      const legacy = runtime.processAeon(source, { validationMode: 'strict', datatypePolicy: 'allow_custom' });
+      const portable = runtime.materializeTelex(`telex.aes=1\n\npath=$.mask\nkind=RadixLiteral\ndatatype=${datatype}\nvalue=${payload}\n`, { finalizeMode: 'strict' });
+      const expected = invalid || (base !== null && digit >= base);
+      assert.equal(legacy.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expected, source);
+      assert.equal(portable.meta.errors.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE'), expected, source);
+      assert.deepEqual(portable.document, legacy.finalized.document, source);
+    }
+  }
+});
 
 test('generated wasm agrees on exact radix bases in source and portable finalization', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

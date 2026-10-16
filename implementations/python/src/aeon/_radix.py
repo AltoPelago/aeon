@@ -61,7 +61,8 @@ def radix_base_from_number(value: str) -> int | None:
 def resolve_radix_base_from_datatype(datatype: str | None) -> RadixBaseResolution:
     if datatype is None:
         return RadixBaseResolution()
-    normalized = datatype.strip().lower()
+    # Datatype names are case-sensitive: Radix and Decimal are custom names.
+    normalized = datatype.strip()
     aliases = {"decimal": 10, "radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
     if normalized in aliases:
         return RadixBaseResolution(base=aliases[normalized])

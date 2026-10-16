@@ -10,6 +10,21 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_reserved_radix_names_are_case_sensitive(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/radix-datatype-names.json").read_text())
+        for fixture in fixtures:
+            for payload, digit in (("1", 1), ("A", 10)):
+                source = f"mask:{fixture['datatype']}=%{payload}"
+                with self.subTest(source=source):
+                    self.assertTrue(aeon.compile(source).ok)
+                    legacy = aeon.load_text(source, mode="strict")
+                    portable = aeon.load_telex_text(aeon.compile_to_telex(source), mode="strict")
+                    self.assertEqual(legacy.document, portable.document)
+                    base = fixture["base"]
+                    expected = fixture["invalid"] or (base is not None and digit >= base)
+                    for result in (legacy, portable):
+                        self.assertEqual(expected, any(d.code == "FINALIZE_INVALID_RADIX_BASE" for d in result.finalization_errors))
+
     def test_exact_radix_source_and_telex_finalization(self) -> None:
         for literal, invalid in (("2.00", False), ("2e0", False), ("20e-1", False), ("2.0000000000000001", True)):
             for payload in ("1", "2"):
