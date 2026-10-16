@@ -10,6 +10,19 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_gp_uses_exact_numeric_radix_bases(self) -> None:
+        root = Path(__file__).resolve().parents[5] / "test-fixtures"
+        fixtures = json.loads((root / "radix-bases.json").read_text())
+        contexts = json.loads((root / "gp-radix-contexts.json").read_text())
+        for fixture in (f for f in fixtures if f["testSource"]):
+            for context in contexts:
+                source = context["before"] + fixture["literal"] + context["after"]
+                with self.subTest(source=source):
+                    self.assertTrue(aeon.compile(source).ok)
+                    result = aeon.compile('aeon:profile="aeon.gp.profile.v1"\n' + source)
+                    self.assertEqual(fixture["base"] is not None, result.ok, result.errors)
+                    self.assertEqual([] if result.ok else ["PROFILE_DATATYPE_CLARIFIER_INVALID"], [e.code for e in result.errors])
+
     def test_reserved_radix_names_are_case_sensitive(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/radix-datatype-names.json").read_text())
         for fixture in fixtures:

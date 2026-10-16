@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from aeon._radix import radix_base_from_number, resolve_radix_base_from_datatype
-from aeon.core import compile_source
+from aeon.core import CompileOptions, compile_source
 from aeon.finalize import finalize_json, FinalizeOptions
 from aeon.portable_finalize import finalize_portable_json, PortableFinalizeOptions
 from aeon.portable import adapt_python_assignment_events_to_portable_aes
@@ -20,6 +20,31 @@ DATATYPE_NAMES = json.loads((ROOT.parents[1] / "test-fixtures/radix-datatype-nam
 
 
 class ExactRadixTests(unittest.TestCase):
+    def test_gp_validates_exact_values_across_binding_generic_and_item_contexts(self):
+        contexts = json.loads((ROOT.parents[1] / "test-fixtures/gp-radix-contexts.json").read_text())
+        for fixture in (f for f in FIXTURES if f["testSource"]):
+            for context in contexts:
+                source = context["before"] + fixture["literal"] + context["after"]
+                with self.subTest(source=source):
+                    self.assertEqual([], compile_source(source).errors)
+                    for header_profile in (False, True):
+                        text = 'aeon:profile="aeon.gp.profile.v1"\n' + source if header_profile else source
+                        result = compile_source(text, CompileOptions(profile=None if header_profile else "aeon.gp.profile.v1"))
+                        self.assertEqual([] if fixture["base"] is not None else ["PROFILE_DATATYPE_CLARIFIER_INVALID"], [e.code for e in result.errors])
+
+    def test_gp_preserves_name_and_clarifier_kind_distinctions(self):
+        for fixture in DATATYPE_NAMES:
+            source = f"mask:{fixture['datatype']}=%1"
+            result = compile_source(source, CompileOptions(profile="aeon.gp.profile.v1"))
+            self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_INVALID"] if fixture["invalid"] else [], [e.code for e in result.errors], source)
+        for clarifiers in ('"2"', '2, 10', '"2", 2'):
+            result = compile_source(f"mask:radix[{clarifiers}]=%1", CompileOptions(profile="aeon.gp.profile.v1", max_clarifier_values=2))
+            self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_INVALID"], [e.code for e in result.errors])
+        for literal in ('2_0', '2_0e-1', '6_4.0'):
+            self.assertEqual([], compile_source(f"mask:radix[{literal}]=%1", CompileOptions(profile="aeon.gp.profile.v1")).errors)
+        for source in ('mask:sep["a,b"]=^a1a', 'mask:sep["]"]=^a1a', r'mask:sep["a\"b"]=^a1a', 'mask:sep[".", ":"]=^1.2:3'):
+            self.assertEqual([], compile_source(source, CompileOptions(profile="aeon.gp.profile.v1", max_clarifier_values=2)).errors, source)
+
     def test_reserved_datatype_names_are_case_sensitive(self):
         for fixture in DATATYPE_NAMES:
             datatype, base, invalid = fixture["datatype"], fixture["base"], fixture["invalid"]

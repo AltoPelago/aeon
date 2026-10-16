@@ -1,9 +1,9 @@
-import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import { aeonRadixBaseFromNumber, type AesNumberLiteral, type AssignmentEvent } from '@altopelago/aeon-aes';
 import type { CompileCtx, DatatypeSemantics } from '../types.js';
 
 interface ParsedDatatype {
     readonly name: string;
-    readonly clarifiers: readonly unknown[];
+    readonly clarifiers: readonly (string | AesNumberLiteral)[];
     readonly args: readonly ParsedDatatype[];
 }
 
@@ -59,10 +59,9 @@ function validateOwnClarifiers(
         const [base] = datatype.clarifiers;
         if (
             datatype.clarifiers.length !== 1 ||
-            typeof base !== 'number' ||
-            !Number.isInteger(base) ||
-            base < 2 ||
-            base > 64
+            typeof base !== 'object' ||
+            base === null ||
+            aeonRadixBaseFromNumber(base.value) === undefined
         ) {
             ctx.error({
                 code: 'PROFILE_DATATYPE_CLARIFIER_INVALID',
@@ -166,9 +165,10 @@ class DatatypeSurfaceParser {
         }
     }
 
-    private parseClarifiers(): readonly unknown[] | null {
-        const start = this.pos;
+    private parseClarifiers(): readonly (string | AesNumberLiteral)[] | null {
         this.pos++;
+        let start = this.pos;
+        const values: (string | AesNumberLiteral)[] = [];
         let quote: '"' | null = null;
         let escaped = false;
         while (this.pos < this.source.length) {
@@ -189,13 +189,27 @@ class DatatypeSurfaceParser {
                 this.pos++;
                 continue;
             }
-            if (ch === ']') {
-                this.pos++;
+            if (ch === ',' || ch === ']') {
+                const raw = this.source.slice(start, this.pos).trim();
                 try {
-                    return JSON.parse(this.source.slice(start, this.pos)) as unknown[];
+                    if (raw.startsWith('"')) {
+                        const value: unknown = JSON.parse(raw);
+                        if (typeof value !== 'string') return null;
+                        values.push(value);
+                    } else if (raw.length > 0) {
+                        // Core already validated number syntax. Never round the
+                        // preserved token through JSON.parse or native Number.
+                        values.push({ kind: 'NumberLiteral', value: raw });
+                    } else if (ch !== ']' || values.length > 0) {
+                        return null;
+                    }
                 } catch {
                     return null;
                 }
+                this.pos++;
+                if (ch === ']') return values;
+                start = this.pos;
+                continue;
             }
             this.pos++;
         }

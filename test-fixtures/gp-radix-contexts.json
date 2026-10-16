@@ -1,0 +1,8 @@
+[
+  { "before": "mask:radix[", "after": "]=%1" },
+  { "before": "mask:object={inner:radix[", "after": "]=%1}" },
+  { "before": "mask:list<radix[", "after": "]>=[]" },
+  { "before": "mask:list=[:radix[", "after": "]=%1]" },
+  { "before": "mask:tuple=(:radix[", "after": "]=%1)" },
+  { "before": "mask:node=<tag(:radix[", "after": "]=%1)>" }
+]

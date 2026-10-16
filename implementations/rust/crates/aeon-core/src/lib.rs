@@ -1522,16 +1522,7 @@ fn valid_radix_base_clarifiers(clarifiers: &[GpClarifierValue]) -> bool {
     let [GpClarifierValue::Number(raw)] = clarifiers else {
         return false;
     };
-    parse_gp_integer(raw).is_some_and(|value| (2..=64).contains(&value))
-}
-
-fn parse_gp_integer(raw: &str) -> Option<i64> {
-    let normalized = raw.replace('_', "");
-    let digits = normalized.strip_prefix('+').unwrap_or(&normalized);
-    if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
-        return None;
-    }
-    digits.parse::<i64>().ok()
+    radix_base_from_number(raw).is_some()
 }
 
 fn parse_gp_datatype_surface(input: &str) -> Option<GpDatatypeSurface> {
