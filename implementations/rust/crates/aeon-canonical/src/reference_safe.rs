@@ -770,11 +770,22 @@ fn format_datatype(raw: &str) -> Result<String, Diagnostic> {
         return Err(Diagnostic::new(&error.code, &error.message));
     }
     let mut output = String::new();
+    let mut bracket_depth = 0usize;
     for token in lexed.tokens {
         match token.kind {
             aeon_core::TokenKind::Eof => {}
             aeon_core::TokenKind::Comma => output.push_str(", "),
-            aeon_core::TokenKind::Number => output.push_str(&super::normalize_number(&token.text)),
+            aeon_core::TokenKind::LeftBracket => {
+                bracket_depth += 1;
+                output.push_str(&token.text);
+            }
+            aeon_core::TokenKind::RightBracket => {
+                bracket_depth = bracket_depth.saturating_sub(1);
+                output.push_str(&token.text);
+            }
+            aeon_core::TokenKind::Number if bracket_depth > 0 => {
+                output.push_str(&super::normalize_number(&token.text));
+            }
             aeon_core::TokenKind::String => {
                 let decoded = super::Parser::new(&token.text).parse_quoted_string()?;
                 output.push_str(
@@ -1034,6 +1045,85 @@ mod tests {
             );
             assert_eq!(graph(&authored), graph(&output), "{}", fixture["id"]);
         }
+    }
+
+    #[test]
+    fn generic_arguments_are_types_not_numeric_or_string_literals() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/datatype-generic-arguments.json"
+        ))
+        .expect("generic fixtures");
+        for fixture in fixtures.as_array().expect("fixture array") {
+            let source = fixture["source"].as_str().expect("source");
+            let valid = fixture["ok"].as_bool().expect("ok");
+            assert_eq!(
+                aeon_core::parse_document(source, &options().limits).is_ok(),
+                valid,
+                "{source}"
+            );
+            for parsed in [
+                aeon_core::compile(source, aeon_core::CompileOptions::default()),
+                aeon_core::compile_sofia(source, aeon_core::CompileOptions::default()),
+            ] {
+                assert_eq!(
+                    parsed.errors.is_empty(),
+                    valid,
+                    "{source}: {:?}",
+                    parsed.errors
+                );
+                if !valid {
+                    assert!(
+                        parsed
+                            .errors
+                            .iter()
+                            .any(|error| error.code == "SYNTAX_ERROR")
+                    );
+                }
+            }
+            for result in [
+                super::super::canonicalize(source),
+                canonicalize_with_options(source, &options()),
+            ] {
+                assert_eq!(
+                    result.errors.is_empty(),
+                    valid,
+                    "{source}: {:?}",
+                    result.errors
+                );
+                if valid {
+                    assert!(
+                        result
+                            .text
+                            .contains(fixture["fragment"].as_str().expect("fragment")),
+                        "{}",
+                        result.text
+                    );
+                    assert_eq!(super::super::canonicalize(&result.text).text, result.text);
+                    assert_eq!(
+                        canonicalize_with_options(&result.text, &options()).text,
+                        result.text
+                    );
+                } else {
+                    assert!(
+                        result
+                            .errors
+                            .iter()
+                            .any(|error| error.code == "SYNTAX_ERROR")
+                    );
+                    assert!(result.text.is_empty());
+                }
+            }
+        }
+        // Normalization itself must not rewrite invalid numeric generic
+        // arguments, even though public canonical entry points reject them.
+        assert_eq!(
+            super::super::normalize_datatype("custom<1.00>[1.00]"),
+            "custom<1.00>[1.0]"
+        );
+        assert_eq!(
+            format_datatype("custom<child<1.00>>[1.00]").expect("format"),
+            "custom<child<1.00>>[1.0]"
+        );
     }
 
     #[test]

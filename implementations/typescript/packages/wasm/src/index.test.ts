@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
+import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -14,6 +15,31 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm enforces type-only generic arguments in one-shot, canonical and streaming paths', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const fixture of genericArguments) {
+    const result = runtime.processAeon(fixture.source, { validationMode: 'loose', finalize: false });
+    assert.equal(result.ok, fixture.ok, fixture.source);
+    const canonical = runtime.processAeon(fixture.source, { validationMode: 'none', finalize: false });
+    assert.equal(canonical.ok, fixture.ok, fixture.source);
+    if (fixture.ok) assert.ok(canonical.canonical.text.includes(fixture.fragment), canonical.canonical.text);
+    else {
+      assert.ok(result.errors.some(error => error.code === 'SYNTAX_ERROR'));
+      assert.equal(canonical.canonical.text, '');
+    }
+    for (let split = 0; split <= fixture.source.length; split += 1) {
+      const stream = runtime.createAeonStream({ validationMode: 'loose' });
+      assert.equal(stream.push(fixture.source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(fixture.source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      while (stream.pullBatch() !== null) { /* drain provisional events */ }
+      const terminal = stream.takeTerminal();
+      assert.equal(terminal.status, fixture.ok ? 'accepted' : 'invalidated', `${fixture.source}, split=${split}`);
+      if (!fixture.ok) assert.ok(terminal.errors.some(error => error.code === 'SYNTAX_ERROR'));
+    }
+  }
+});
 
 test('generated wasm preserves exact numeric clarifiers in canonical and streaming output', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

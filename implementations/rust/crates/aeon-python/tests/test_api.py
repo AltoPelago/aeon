@@ -10,6 +10,22 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_generic_arguments_are_type_descriptors_not_numeric_literals(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text())
+        for fixture in fixtures:
+            source = fixture["source"]
+            with self.subTest(source=source):
+                compiled = aeon.compile(source)
+                self.assertEqual(compiled.ok, fixture["ok"], compiled.errors)
+                if fixture["ok"]:
+                    canonical = aeon.canonicalize(source)
+                    self.assertIn(fixture["fragment"], canonical)
+                    self.assertEqual(canonical, aeon.canonicalize(canonical))
+                else:
+                    self.assertIn("SYNTAX_ERROR", [error.code for error in compiled.errors])
+                    with self.assertRaises(aeon.CompileError):
+                        aeon.canonicalize(source)
+
     def test_exact_numeric_clarifiers_through_canonical_and_telex_apis(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/numeric-clarifiers.json").read_text())
         for fixture in fixtures:

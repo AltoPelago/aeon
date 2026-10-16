@@ -416,12 +416,8 @@ class Parser:
 
     def parse_generic_argument(self, generic_depth: int, components: list[int]) -> str:
         token = self.peek()
-        if token.kind not in DATATYPE_NAME_TOKEN_KINDS | {"NUMBER"}:
+        if token.kind not in DATATYPE_NAME_TOKEN_KINDS:
             raise SyntaxError("Expected generic argument", token.span)
-        if token.kind == "NUMBER":
-            self.advance()
-            self.count_datatype_component(components, token.span)
-            return token.value
         nested = self.parse_type_annotation(generic_depth + 1, components)
         return self.format_type_annotation(nested)
 

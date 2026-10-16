@@ -73,6 +73,11 @@ still accept native integers and floats. Native floats cannot recover
 precision already lost before the call. Portable AES uses its existing
 `NumberLiteral`/`StringLiteral` tags with string payloads.
 
+AEON source generic arguments must be datatype descriptors. `custom<1.0>`
+is invalid; `custom<number>[1.0]` and `list<custom[1.0]>` retain numeric
+clarifiers on valid type names. The broader AES/Telex descriptor codec is
+unchanged.
+
 Limits and policy:
 
 - module: `aeon.limits`

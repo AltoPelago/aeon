@@ -15,11 +15,34 @@ from aeon.finalize import render_datatype
 from aeon.lexer import tokenize
 from aeon.parser import parse_tokens
 from aeon.portable import adapt_python_assignment_events_to_portable_aes
+from aeon.telex import parse_datatype_descriptor, format_datatype_descriptor
 
 FIXTURES = json.loads((ROOT.parents[1] / "test-fixtures/numeric-clarifiers.json").read_text())
 
 
 class NumericClarifierTests(unittest.TestCase):
+    def test_aes_transport_numeric_generics_are_not_changed(self) -> None:
+        descriptor = parse_datatype_descriptor("custom<1.00>[1.00]")
+        self.assertEqual([{"kind": "NumberLiteral", "value": "1.00"}], descriptor["generics"])
+        self.assertEqual("custom<1.00>[1.00]", format_datatype_descriptor(descriptor))
+
+    def test_generic_arguments_are_types_not_numeric_or_string_literals(self) -> None:
+        fixtures = json.loads((ROOT.parents[1] / "test-fixtures/datatype-generic-arguments.json").read_text())
+        for fixture in fixtures:
+            source = fixture["source"]
+            with self.subTest(source=source):
+                compiled = compile_source(source)
+                self.assertEqual(fixture["ok"], not compiled.errors, compiled.errors)
+                output = canonicalize(source)
+                self.assertEqual(fixture["ok"], not output.errors, output.errors)
+                if fixture["ok"]:
+                    self.assertIn(fixture["fragment"], output.text)
+                    self.assertEqual(output.text, canonicalize(output.text).text)
+                else:
+                    self.assertIn("SYNTAX_ERROR", [error.code for error in compiled.errors])
+                    self.assertIn("SYNTAX_ERROR", [error.code for error in output.errors])
+                    self.assertEqual("", output.text)
+
     def test_invalid_number_syntax_is_not_accepted_as_a_numeric_clarifier(self) -> None:
         for raw in ["1.", "1e", "1e+", "1__0", "--1", "1..2", "0x10"]:
             for source in [f"x={raw}", f"x:custom[{raw}]=0"]:

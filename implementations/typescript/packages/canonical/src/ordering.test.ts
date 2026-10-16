@@ -2,13 +2,40 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
-import { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes } from '@altopelago/aeon-aes';
+import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
+import { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes, parseDatatypeDescriptor, formatDatatypeDescriptor } from '@altopelago/aeon-aes';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { canonicalize } from './index.js';
 import { compareScalarKeys, referenceSafeOrders, reorderDocument } from './ordering.js';
 
 const options = { ordering: 'reference-safe-v1' as const, maxAttributeDepth: 2 };
+
+test('the broader AES transport still preserves numeric generic components', () => {
+    const descriptor = parseDatatypeDescriptor('custom<1.00>[1.00]');
+    assert.deepEqual(descriptor.generics, [{ kind: 'NumberLiteral', value: '1.00' }]);
+    assert.equal(formatDatatypeDescriptor(descriptor), 'custom<1.00>[1.00]');
+});
+
+for (const fixture of genericArguments) {
+    test(`generic arguments must be types: ${fixture.source}`, () => {
+        const parsed = parse(tokenize(fixture.source).tokens);
+        assert.equal(parsed.errors.length === 0, fixture.ok);
+        const authored = fixture.source.startsWith('aeon:header=') ? fixture.source : `aeon:header={}\n${fixture.source}`;
+        for (const ordering of ['lexical-v1', 'reference-safe-v1'] as const) {
+            const result = canonicalize(authored, { ...options, ordering });
+            assert.equal(result.errors.length === 0, fixture.ok, JSON.stringify(result));
+            if (fixture.ok) {
+                assert.ok(result.text.includes(fixture.fragment), result.text);
+                assert.equal(canonicalize(result.text, { ...options, ordering }).text, result.text);
+                assert.deepEqual(semanticGraph(result.text), semanticGraph(authored));
+            } else {
+                assert.ok(result.errors.some(error => error.code === 'SYNTAX_ERROR'));
+                assert.equal(result.text, '');
+            }
+        }
+    });
+}
 
 for (const { raw, normalized } of numericClarifiers) {
     test(`numeric clarifiers use value-number rules: ${raw}`, () => {

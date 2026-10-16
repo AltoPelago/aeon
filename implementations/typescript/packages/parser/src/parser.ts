@@ -555,19 +555,13 @@ class Parser {
 
     private parseGenericArgument(genericDepth: number, components: { count: number }): string {
         const token = this.peek();
-        if (!this.isBareKeyToken(token) && token.type !== TokenType.Number) {
+        if (!this.isBareKeyToken(token)) {
             throw new SyntaxError(
                 'Expected generic argument',
                 token.span,
                 'generic argument',
                 token.value
             );
-        }
-
-        if (token.type === TokenType.Number) {
-            this.advance();
-            this.countDatatypeComponent(components, token.span);
-            return token.value;
         }
 
         const type = this.parseTypeAnnotation(genericDepth + 1, components);

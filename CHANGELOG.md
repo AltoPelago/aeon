@@ -10,6 +10,10 @@ repositories.
 
 ### Breaking
 
+- AEON source generic arguments now require datatype descriptors. Bare numeric
+  arguments such as `custom<1.0>` are rejected, including nested and node-head
+  forms. Numeric clarifiers remain valid, including `list<custom[1.0]>`.
+  The broader AES/Telex transport descriptor format is unchanged.
 - TypeScript and pure-Python parsers now represent numeric datatype clarifiers
   as exact `NumberLiteral` AST nodes rather than native numbers. Consumers
   inspecting those arrays must read the node's string `value` (or `raw` for

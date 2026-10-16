@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { getRepoRoot, resolveCTSPath } from './repo-paths.mjs';
 import renderingFixtures from '../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
 import numericClarifiers from '../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
+import genericArguments from '../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 
 const root = getRepoRoot();
 const manifestPath = path.resolve(resolveCTSPath('cts/canonical/v1/canonical-reference-ordering-cts.v1.next.json'));
@@ -110,6 +111,8 @@ if (backend === 'rust') {
   const sources = [];
   const renderingSources = new Map(renderingFixtures.map(fixture => [fixture.source, fixture.fragment]));
   sources.push(...renderingSources.keys());
+  sources.push(...genericArguments.map(fixture => fixture.source));
+  const genericSources = new Map(genericArguments.map(fixture => [fixture.source, fixture.ok]));
   for (const { raw, normalized } of numericClarifiers) {
     const numericSources = [
       `x:custom[${raw}]=${raw}`,
@@ -165,6 +168,10 @@ if (backend === 'rust') {
     try {
       const expected = typescriptCanonicalize(source, parityOptions);
       const actual = canonicalize(source, parityOptions);
+      if (genericSources.has(source)) {
+        assert.equal(expected.errors.length === 0, genericSources.get(source), 'generic type grammar');
+        assert.equal(actual.errors.length === 0, genericSources.get(source), 'native generic type grammar');
+      }
       if (renderingSources.has(source)) {
         assert.deepEqual(expected.errors, [], 'rendering regression must be valid input');
         assert.ok(actual.text.includes(renderingSources.get(source)), 'literal/head spelling preservation');
