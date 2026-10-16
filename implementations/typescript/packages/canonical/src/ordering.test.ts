@@ -143,6 +143,20 @@ test('historical bytes remain the explicit default during staged rollout', () =>
     assert.deepEqual(document(canonicalize(source, options).text).bindings.map(binding => binding.key), ['z', 'a']);
 });
 
+test('opt-in attributed container heads have exactly one space after equals', () => {
+    for (const source of ['a=[@{m=1}={z=0}]', 'a=(@{m=1}={z=0})', 'a=<tag(@{m=1}={z=0})>']) {
+        const authored = `aeon:header={}\n${source}`;
+        const result = canonicalize(authored, options);
+        assert.deepEqual(result.errors, []);
+        assert.match(result.text, /@\{m = 1\} = \{/);
+        assert.doesNotMatch(result.text, /@\{m = 1\} =  +\{/);
+        assert.equal(canonicalize(result.text, options).text, result.text);
+        assert.deepEqual(semanticGraph(result.text), semanticGraph(authored));
+        // The old contract remains byte-for-byte unchanged.
+        assert.match(canonicalize(source).text, /@\{m = 1\} =  +\{/);
+    }
+});
+
 for (const [source, code] of [
     ['z=~a\na=7', 'FORWARD_REFERENCE'],
     ['a={b=~a.z,z=1}', 'FORWARD_REFERENCE'],

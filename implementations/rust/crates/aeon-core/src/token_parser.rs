@@ -802,19 +802,24 @@ impl<'a> TokenParser<'a> {
             }
         }
 
-        let datatype = self.tokens[start..self.current]
-            .iter()
-            .fold(String::new(), |mut datatype, token| {
-                if token.kind == TokenKind::Number {
-                    datatype.push_str(&crate::normalize_number_literal(&token.text));
-                } else {
-                    datatype.push_str(&token.text);
-                }
-                datatype
-            })
-            .chars()
-            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
-            .collect::<String>();
+        let datatype =
+            self.tokens[start..self.current]
+                .iter()
+                .fold(String::new(), |mut datatype, token| {
+                    if token.kind == TokenKind::Number {
+                        datatype.push_str(&crate::normalize_number_literal(&token.text));
+                    } else if token.kind == TokenKind::String {
+                        datatype.push_str(&token.text);
+                    } else {
+                        datatype.extend(
+                            token
+                                .text
+                                .chars()
+                                .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r')),
+                        );
+                    }
+                    datatype
+                });
         validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
         Ok(datatype)
     }
@@ -3087,6 +3092,41 @@ items:list<string> = ["one", "two"]"#;
                 Some(r#"custom<tuple<string,number>,3>["x",10]"#)
             );
             assert_eq!(expected[1].datatype.as_deref(), Some("list<string>"));
+        }
+    }
+
+    #[test]
+    fn quoted_clarifier_whitespace_is_payload_at_every_scalar_split() {
+        let source = "v:custom\n[\"in review\"] = |yes|\na@{m:custom['a b'] = 1} = 0\nb = [:custom[\"a,b\"] = 2]";
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let expected = parse_with(source, implementation).expect("quoted clarifier payload");
+            assert_eq!(
+                expected[0].datatype.as_deref(),
+                Some("custom[\"in review\"]")
+            );
+            assert_eq!(
+                expected[1].attributes["m"].datatype.as_deref(),
+                Some("custom['a b']")
+            );
+            let Value::ListNode { items } = &expected[2].value else {
+                panic!("list");
+            };
+            let Value::TypedValue { datatype, .. } = &items[0] else {
+                panic!("anonymous head");
+            };
+            assert_eq!(datatype.as_deref(), Some("custom[\"a,b\"]"));
+            for split in source
+                .char_indices()
+                .map(|(offset, _)| offset)
+                .chain(std::iter::once(source.len()))
+            {
+                assert_eq!(
+                    parse_chunks(source, split, implementation)
+                        .expect("incremental quoted datatype"),
+                    expected,
+                    "split {split}"
+                );
+            }
         }
     }
 

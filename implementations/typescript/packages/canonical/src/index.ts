@@ -11,7 +11,10 @@ export { CanonicalOrderingError } from './ordering.js';
 export { canonicalizeTelex } from '@altopelago/aeon-aes';
 export type { TelexLimitOptions, TelexRecord } from '@altopelago/aeon-aes';
 
-type ReferenceFormatter = (path: Parameters<typeof formatReferencePath>[0]) => string;
+interface ReferenceFormatter {
+    readonly format: (path: Parameters<typeof formatReferencePath>[0]) => string;
+    readonly referenceSafe: boolean;
+}
 
 export type CanonicalError = LexerError | ParserError | EventEmissionError | PathResolutionError | ReferenceValidationError | CanonicalOrderingError;
 
@@ -132,7 +135,9 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
     let text: string;
     try {
         const orders = referenceSafeOrders(parsed.document, maxEdges);
-        text = renderDocument(reorderDocument(parsed.document, orders), path => formatReferencePath(path, formatString));
+        text = renderDocument(reorderDocument(parsed.document, orders), {
+            format: path => formatReferencePath(path, formatString), referenceSafe: true,
+        });
     } catch (error) {
         if (!(error instanceof CanonicalOrderingError)) throw error;
         return { text: '', errors: [error] };
@@ -179,7 +184,7 @@ export function emitFromObject(
     return { text: lines.join('\n'), errors: [] };
 }
 
-function renderDocument(document: Document, referencePath: ReferenceFormatter = formatReferencePath): string {
+function renderDocument(document: Document, referencePath: ReferenceFormatter = { format: formatReferencePath, referenceSafe: false }): string {
     const lines: string[] = [];
     lines.push(...renderHeader(document, referencePath));
 
@@ -326,7 +331,10 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             if (rendered.length === 0) {
                 return [`${head} = `];
             }
-            const first = rendered[0] ?? '';
+            // An attributed container already includes its layout indentation;
+            // the enclosing sequence supplies the head's indentation. Keep
+            // historical bytes unchanged outside the explicit new contract.
+            const first = referencePath.referenceSafe ? (rendered[0] ?? '').trimStart() : (rendered[0] ?? '');
             return [`${head} = ${first}`, ...rendered.slice(1)];
         }
         case 'StringLiteral':
@@ -361,9 +369,9 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'TimeLiteral':
             return [value.value];
         case 'CloneReference':
-            return [`~${referencePath(value.path)}`];
+            return [`~${referencePath.format(value.path)}`];
         case 'PointerReference':
-            return [`~>${referencePath(value.path)}`];
+            return [`~>${referencePath.format(value.path)}`];
         case 'ObjectNode': {
             const lines: string[] = [];
             lines.push(`${prefix}{`.trimEnd());
@@ -527,9 +535,9 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'TimeLiteral':
             return value.value;
         case 'CloneReference':
-            return `~${referencePath(value.path)}`;
+            return `~${referencePath.format(value.path)}`;
         case 'PointerReference':
-            return `~>${referencePath(value.path)}`;
+            return `~>${referencePath.format(value.path)}`;
         case 'ObjectNode': {
             const sorted = value.bindings;
             const bindings = sorted.map((binding) => {

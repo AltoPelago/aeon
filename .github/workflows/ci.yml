@@ -152,7 +152,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 3af0471d627fa91d6b88d079ec1294acbf337315
+          ref: 765ca2b6d49676309d234db26f425dbbc3afa91e
           path: aeonite-cts
 
       - name: Checkout AES
@@ -196,3 +196,6 @@ jobs:
 
       - name: Canonical CTS lane
         run: bash ./scripts/canonical-cts.sh --mode all --brief
+
+      - name: Experimental Rust reference-safe canonical API and TypeScript parity
+        run: node scripts/test-canonical-reference-ordering.mjs rust

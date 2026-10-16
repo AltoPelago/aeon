@@ -14,6 +14,27 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+test('generated wasm retains quoted datatype whitespace across every chunk split', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const clarifier of ['"in review"', "'a b'", '"a,b"', '"雪 space"']) {
+    const source = `v:custom[${clarifier}] = |yes|`;
+    const expectedDatatype = `custom[${clarifier}]`;
+    const result = runtime.processAeon(source, { validationMode: 'loose', finalize: false });
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.events[0]?.datatype, expectedDatatype);
+    for (let split = 0; split <= source.length; split += 1) {
+      const stream = runtime.createAeonStream({ validationMode: 'loose' });
+      assert.equal(stream.push(source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      const events: EventSummary[] = [];
+      for (let batch = stream.pullBatch(); batch !== null; batch = stream.pullBatch()) events.push(...batch.events);
+      assert.equal(events[0]?.datatype, expectedDatatype, `${source}, split=${split}`);
+      assert.equal(stream.takeTerminal().status, 'accepted', `${source}, split=${split}`);
+    }
+  }
+});
+
 test('generated wasm rejects metadata object duplicates in one-shot and chunked compilation', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   const sources = [
