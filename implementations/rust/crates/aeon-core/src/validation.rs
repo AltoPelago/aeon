@@ -3,7 +3,10 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::flatten::{FlattenedDocument, ValidationEvent, ValidationReferenceStep};
-use crate::pathing::{format_reference_base, format_reference_target};
+use crate::pathing::{
+    format_reference_base, format_reference_target, render_child_index_path,
+    render_child_member_path,
+};
 use crate::temporal::invalid_temporal_literal;
 use crate::{
     AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath, DatatypePolicy,
@@ -124,48 +127,159 @@ pub(crate) fn validate_duplicate_object_member_keys(
     let root = CanonicalPath::root();
     let mut found_duplicate = false;
     for binding in bindings {
-        if !value_may_contain_object_bindings(&binding.value) {
+        if binding.is_header
+            && binding.key == "aeon:header"
+            && let Value::ObjectNode { bindings: fields } = &binding.value
+        {
+            // The progressive compiler sees authored header envelopes; the
+            // whole-document compiler sees lowered fields. Use the same
+            // canonical field paths without cloning or lowering either AST.
+            found_duplicate |= validate_duplicate_object_member_keys_in_attributes(
+                &binding.attributes,
+                "$",
+                Some("$"),
+                errors,
+            );
+            for field in fields {
+                let path = format_path(&root.member(format!("aeon:{}", field.key)));
+                found_duplicate |=
+                    validate_duplicate_object_member_keys_in_binding(field, &path, None, errors);
+            }
             continue;
         }
-        let path = root.member(binding.key.clone());
+        if binding.attributes.is_empty() && !value_may_contain_object_bindings(&binding.value) {
+            continue;
+        }
+        let path = format_path(&root.member(binding.key.clone()));
         found_duplicate |=
-            validate_duplicate_object_member_keys_in_value(&binding.value, &path, errors);
+            validate_duplicate_object_member_keys_in_binding(binding, &path, None, errors);
     }
     found_duplicate
 }
 
+fn validate_duplicate_object_member_keys_in_binding(
+    binding: &Binding,
+    path: &str,
+    diagnostic_owner: Option<&str>,
+    errors: &mut Vec<Diagnostic>,
+) -> bool {
+    let mut found = validate_duplicate_object_member_keys_in_attributes(
+        &binding.attributes,
+        path,
+        diagnostic_owner,
+        errors,
+    );
+    if value_may_contain_object_bindings(&binding.value) {
+        found |= validate_duplicate_object_member_keys_in_value(
+            &binding.value,
+            path,
+            diagnostic_owner,
+            errors,
+        );
+    }
+    found
+}
+
+fn validate_duplicate_object_member_keys_in_attributes(
+    attributes: &BTreeMap<String, AttributeValue>,
+    path: &str,
+    diagnostic_owner: Option<&str>,
+    errors: &mut Vec<Diagnostic>,
+) -> bool {
+    if attributes.is_empty() {
+        return false;
+    }
+    let parent = format!("{path}.@");
+    let mut found = false;
+    for (key, entry) in attributes {
+        let path = render_child_member_path(&parent, key);
+        found |= validate_duplicate_object_member_keys_in_attribute(
+            entry,
+            &path,
+            diagnostic_owner,
+            errors,
+        );
+    }
+    found
+}
+
+fn validate_duplicate_object_member_keys_in_attribute(
+    entry: &AttributeValue,
+    path: &str,
+    diagnostic_owner: Option<&str>,
+    errors: &mut Vec<Diagnostic>,
+) -> bool {
+    let mut found = validate_duplicate_object_member_keys_in_attributes(
+        &entry.nested_attrs,
+        path,
+        diagnostic_owner,
+        errors,
+    );
+    if let Some(value) = &entry.value
+        && value_may_contain_object_bindings(value)
+    {
+        found |=
+            validate_duplicate_object_member_keys_in_value(value, path, diagnostic_owner, errors);
+    }
+    // Attribute-object keys have already been checked by the parser before
+    // entering this map. Their values and attached metadata still need a walk.
+    for (key, member) in &entry.object_members {
+        let path = render_child_member_path(path, key);
+        found |= validate_duplicate_object_member_keys_in_attribute(
+            member,
+            &path,
+            diagnostic_owner,
+            errors,
+        );
+    }
+    found
+}
+
 fn validate_duplicate_object_member_keys_in_value(
     value: &Value,
-    path: &CanonicalPath,
+    path: &str,
+    diagnostic_owner: Option<&str>,
     errors: &mut Vec<Diagnostic>,
 ) -> bool {
     let mut found_duplicate = false;
     match value {
-        Value::TypedValue { value, .. } => {
-            found_duplicate |= validate_duplicate_object_member_keys_in_value(value, path, errors);
+        Value::TypedValue {
+            value, attributes, ..
+        } => {
+            found_duplicate |= validate_duplicate_object_member_keys_in_attributes(
+                attributes,
+                path,
+                diagnostic_owner,
+                errors,
+            );
+            found_duplicate |= validate_duplicate_object_member_keys_in_value(
+                value,
+                path,
+                diagnostic_owner,
+                errors,
+            );
         }
         Value::ObjectNode { bindings } => {
             let mut seen = HashSet::new();
             for binding in bindings {
-                let member_path = path.member(binding.key.clone());
-                if !seen.insert(binding.key.clone()) {
+                let member_path = render_child_member_path(path, &binding.key);
+                if !seen.insert(binding.key.as_str()) {
                     found_duplicate = true;
                     errors.push(
                         Diagnostic::new(
                             "DUPLICATE_KEY",
                             format!("Duplicate key: '{}'", binding.key),
                         )
-                        .at_path(format_path(&member_path))
+                        .at_path(diagnostic_owner.unwrap_or(&member_path))
                         .with_span(binding.span),
                     );
                 }
-                if value_may_contain_object_bindings(&binding.value) {
-                    found_duplicate |= validate_duplicate_object_member_keys_in_value(
-                        &binding.value,
-                        &member_path,
-                        errors,
-                    );
-                }
+                found_duplicate |= validate_duplicate_object_member_keys_in_binding(
+                    binding,
+                    &member_path,
+                    diagnostic_owner,
+                    errors,
+                );
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
@@ -173,18 +287,35 @@ fn validate_duplicate_object_member_keys_in_value(
                 if value_may_contain_object_bindings(item) {
                     found_duplicate |= validate_duplicate_object_member_keys_in_value(
                         item,
-                        &path.index(index),
+                        &render_child_index_path(path, index),
+                        diagnostic_owner,
                         errors,
                     );
                 }
             }
         }
-        Value::NodeLiteral { children, .. } => {
+        Value::NodeLiteral {
+            attributes,
+            children,
+            ..
+        } => {
+            // Implicit node heads have no source-path spelling. Locate a
+            // diagnostic at the owning payload, not a fictitious attribute
+            // selector that aliases binding or anonymous-value metadata.
+            for attributes in attributes {
+                found_duplicate |= validate_duplicate_object_member_keys_in_attributes(
+                    attributes,
+                    path,
+                    Some(diagnostic_owner.unwrap_or(path)),
+                    errors,
+                );
+            }
             for (index, child) in children.iter().enumerate() {
                 if value_may_contain_object_bindings(child) {
                     found_duplicate |= validate_duplicate_object_member_keys_in_value(
                         child,
-                        &path.index(index),
+                        &render_child_index_path(path, index),
+                        diagnostic_owner,
                         errors,
                     );
                 }
@@ -197,7 +328,9 @@ fn validate_duplicate_object_member_keys_in_value(
 
 fn value_may_contain_object_bindings(value: &Value) -> bool {
     match value {
-        Value::TypedValue { value, .. } => value_may_contain_object_bindings(value),
+        Value::TypedValue {
+            value, attributes, ..
+        } => !attributes.is_empty() || value_may_contain_object_bindings(value),
         Value::ObjectNode { .. }
         | Value::ListNode { .. }
         | Value::TupleLiteral { .. }

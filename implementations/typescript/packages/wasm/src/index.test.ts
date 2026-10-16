@@ -14,6 +14,49 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+test('generated wasm rejects metadata object duplicates in one-shot and chunked compilation', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const sources = [
+    'a@{m = [{z = 1, z = 2}]} = 0',
+    'a = {b@{m = [{z = 1, z = 2}]} = 0}',
+    'a = [@{m = [{z = 1, z = 2}]} = 0]',
+    'a = (@{m = [{z = 1, z = 2}]} = 0,)',
+    'a = <tag(@{m = [{z = 1, z = 2}]} = 0)>',
+    'a = [@{m = [{z = 1, z = 2}]} = {leaf = 0}]',
+    'a = <tag@{m = [{z = 1, z = 2}]}>',
+    'a = [<tag@{m = [{z = 1, z = 2}]}>]',
+    'a@{m@{n = [{z = 1, z = 2}]} = 0} = 0',
+    'a@{m = {n = [{z = 1, z = 2}]}} = 0',
+    'a@{m = {n@{p = [{z = 1, z = 2}]} = 0}} = 0',
+    'a@{m = ({z = 1, z = 2},)} = 0',
+    'a@{m = <tag({z = 1, z = 2})>} = 0',
+    'a@{m = <tag@{n = [{z = 1, z = 2}]}>} = 0',
+    'aeon:header = {x@{m = [{z = 1, z = 2}]} = 0}',
+    'aeon:header = {x = {leaf@{m = [{z = 1, z = 2}]} = 0}}',
+    'aeon:header@{m = [{z = 1, z = 2}]} = {x = 0}',
+    'aeon:header@{m = {n = [{z = 1, z = 2}]}} = {}',
+  ];
+  for (const source of sources) {
+    const options = { validationMode: 'loose' as const, maxAttributeDepth: 4 };
+    const rejected = runtime.processAeon(source, { ...options, finalize: false });
+    assert.equal(rejected.ok, false, source);
+    // The inspection wrapper retains recovery events; rejection is expressed
+    // by ok/errors. The native parse-only API separately forbids partial ASTs.
+    assert.deepEqual(rejected.errors.map(error => error.code), ['DUPLICATE_KEY'], source);
+    assert.equal(runtime.processAeon(source.replace('z = 2', 'y = 2'), { ...options, finalize: false }).ok, true, source);
+    for (let split = 0; split <= source.length; split += 1) {
+      const stream = runtime.createAeonStream(options);
+      assert.equal(stream.push(source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      while (stream.pullBatch() !== null) { /* drain provisional events */ }
+      const terminal = stream.takeTerminal();
+      assert.equal(terminal.status, 'invalidated', `${source}, split=${split}`);
+      assert.deepEqual(terminal.errors.map(error => error.code), ['DUPLICATE_KEY'], `${source}, split=${split}`);
+    }
+  }
+});
+
 test('generated wasm preserves authored reference availability, including anonymous metadata', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
   const runtime = await loadAeonWasm(wasm);

@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
 
+mod document;
 mod engine;
 mod flatten;
 mod header;
@@ -19,6 +20,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
 
+pub use document::parse_document;
 pub use engine::{
     Compiler, CompilerConfig, CompilerError, CompilerOperation, CompilerProgress, CompilerState,
     EventBatch, EventBatches, SourceRetention,
@@ -1090,6 +1092,10 @@ fn finalize_compile(
 ) -> CompileResult {
     let warnings = compile_portability_warnings(&options);
     trace_compile("compile:finalize:start");
+    // Check the authored tree before header lowering can discard envelope
+    // metadata. Pass these diagnostics through the compact path unchanged.
+    let mut errors = Vec::new();
+    let has_nested_duplicate_keys = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let bindings = match lower_header(bindings) {
         Ok(bindings) => bindings,
         Err(error) => {
@@ -1104,9 +1110,7 @@ fn finalize_compile(
             };
         }
     };
-    let mut errors = Vec::new();
     let root = CanonicalPath::root();
-    let has_nested_duplicate_keys = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let has_top_level_duplicate_paths =
         validation::top_level_canonical_paths_have_duplicates(&bindings);
     let validation_only = options.shallow_event_values
@@ -1116,7 +1120,7 @@ fn finalize_compile(
         && !options.recovery;
     if validation_only {
         trace_compile("compile:validation_only");
-        return validate_only_compile(source, bindings, options, &root, warnings);
+        return validate_only_compile(source, bindings, options, &root, warnings, errors);
     }
     trace_compile("compile:flatten_document");
     let mut flattened = flatten_document(
@@ -1259,10 +1263,9 @@ fn validate_only_compile(
     options: CompileOptions,
     root: &CanonicalPath,
     warnings: Vec<Diagnostic>,
+    mut errors: Vec<Diagnostic>,
 ) -> CompileResult {
     trace_compile("compile:validation_only:flatten");
-    let mut errors = Vec::new();
-    let _ = validate_duplicate_object_member_keys(&bindings, &mut errors);
     let flattened = flatten_validation_document(&bindings, root, options.shallow_event_values);
     if let Some(max_events) = options.max_events
         && flattened.events.len() > max_events
@@ -1914,6 +1917,12 @@ mod tests {
         expected_code: &str,
         expected_phase: Option<u8>,
     ) {
+        assert!(
+            parse_document(source, &AeonCompileLimits::from(&at_boundary)).is_ok(),
+            "native document must accept its boundary for {name}",
+        );
+        let native_errors = parse_document(source, &AeonCompileLimits::from(&beyond_boundary))
+            .expect_err("native document must reject beyond its resource boundary");
         let baseline_at = compile_owned_with_implementation(
             source.to_owned(),
             at_boundary.clone(),
@@ -1960,6 +1969,10 @@ mod tests {
         );
         assert_eq!(diagnostic.phase, expected_phase, "phase drift for {name}");
         assert!(diagnostic.span.is_some(), "missing span for {name}");
+        assert_eq!(
+            native_errors[0], *diagnostic,
+            "native document diagnostic drift for {name}"
+        );
     }
 
     #[test]
