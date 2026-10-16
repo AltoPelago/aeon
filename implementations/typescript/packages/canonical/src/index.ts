@@ -2,12 +2,18 @@ import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
 import { normalizeNumberLiteral, parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
+import { emitEvents, resolvePaths, validateReferences, type EventEmissionError, type PathResolutionError, type ReferenceValidationError } from '@altopelago/aeon-aes';
+import { CanonicalOrderingError, referenceSafeOrders, reorderDocument } from './ordering.js';
+
+export { CanonicalOrderingError } from './ordering.js';
 
 /** Canonicalize the interoperable Telex wire format; AEON source uses canonicalize(). */
 export { canonicalizeTelex } from '@altopelago/aeon-aes';
 export type { TelexLimitOptions, TelexRecord } from '@altopelago/aeon-aes';
 
-export type CanonicalError = LexerError | ParserError;
+type ReferenceFormatter = (path: Parameters<typeof formatReferencePath>[0]) => string;
+
+export type CanonicalError = LexerError | ParserError | EventEmissionError | PathResolutionError | ReferenceValidationError | CanonicalOrderingError;
 
 export interface CanonicalResult {
     readonly text: string;
@@ -15,6 +21,10 @@ export interface CanonicalResult {
 }
 
 export interface CanonicalizeOptions {
+    /** Explicit canonical contract during rollout. Default: lexical-v1 (historical bytes). */
+    readonly ordering?: 'lexical-v1' | 'reference-safe-v1';
+    /** Maximum distinct projected dependency edges for reference-safe-v1. Default: 1,000,000. */
+    readonly maxOrderingEdges?: number;
     /** Maximum clarifier values on one datatype descriptor. Default: 1. */
     readonly maxClarifierValues?: number;
     /** @deprecated Use maxClarifierValues. */
@@ -92,19 +102,54 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
         return { text: '', errors: lex.errors };
     }
 
-    const parsed = parse(lex.tokens, {
+    const parserOptions = {
         maxAttributeDepth: options.maxAttributeDepth ?? 1,
         maxClarifierValues: options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1,
         maxGenericDepth: options.maxGenericDepth ?? 1,
         maxGenericArguments: options.maxGenericArguments ?? 32,
         maxDatatypeComponents: options.maxDatatypeComponents ?? 64,
-    });
+    };
+    const parsed = parse(lex.tokens, parserOptions);
     if (parsed.errors.length > 0 || !parsed.document) {
         return { text: '', errors: parsed.errors };
     }
 
-    const text = renderDocument(parsed.document);
+    const ordering = options.ordering ?? 'lexical-v1';
+    if (ordering !== 'lexical-v1' && ordering !== 'reference-safe-v1') {
+        return { text: '', errors: [new CanonicalOrderingError('CANONICAL_ORDERING_INVALID_OPTION', 'Unknown canonical ordering contract', parsed.document.span)] };
+    }
+    if (ordering === 'lexical-v1') {
+        return { text: renderDocument(reorderDocument(parsed.document)), errors: [] };
+    }
+    const maxEdges = options.maxOrderingEdges ?? 1_000_000;
+    if (!Number.isSafeInteger(maxEdges) || maxEdges < 0) {
+        return { text: '', errors: [new CanonicalOrderingError('CANONICAL_ORDERING_INVALID_OPTION', 'maxOrderingEdges must be a non-negative safe integer', parsed.document.span)] };
+    }
+    // Core legality only: no reference evaluation, profile/schema approval,
+    // or default header insertion before validating the authored document.
+    const authoredErrors = referenceErrors(parsed.document, parserOptions.maxAttributeDepth);
+    if (authoredErrors.length > 0) return { text: '', errors: authoredErrors };
+    let text: string;
+    try {
+        const orders = referenceSafeOrders(parsed.document, maxEdges);
+        text = renderDocument(reorderDocument(parsed.document, orders), path => formatReferencePath(path, formatString));
+    } catch (error) {
+        if (!(error instanceof CanonicalOrderingError)) throw error;
+        return { text: '', errors: [error] };
+    }
+    // Fail closed if rendering introduces any invalid reference or syntax.
+    const emittedLex = tokenize(text);
+    const emitted = parse(emittedLex.tokens, parserOptions);
+    if (emittedLex.errors.length > 0 || emitted.errors.length > 0 || !emitted.document
+        || referenceErrors(emitted.document, parserOptions.maxAttributeDepth).length > 0) {
+        return { text: '', errors: [new CanonicalOrderingError('CANONICAL_ORDERING_CONFLICT', 'Canonical output failed Core reference validation', parsed.document.span)] };
+    }
     return { text, errors: [] };
+}
+
+function referenceErrors(document: Document, maxAttributeDepth: number): readonly CanonicalError[] {
+    const emitted = emitEvents(resolvePaths(document, { indexedPaths: true }));
+    return emitted.errors.length > 0 ? emitted.errors : validateReferences(emitted.events, { maxAttributeDepth }).errors;
 }
 
 export function emitFromObject(
@@ -134,20 +179,20 @@ export function emitFromObject(
     return { text: lines.join('\n'), errors: [] };
 }
 
-function renderDocument(document: Document): string {
+function renderDocument(document: Document, referencePath: ReferenceFormatter = formatReferencePath): string {
     const lines: string[] = [];
-    lines.push(...renderHeader(document));
+    lines.push(...renderHeader(document, referencePath));
 
-    const bindings = [...document.bindings].sort((a, b) => compareKeys(a.key, b.key));
+    const bindings = document.bindings;
     for (const binding of bindings) {
-        lines.push(...renderBinding(binding, 0));
+        lines.push(...renderBinding(binding, 0, referencePath));
     }
     return `${lines.join('\n')}\n`;
 }
 
-function renderHeader(document: Document): string[] {
+function renderHeader(document: Document, referencePath: ReferenceFormatter): string[] {
     const bindings = document.header
-        ? [...document.header.bindings].sort((a, b) => compareKeys(a.key, b.key))
+        ? document.header.bindings
         : Object.entries(DEFAULT_HEADER)
             .map(([key, value]) => ({
                 type: 'Binding' as const,
@@ -162,30 +207,30 @@ function renderHeader(document: Document): string[] {
     const lines: string[] = [];
     lines.push('aeon:header = {');
     for (const binding of bindings) {
-        lines.push(...renderBinding(binding, 2));
+        lines.push(...renderBinding(binding, 2, referencePath));
     }
     lines.push('}');
     return lines;
 }
 
-function renderBinding(binding: Binding, indent: number): string[] {
+function renderBinding(binding: Binding, indent: number, referencePath: ReferenceFormatter): string[] {
     const prefix = ' '.repeat(indent);
-    const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes)}${renderType(binding.datatype)}`;
+    const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
 
     if (binding.value.type === 'ObjectNode') {
-        return renderObjectBinding(prefix, key, binding.value, indent);
+        return renderObjectBinding(prefix, key, binding.value, indent, referencePath);
     }
     if (binding.value.type === 'ListNode') {
-        return renderListBinding(prefix, key, binding.value, indent);
+        return renderListBinding(prefix, key, binding.value, indent, referencePath);
     }
     if (binding.value.type === 'TupleLiteral') {
-        return renderTupleBinding(prefix, key, binding.value, indent);
+        return renderTupleBinding(prefix, key, binding.value, indent, referencePath);
     }
     if (binding.value.type === 'NodeLiteral') {
-        return renderNodeBinding(prefix, key, binding.value, indent);
+        return renderNodeBinding(prefix, key, binding.value, indent, referencePath);
     }
 
-    const valueLines = renderValue(binding.value, indent, { inlineOnly: true });
+    const valueLines = renderValue(binding.value, indent, { inlineOnly: true }, referencePath);
     if (valueLines.length === 1) {
         return [`${prefix}${key} = ${valueLines[0] ?? ''}`];
     }
@@ -197,9 +242,10 @@ function renderNodeBinding(
     prefix: string,
     key: string,
     node: Extract<Value, { type: 'NodeLiteral' }>,
-    indent: number
+    indent: number,
+    referencePath: ReferenceFormatter
 ): string[] {
-    const renderedNode = renderNodeValue(node, indent, { inlineOnly: false });
+    const renderedNode = renderNodeValue(node, indent, { inlineOnly: false }, referencePath);
     if (renderedNode.length === 1) {
         return [`${prefix}${key} = ${(renderedNode[0] ?? '').trimStart()}`];
     }
@@ -207,19 +253,19 @@ function renderNodeBinding(
     return [`${prefix}${key} = ${(first ?? '').trimStart()}`, ...rest];
 }
 
-function renderTupleBinding(prefix: string, key: string, tuple: Value, indent: number): string[] {
+function renderTupleBinding(prefix: string, key: string, tuple: Value, indent: number, referencePath: ReferenceFormatter): string[] {
     const tupleNode = tuple as Extract<Value, { type: 'TupleLiteral' }>;
     const elements = tupleNode.elements;
     const simple = elements.every(isSimpleValue);
     if (simple) {
-        const rendered = elements.map((element) => renderValue(element, indent + 1, { inlineOnly: true })[0]).join(', ');
+        const rendered = elements.map((element) => renderValue(element, indent + 1, { inlineOnly: true }, referencePath)[0]).join(', ');
         return [`${prefix}${key} = (${rendered})`];
     }
 
     const lines: string[] = [];
     lines.push(`${prefix}${key} = (`);
     elements.forEach((element, index) => {
-        const itemLines = renderValue(element, indent + 2, { inlineOnly: false });
+        const itemLines = renderValue(element, indent + 2, { inlineOnly: false }, referencePath);
         if (itemLines.length > 0 && !(itemLines[0] ?? '').startsWith(' '.repeat(indent + 2))) {
             itemLines[0] = `${' '.repeat(indent + 2)}${itemLines[0] ?? ''}`;
         }
@@ -233,31 +279,31 @@ function renderTupleBinding(prefix: string, key: string, tuple: Value, indent: n
     return lines;
 }
 
-function renderObjectBinding(prefix: string, key: string, obj: Value, indent: number): string[] {
+function renderObjectBinding(prefix: string, key: string, obj: Value, indent: number, referencePath: ReferenceFormatter): string[] {
     const lines: string[] = [];
     lines.push(`${prefix}${key} = {`);
     const objectNode = obj as Extract<Value, { type: 'ObjectNode' }>;
-    const sorted = [...objectNode.bindings].sort((a, b) => compareKeys(a.key, b.key));
+    const sorted = objectNode.bindings;
     for (const binding of sorted) {
-        lines.push(...renderBinding(binding, indent + 2));
+        lines.push(...renderBinding(binding, indent + 2, referencePath));
     }
     lines.push(`${prefix}}`);
     return lines;
 }
 
-function renderListBinding(prefix: string, key: string, list: Value, indent: number): string[] {
+function renderListBinding(prefix: string, key: string, list: Value, indent: number, referencePath: ReferenceFormatter): string[] {
     const listNode = list as Extract<Value, { type: 'ListNode' }>;
     const elements = listNode.elements;
     const simple = elements.every(isSimpleValue);
     if (simple) {
-        const rendered = elements.map((element) => renderValue(element, indent + 1, { inlineOnly: true })[0]).join(', ');
+        const rendered = elements.map((element) => renderValue(element, indent + 1, { inlineOnly: true }, referencePath)[0]).join(', ');
         return [`${prefix}${key} = [${rendered}]`];
     }
 
     const lines: string[] = [];
     lines.push(`${prefix}${key} = [`);
     elements.forEach((element, index) => {
-        const itemLines = renderValue(element, indent + 2, { inlineOnly: false });
+        const itemLines = renderValue(element, indent + 2, { inlineOnly: false }, referencePath);
         if (itemLines.length > 0 && !(itemLines[0] ?? '').startsWith(' '.repeat(indent + 2))) {
             itemLines[0] = `${' '.repeat(indent + 2)}${itemLines[0] ?? ''}`;
         }
@@ -271,12 +317,12 @@ function renderListBinding(prefix: string, key: string, list: Value, indent: num
     return lines;
 }
 
-function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }): string[] {
+function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }, referencePath: ReferenceFormatter): string[] {
     const prefix = ' '.repeat(indent);
     switch (value.type) {
         case 'TypedValue': {
-            const rendered = renderValue(value.value, indent, opts);
-            const head = `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            const rendered = renderValue(value.value, indent, opts, referencePath);
+            const head = `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
             if (rendered.length === 0) {
                 return [`${head} = `];
             }
@@ -315,28 +361,28 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'TimeLiteral':
             return [value.value];
         case 'CloneReference':
-            return [`~${formatReferencePath(value.path)}`];
+            return [`~${referencePath(value.path)}`];
         case 'PointerReference':
-            return [`~>${formatReferencePath(value.path)}`];
+            return [`~>${referencePath(value.path)}`];
         case 'ObjectNode': {
             const lines: string[] = [];
             lines.push(`${prefix}{`.trimEnd());
-            const sorted = [...value.bindings].sort((a, b) => compareKeys(a.key, b.key));
+            const sorted = value.bindings;
             for (const binding of sorted) {
-                lines.push(...renderBinding(binding, indent + 2));
+                lines.push(...renderBinding(binding, indent + 2, referencePath));
             }
             lines.push(`${prefix}}`.trimEnd());
             return lines;
         }
         case 'ListNode': {
             if (opts.inlineOnly && value.elements.every(isSimpleValue)) {
-                const rendered = value.elements.map((el) => renderValue(el, indent + 1, { inlineOnly: true })[0]).join(', ');
+                const rendered = value.elements.map((el) => renderValue(el, indent + 1, { inlineOnly: true }, referencePath)[0]).join(', ');
                 return [`[${rendered}]`];
             }
             const lines: string[] = [];
             lines.push(`${prefix}[`.trimEnd());
             value.elements.forEach((element, index) => {
-                const itemLines = renderValue(element, indent + 2, { inlineOnly: false });
+                const itemLines = renderValue(element, indent + 2, { inlineOnly: false }, referencePath);
                 if (itemLines.length > 0 && !(itemLines[0] ?? '').startsWith(' '.repeat(indent + 2))) {
                     itemLines[0] = `${' '.repeat(indent + 2)}${itemLines[0] ?? ''}`;
                 }
@@ -351,13 +397,13 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         }
         case 'TupleLiteral': {
             if (opts.inlineOnly && value.elements.every(isSimpleValue)) {
-                const rendered = value.elements.map((el) => renderValue(el, indent + 1, { inlineOnly: true })[0]).join(', ');
+                const rendered = value.elements.map((el) => renderValue(el, indent + 1, { inlineOnly: true }, referencePath)[0]).join(', ');
                 return [`(${rendered})`];
             }
             const lines: string[] = [];
             lines.push(`${prefix}(`.trimEnd());
             value.elements.forEach((element, index) => {
-                const itemLines = renderValue(element, indent + 2, { inlineOnly: false });
+                const itemLines = renderValue(element, indent + 2, { inlineOnly: false }, referencePath);
                 if (itemLines.length > 0 && !(itemLines[0] ?? '').startsWith(' '.repeat(indent + 2))) {
                     itemLines[0] = `${' '.repeat(indent + 2)}${itemLines[0] ?? ''}`;
                 }
@@ -371,7 +417,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
             return lines;
         }
         case 'NodeLiteral':
-            return renderNodeValue(value, indent, opts);
+            return renderNodeValue(value, indent, opts, referencePath);
         default:
             return [''];
     }
@@ -380,10 +426,11 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
 function renderNodeValue(
     value: Extract<Value, { type: 'NodeLiteral' }>,
     indent: number,
-    opts: { inlineOnly: boolean }
+    opts: { inlineOnly: boolean },
+    referencePath: ReferenceFormatter
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+    const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -392,14 +439,14 @@ function renderNodeValue(
     }
 
     if (opts.inlineOnly && simple) {
-        const rendered = children.map((child) => renderValue(child, indent + 1, { inlineOnly: true })[0]).join(', ');
+        const rendered = children.map((child) => renderValue(child, indent + 1, { inlineOnly: true }, referencePath)[0]).join(', ');
         return [`${head}(${rendered})>`];
     }
 
     const lines: string[] = [];
     lines.push(`${prefix}${head}(`.trimEnd());
     children.forEach((child, index) => {
-        const itemLines = renderValue(child, indent + 2, { inlineOnly: true });
+        const itemLines = renderValue(child, indent + 2, { inlineOnly: true }, referencePath);
         if (itemLines.length > 0 && !(itemLines[0] ?? '').startsWith(' '.repeat(indent + 2))) {
             itemLines[0] = `${' '.repeat(indent + 2)}${itemLines[0] ?? ''}`;
         }
@@ -422,7 +469,7 @@ function renderStructuralId(structuralId: string | null | undefined): string {
     return structuralId ? `\\${structuralId}\\` : '';
 }
 
-function renderAttributes(attributes: readonly Attribute[]): string {
+function renderAttributes(attributes: readonly Attribute[], referencePath: ReferenceFormatter): string {
     if (!attributes || attributes.length === 0) return '';
     const entries = new Map<string, AttributeValue>();
     for (const attr of attributes) {
@@ -430,24 +477,24 @@ function renderAttributes(attributes: readonly Attribute[]): string {
             entries.set(key, value);
         }
     }
-    const sorted = Array.from(entries.entries()).sort(([a], [b]) => compareKeys(a, b));
+    const sorted = Array.from(entries.entries());
     const rendered = sorted.map(([key, value]) => {
-        const nestedAttributes = renderAttributes(value.attributes);
+        const nestedAttributes = renderAttributes(value.attributes, referencePath);
         const type = value.datatype ? renderType(value.datatype) : '';
-        const formatted = renderValueInline(value.value);
+        const formatted = renderValueInline(value.value, referencePath);
         return `${formatBindingKey(key)}${renderStructuralId(value.structuralId)}${nestedAttributes}${type} = ${formatted}`;
     });
     return `@{${rendered.join(', ')}}`;
 }
 
-function renderValueInline(value: Value): string {
-    return renderCompactInlineValue(value);
+function renderValueInline(value: Value, referencePath: ReferenceFormatter): string {
+    return renderCompactInlineValue(value, referencePath);
 }
 
-function renderCompactInlineValue(value: Value): string {
+function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatter): string {
     switch (value.type) {
         case 'TypedValue':
-            return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value)}`;
+            return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value, referencePath)}`;
         case 'StringLiteral':
             return value.trimticks
                 ? formatCompactTrimtick(value.value)
@@ -480,30 +527,30 @@ function renderCompactInlineValue(value: Value): string {
         case 'TimeLiteral':
             return value.value;
         case 'CloneReference':
-            return `~${formatReferencePath(value.path)}`;
+            return `~${referencePath(value.path)}`;
         case 'PointerReference':
-            return `~>${formatReferencePath(value.path)}`;
+            return `~>${referencePath(value.path)}`;
         case 'ObjectNode': {
-            const sorted = [...value.bindings].sort((a, b) => compareKeys(a.key, b.key));
+            const sorted = value.bindings;
             const bindings = sorted.map((binding) => {
-                const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes)}${renderType(binding.datatype)}`;
-                return `${key} = ${renderCompactInlineValue(binding.value)}`;
+                const key = `${formatBindingKey(binding.key)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
+                return `${key} = ${renderCompactInlineValue(binding.value, referencePath)}`;
             });
             return `{ ${bindings.join(', ')} }`;
         }
         case 'ListNode':
-            return `[${value.elements.map((element) => renderCompactInlineValue(element)).join(', ')}]`;
+            return `[${value.elements.map((element) => renderCompactInlineValue(element, referencePath)).join(', ')}]`;
         case 'TupleLiteral':
-            return `(${value.elements.map((element) => renderCompactInlineValue(element)).join(', ')})`;
+            return `(${value.elements.map((element) => renderCompactInlineValue(element, referencePath)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes)}${renderType(value.datatype)}`;
+            const head = `<${formatBindingKey(value.tag)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }
-            return `${head}(${value.children.map((child) => renderCompactInlineValue(child)).join(', ')})>`;
+            return `${head}(${value.children.map((child) => renderCompactInlineValue(child, referencePath)).join(', ')})>`;
         }
         default:
-            return renderValue(value, 0, { inlineOnly: true })[0] ?? '';
+            return renderValue(value, 0, { inlineOnly: true }, referencePath)[0] ?? '';
     }
 }
 
