@@ -774,6 +774,7 @@ fn format_datatype(raw: &str) -> Result<String, Diagnostic> {
         match token.kind {
             aeon_core::TokenKind::Eof => {}
             aeon_core::TokenKind::Comma => output.push_str(", "),
+            aeon_core::TokenKind::Number => output.push_str(&super::normalize_number(&token.text)),
             aeon_core::TokenKind::String => {
                 let decoded = super::Parser::new(&token.text).parse_quoted_string()?;
                 output.push_str(
@@ -1033,6 +1034,81 @@ mod tests {
             );
             assert_eq!(graph(&authored), graph(&output), "{}", fixture["id"]);
         }
+    }
+
+    #[test]
+    fn native_parsers_project_numeric_clarifiers_exactly_like_value_numbers() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/numeric-clarifiers.json"
+        ))
+        .expect("fixtures");
+        for fixture in fixtures.as_array().expect("fixture array") {
+            let raw = fixture["raw"].as_str().expect("raw");
+            let normalized = fixture["normalized"].as_str().expect("normalized");
+            let source = format!("x:custom[{raw}]={raw}");
+            for result in [
+                aeon_core::compile(&source, aeon_core::CompileOptions::default()),
+                aeon_core::compile_sofia(&source, aeon_core::CompileOptions::default()),
+            ] {
+                assert!(result.errors.is_empty(), "{raw}: {:?}", result.errors);
+                let events = aeon_core::project_portable_events(&result.events);
+                assert_eq!(events[0].value.as_deref(), Some(normalized));
+                assert_eq!(events[0].clarifiers.len(), 1);
+                assert_eq!(events[0].clarifiers[0].value, normalized);
+                assert_eq!(
+                    events[0].clarifiers[0].kind,
+                    aes_telex::ClarifierKind::NumberLiteral
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn numeric_clarifiers_use_value_number_rules_in_every_head_context() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/numeric-clarifiers.json"
+        ))
+        .expect("numeric clarifier fixtures");
+        for fixture in fixtures.as_array().expect("fixture array") {
+            let raw = fixture["raw"].as_str().expect("raw");
+            let normalized = fixture["normalized"].as_str().expect("normalized");
+            for source in [
+                format!("x:custom[{raw}]={raw}"),
+                format!("x={{n:custom[{raw}]={raw}}}"),
+                format!("x@{{n:custom[{raw}]={raw}}}=0"),
+                format!("x=[:custom[{raw}]={raw}]"),
+                format!("x=(:custom[{raw}]={raw})"),
+                format!("x=<tag(:custom[{raw}]={raw})>"),
+                format!("x:list<custom[{raw}]>=[{raw}]"),
+                format!("aeon:header={{x:custom[{raw}]={raw}}}"),
+            ] {
+                let output = canonical(&source);
+                assert!(
+                    output.contains(&format!("custom[{normalized}]")),
+                    "{output}"
+                );
+                let legacy = super::super::canonicalize(&source);
+                assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
+                assert!(
+                    legacy.text.contains(&format!("custom[{normalized}]")),
+                    "{}",
+                    legacy.text
+                );
+                assert_eq!(super::super::canonicalize(&legacy.text).text, legacy.text);
+            }
+        }
+        let mut limits = options();
+        limits.limits.max_clarifier_values = 3;
+        let result = canonicalize_with_options(
+            r#"x:custom["9007199254740993",9007199254740993,1.00]=0"#,
+            &limits,
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(
+            result
+                .text
+                .contains(r#"custom["9007199254740993", 9007199254740993, 1.0]"#)
+        );
     }
 
     #[test]

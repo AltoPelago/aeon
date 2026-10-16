@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { getRepoRoot, resolveCTSPath } from './repo-paths.mjs';
 import renderingFixtures from '../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
+import numericClarifiers from '../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 
 const root = getRepoRoot();
 const manifestPath = path.resolve(resolveCTSPath('cts/canonical/v1/canonical-reference-ordering-cts.v1.next.json'));
@@ -109,6 +110,20 @@ if (backend === 'rust') {
   const sources = [];
   const renderingSources = new Map(renderingFixtures.map(fixture => [fixture.source, fixture.fragment]));
   sources.push(...renderingSources.keys());
+  for (const { raw, normalized } of numericClarifiers) {
+    const numericSources = [
+      `x:custom[${raw}]=${raw}`,
+      `x={n:custom[${raw}]=${raw}}`,
+      `x@{n:custom[${raw}]=${raw}}=0`,
+      `x=[:custom[${raw}]=${raw}]`,
+      `x=(:custom[${raw}]=${raw})`,
+      `x=<tag(:custom[${raw}]=${raw})>`,
+      `x:list<custom[${raw}]>=[${raw}]`,
+      `aeon:header={x:custom[${raw}]=${raw}}`,
+    ];
+    for (const source of numericSources) renderingSources.set(source, `custom[${normalized}]`);
+    sources.push(...numericSources);
+  }
   const headers = [
     { source: 'x@{root={leaf=1}}={leaf@{meta=2}={deep=3}}', paths: ['', '.@.root.leaf', '.leaf', '.leaf.@.meta', '.leaf.deep'] },
     { source: 'x=[@{meta=1}={leaf=2},3]', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },

@@ -11,6 +11,7 @@ import type {
     Binding,
     Value,
     TypeAnnotation,
+    ClarifierValue,
     Attribute,
     AttributeValue,
     ObjectNode,
@@ -48,7 +49,7 @@ import {
     NestingDepthExceededError,
 } from './errors.js';
 import { applyTrimticks } from './trimticks.js';
-import { normalizeNumberLiteral } from './number.js';
+import { normalizeNumberLiteral, formatClarifierValue } from './number.js';
 
 /**
  * Parser options
@@ -456,7 +457,7 @@ class Parser {
         this.advance();
         const name = nameToken.value;
         const genericArgs: string[] = [];
-        const clarifiers: (string | number)[] = [];
+        const clarifiers: ClarifierValue[] = [];
 
         // Parse optional generic args: TypeName<arg1, arg2>
         if (this.check(TokenType.LeftAngle)) {
@@ -589,12 +590,12 @@ class Parser {
     private formatTypeAnnotation(type: TypeAnnotation): string {
         const generics = type.genericArgs.length > 0 ? `<${type.genericArgs.join(', ')}>` : '';
         const clarifiers = type.clarifiers.length > 0
-            ? `[${type.clarifiers.map((value) => typeof value === 'string' ? JSON.stringify(value) : String(value)).join(', ')}]`
+            ? `[${type.clarifiers.map(formatClarifierValue).join(', ')}]`
             : '';
         return `${type.name}${generics}${clarifiers}`;
     }
 
-    private parseClarifierValues(): (string | number)[] {
+    private parseClarifierValues(): ClarifierValue[] {
         if (this.check(TokenType.RightBracket)) {
             throw new SyntaxError(
                 'Datatype clarifier must contain at least one string or number',
@@ -612,7 +613,7 @@ class Parser {
         return values;
     }
 
-    private parseClarifierValue(): string | number {
+    private parseClarifierValue(): ClarifierValue {
         const token = this.peek();
         if (token.type === TokenType.String) {
             this.advance();
@@ -620,7 +621,7 @@ class Parser {
         }
         if (token.type === TokenType.Number) {
             this.advance();
-            return Number(token.value.replace(/_/g, ''));
+            return this.createNumberLiteral(token);
         }
         throw new SyntaxError(
             'Expected clarifier value',

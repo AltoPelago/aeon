@@ -1,3 +1,11 @@
+import type { NumberLiteral } from './ast.js';
+
+/** Format a datatype clarifier without converting exact literals to Number. */
+export function formatClarifierValue(value: string | number | Pick<NumberLiteral, 'type' | 'value'>): string {
+    if (typeof value === 'string') return JSON.stringify(value);
+    return normalizeNumberLiteral(typeof value === 'number' ? String(value) : value.value);
+}
+
 function trimTrailingZeros(value: string): string {
     let end = value.length;
     while (end > 0 && value[end - 1] === '0') end -= 1;

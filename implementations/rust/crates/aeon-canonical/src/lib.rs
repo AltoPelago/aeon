@@ -1239,7 +1239,19 @@ fn is_valid_second(value: u32) -> bool {
 }
 
 fn normalize_datatype(raw: &str) -> String {
-    raw.replace(',', ", ")
+    // Preserve quoted payloads while applying value-number normalization to
+    // numeric datatype tokens. Do not parse them through host floats.
+    let lexed = aeon_core::tokenize(raw, aeon_core::LexerOptions::default());
+    let mut result = String::new();
+    for token in lexed.tokens {
+        match token.kind {
+            aeon_core::TokenKind::Eof => {}
+            aeon_core::TokenKind::Number => result.push_str(&normalize_number(&token.text)),
+            aeon_core::TokenKind::Comma => result.push_str(", "),
+            _ => result.push_str(&token.text),
+        }
+    }
+    result
 }
 
 fn normalize_raw(raw: &str) -> String {

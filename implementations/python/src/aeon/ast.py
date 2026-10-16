@@ -11,7 +11,9 @@ from .spans import Span
 class TypeAnnotation:
     name: str
     generic_args: list[str]
-    clarifiers: list[str | int | float]
+    # Numeric source clarifiers use the same exact AST nodes as value numbers.
+    # Native numbers remain accepted in caller-constructed annotations.
+    clarifiers: list[str | int | float | NumberLiteral]
     span: Span
 
 

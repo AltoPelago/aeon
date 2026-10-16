@@ -65,6 +65,14 @@ Canonical formatting:
 - module: `aeon.canonical`
 - primary entry point: `canonicalize(source) -> CanonicalResult`
 
+Numeric datatype clarifiers in the pure-Python AST use `NumberLiteral`
+nodes with exact normalized `value` text, source `raw` text, and a token
+`span`, matching numeric values. Serialized nested ASTs retain that tagged
+shape. String clarifiers remain strings; caller-constructed annotations
+still accept native integers and floats. Native floats cannot recover
+precision already lost before the call. Portable AES uses its existing
+`NumberLiteral`/`StringLiteral` tags with string payloads.
+
 Limits and policy:
 
 - module: `aeon.limits`

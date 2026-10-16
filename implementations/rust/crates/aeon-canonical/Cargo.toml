@@ -12,6 +12,9 @@ aes-telex.workspace = true
 aeon-core.workspace = true
 serde_json = "1.0.150"
 
+[dev-dependencies]
+aeon-core = { workspace = true, features = ["sofia"] }
+
 [lib]
 path = "src/lib.rs"
 

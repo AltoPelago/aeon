@@ -6,6 +6,7 @@ import re
 from typing import Iterable
 
 from ._compat import dataclass
+from ._numbers import format_clarifier
 MAX_SAFE_INTEGER = 9007199254740991
 RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children", "__proto__", "constructor", "prototype"}
 
@@ -822,7 +823,7 @@ def render_datatype(datatype: object) -> str | None:
     suffix = ""
     clarifiers = datatype.get("clarifiers")
     if isinstance(clarifiers, list):
-        suffix = "[" + ", ".join(format_clarifier(item) for item in clarifiers if isinstance(item, (str, int, float))) + "]" if clarifiers else ""
+        suffix = "[" + ", ".join(format_clarifier(item) for item in clarifiers) + "]" if clarifiers else ""
     else:
         radix_base = datatype.get("radixBase")
         radix = f"[{radix_base}]" if isinstance(radix_base, int) else ""
@@ -831,12 +832,6 @@ def render_datatype(datatype: object) -> str | None:
             suffix = "".join(f"[{item}]" for item in separators if isinstance(item, str))
         suffix = f"{radix}{suffix}"
     return f"{name}{generic}{suffix}"
-
-
-def format_clarifier(value: str | int | float) -> str:
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
 
 
 def exceeds_declared_radix(value: str, base: int) -> bool:

@@ -1,5 +1,5 @@
 import { tokenize, type Span } from '@altopelago/aeon-lexer';
-import { parse, type ASTNode, type Document, type ParserError, type Value, type Binding, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
+import { parse, type ASTNode, type Document, type ParserError, type Value, type Binding, type Attribute, type AttributeValue, type TypeAnnotation } from '@altopelago/aeon-parser';
 import { buildParserCorpus } from './corpus.js';
 import { createPrng } from './prng.js';
 import type { FuzzRunOptions, FuzzRunSummary } from './lexer-fuzz.js';
@@ -144,13 +144,13 @@ function normalizeNode(node: ASTNode): object {
             };
         }
         case 'TypeAnnotation': {
-            const typeAnnotation = node as { type: 'TypeAnnotation'; name: string; genericArgs: readonly string[]; clarifiers: readonly (string | number)[]; span: Span };
+            const typeAnnotation = node as TypeAnnotation;
             return {
                 type: typeAnnotation.type,
                 span: normalizeSpan(typeAnnotation.span),
                 name: typeAnnotation.name,
                 genericArgs: [...typeAnnotation.genericArgs],
-                clarifiers: [...typeAnnotation.clarifiers],
+                clarifiers: typeAnnotation.clarifiers.map(value => typeof value === 'object' ? normalizeValue(value) : value),
             };
         }
         case 'Attribute': {
@@ -274,8 +274,12 @@ function validateNode(node: ASTNode, parentSpan: Span, sourceLength: number, cas
             validateValue(binding.value, binding.span, sourceLength, caseId);
             return;
         }
-        case 'TypeAnnotation':
+        case 'TypeAnnotation': {
+            for (const value of (node as TypeAnnotation).clarifiers) {
+                if (typeof value === 'object') validateValue(value, node.span, sourceLength, caseId);
+            }
             return;
+        }
         case 'Attribute': {
             const attribute = node as Attribute;
             for (const [, entry] of attribute.entries.entries()) {

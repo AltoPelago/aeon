@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
+import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes } from '@altopelago/aeon-aes';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
@@ -8,6 +9,67 @@ import { canonicalize } from './index.js';
 import { compareScalarKeys, referenceSafeOrders, reorderDocument } from './ordering.js';
 
 const options = { ordering: 'reference-safe-v1' as const, maxAttributeDepth: 2 };
+
+for (const { raw, normalized } of numericClarifiers) {
+    test(`numeric clarifiers use value-number rules: ${raw}`, () => {
+        const sources = [
+            `x:custom[${raw}]=${raw}`,
+            `x={n:custom[${raw}]=${raw}}`,
+            `x@{n:custom[${raw}]=${raw}}=0`,
+            `x=[:custom[${raw}]=${raw}]`,
+            `x=(:custom[${raw}]=${raw})`,
+            `x=<tag(:custom[${raw}]=${raw})>`,
+            `x:list<custom[${raw}]>=[${raw}]`,
+            `aeon:header={x:custom[${raw}]=${raw}}`,
+        ];
+        for (const source of sources) {
+            const authored = source.startsWith('aeon:header=') ? source : `aeon:header={}\n${source}`;
+            for (const ordering of ['lexical-v1', 'reference-safe-v1'] as const) {
+                const result = canonicalize(authored, { ...options, ordering });
+                assert.deepEqual(result.errors, [], source);
+                assert.ok(result.text.includes(`custom[${normalized}]`), result.text);
+                assert.equal(canonicalize(result.text, { ...options, ordering }).text, result.text);
+                assert.deepEqual(semanticGraph(result.text), semanticGraph(authored));
+            }
+        }
+        const parsed = document(`x:custom[${raw}]=${raw}`);
+        const binding = parsed.bindings[0]!;
+        const clarifier = binding.datatype!.clarifiers[0]!;
+        assert.equal(typeof clarifier, 'object');
+        assert.ok(typeof clarifier === 'object');
+        assert.equal(clarifier.type, 'NumberLiteral');
+        assert.equal(clarifier.raw, raw);
+        assert.equal(clarifier.value, normalized);
+        assert.equal(binding.value.type, 'NumberLiteral');
+        assert.ok(binding.value.type === 'NumberLiteral');
+        assert.equal(clarifier.value, binding.value.value);
+        const projected = semanticGraph(`aeon:header={}\nx:custom[${raw}]=${raw}`).find(event => event.path === '$.x');
+        assert.deepEqual(projected?.clarifiers, [{ kind: 'NumberLiteral', value: normalized }]);
+        assert.equal(projected?.value, normalized);
+    });
+}
+
+test('numeric clarifiers remain distinct from quoted strings and preserve ordering', () => {
+    const source = 'x:custom["9007199254740993", 9007199254740993, 1.00]=0';
+    const result = canonicalize(source, { ...options, maxClarifierValues: 3 });
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.text.includes('custom["9007199254740993", 9007199254740993, 1.0]'));
+    const parsed = parse(tokenize(result.text).tokens, { maxClarifierValues: 3 });
+    assert.deepEqual(parsed.errors, []);
+    const values = parsed.document!.bindings[0]!.datatype!.clarifiers;
+    assert.equal(values[0], '9007199254740993');
+    assert.deepEqual(values.slice(1).map(value => typeof value === 'object' ? value.value : value), ['9007199254740993', '1.0']);
+});
+
+test('malformed numeric clarifiers retain value-number syntax rejection', () => {
+    for (const raw of ['1.', '1e', '1e+', '1__0', '--1', '1..2', '0x10']) {
+        for (const source of [`x=${raw}`, `x:custom[${raw}]=0`]) {
+            const result = canonicalize(source, options);
+            assert.notEqual(result.errors.length, 0, source);
+            assert.equal(result.text, '');
+        }
+    }
+});
 
 function document(source: string) {
     const lex = tokenize(source);

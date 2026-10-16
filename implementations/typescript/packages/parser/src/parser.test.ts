@@ -1308,7 +1308,7 @@ b = [\A1\ = 2]`).tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [2]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['2']);
         });
 
         it('should enforce max_clarifier_values policy', () => {
@@ -1333,7 +1333,7 @@ b = [\A1\ = 2]`).tokens;
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'radix');
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [10]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['10']);
         });
 
         it('should treat uppercase Radix brackets as custom datatype clarifiers', () => {
@@ -1342,7 +1342,7 @@ b = [\A1\ = 2]`).tokens;
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'Radix');
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [10]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['10']);
         });
 
         it('should reject radix generic parameter syntax', () => {
@@ -1358,7 +1358,7 @@ b = [\A1\ = 2]`).tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [65]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['65']);
         });
 
         it('should reject empty radix base brackets', () => {
@@ -1414,7 +1414,7 @@ b = [\A1\ = 2]`).tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [333]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['333']);
         });
 
         it('should preserve clarifiers on fixed-base radix aliases without assigning meaning', () => {
@@ -1422,7 +1422,7 @@ b = [\A1\ = 2]`).tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [4]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['4']);
         });
 
         it('should preserve clarifiers on compact reserved aliases', () => {
@@ -1431,7 +1431,7 @@ b = [\A1\ = 2]`).tokens;
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.document!.bindings[0]!.datatype!.name, 'n');
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers, [10]);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['10']);
         });
     });
 

@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
+import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -13,6 +14,29 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm preserves exact numeric clarifiers in canonical and streaming output', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const { raw, normalized } of numericClarifiers) {
+    const source = `x:custom[${raw}]=${raw}`;
+    const result = runtime.processAeon(source, { validationMode: 'loose', finalize: false });
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.events[0]?.datatype, `custom[${normalized}]`);
+    const canonical = runtime.processAeon(source, { validationMode: 'none', finalize: false });
+    assert.deepEqual(canonical.errors, []);
+    assert.ok(canonical.canonical.text.includes(`custom[${normalized}]`), canonical.canonical.text);
+    for (let split = 0; split <= source.length; split += 1) {
+      const stream = runtime.createAeonStream({ validationMode: 'loose' });
+      assert.equal(stream.push(source.slice(0, split)).accepted, true);
+      assert.equal(stream.push(source.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      const events: EventSummary[] = [];
+      for (let batch = stream.pullBatch(); batch !== null; batch = stream.pullBatch()) events.push(...batch.events);
+      assert.equal(events[0]?.datatype, `custom[${normalized}]`, `${raw}, split=${split}`);
+      assert.equal(stream.takeTerminal().status, 'accepted', `${raw}, split=${split}`);
+    }
+  }
+});
 
 test('generated wasm retains quoted datatype whitespace across every chunk split', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
