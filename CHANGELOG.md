@@ -23,6 +23,12 @@ repositories.
 
 ### Fixed
 
+- GP clarifier rules now validate body attribute metadata, including nested
+  attributes, metadata-owned objects and collections, anonymous item heads,
+  and node-head attributes. Diagnostics retain distinct key/tag ownership,
+  exact quoted keys, authored metadata order, and fail-closed behaviour in
+  normal, compact, native-Python, and WASM streaming compilation. Core-only
+  acceptance and the existing header-control validation scope are unchanged.
 - GP radix-base validation now uses exact numeric values in TypeScript, Rust,
   and Python. Integral decimal and exponent clarifiers such as `2.00` and
   `2e0` are accepted; genuinely fractional values such as `2.0000000000000001`

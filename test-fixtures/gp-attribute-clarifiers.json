@@ -1,0 +1,462 @@
+[
+  {
+    "id": "binding-invalid",
+    "source": "mask@{base:radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "binding-valid",
+    "source": "mask@{base:radix[2e0]=%1}:n=0",
+    "errors": []
+  },
+  {
+    "id": "object-payload-invalid",
+    "source": "mask:object={inner@{base:radix[2.5]=%1}:n=0}",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.inner.@.base"
+      }
+    ]
+  },
+  {
+    "id": "object-payload-valid",
+    "source": "mask:object={inner@{base:radix[2e0]=%1}:n=0}",
+    "errors": []
+  },
+  {
+    "id": "nested-attributes-invalid",
+    "source": "mask@{meta@{base:radix[2.5]=%1}:n=0}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta.@.base"
+      }
+    ]
+  },
+  {
+    "id": "nested-attributes-valid",
+    "source": "mask@{meta@{base:radix[2e0]=%1}:n=0}:n=0",
+    "errors": []
+  },
+  {
+    "id": "attribute-object-invalid",
+    "source": "mask@{meta:object={base:radix[2.5]=%1}}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta.base"
+      }
+    ]
+  },
+  {
+    "id": "attribute-object-valid",
+    "source": "mask@{meta:object={base:radix[2e0]=%1}}:n=0",
+    "errors": []
+  },
+  {
+    "id": "attribute-list-invalid",
+    "source": "mask@{meta:list=[:radix[2.5]=%1]}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta[0]"
+      }
+    ]
+  },
+  {
+    "id": "attribute-list-valid",
+    "source": "mask@{meta:list=[:radix[2e0]=%1]}:n=0",
+    "errors": []
+  },
+  {
+    "id": "attribute-tuple-invalid",
+    "source": "mask@{meta:tuple=(:radix[2.5]=%1)}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta[0]"
+      }
+    ]
+  },
+  {
+    "id": "attribute-tuple-valid",
+    "source": "mask@{meta:tuple=(:radix[2e0]=%1)}:n=0",
+    "errors": []
+  },
+  {
+    "id": "attribute-node-child-invalid",
+    "source": "mask@{meta:node=<tag(:radix[2.5]=%1)>}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta[0][0]"
+      }
+    ]
+  },
+  {
+    "id": "attribute-node-child-valid",
+    "source": "mask@{meta:node=<tag(:radix[2e0]=%1)>}:n=0",
+    "errors": []
+  },
+  {
+    "id": "attribute-node-head-invalid",
+    "source": "mask@{meta:node=<tag@{base:radix[2.5]=%1}>}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "attribute-node-head-valid",
+    "source": "mask@{meta:node=<tag@{base:radix[2e0]=%1}>}:n=0",
+    "errors": []
+  },
+  {
+    "id": "payload-list-invalid",
+    "source": "mask:list=[@{base:radix[2.5]=%1}:n=0]",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-list-valid",
+    "source": "mask:list=[@{base:radix[2e0]=%1}:n=0]",
+    "errors": []
+  },
+  {
+    "id": "payload-tuple-invalid",
+    "source": "mask:tuple=(@{base:radix[2.5]=%1}:n=0)",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-tuple-valid",
+    "source": "mask:tuple=(@{base:radix[2e0]=%1}:n=0)",
+    "errors": []
+  },
+  {
+    "id": "payload-node-head-invalid",
+    "source": "mask:node=<tag@{base:radix[2.5]=%1}>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-node-head-valid",
+    "source": "mask:node=<tag@{base:radix[2e0]=%1}>",
+    "errors": []
+  },
+  {
+    "id": "payload-node-child-invalid",
+    "source": "mask:node=<tag(@{base:radix[2.5]=%1}:n=0)>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0][0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-node-child-valid",
+    "source": "mask:node=<tag(@{base:radix[2e0]=%1}:n=0)>",
+    "errors": []
+  },
+  {
+    "id": "attribute-generic-invalid",
+    "source": "mask@{base:list<radix[2.5]>=[]}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "attribute-generic-valid",
+    "source": "mask@{base:list<radix[2e0]>=[]}:n=0",
+    "errors": []
+  },
+  {
+    "id": "object-in-attribute-list-invalid",
+    "source": "mask@{meta:list=[{base:radix[2.5]=%1}]}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta[0].base"
+      }
+    ]
+  },
+  {
+    "id": "object-in-attribute-list-valid",
+    "source": "mask@{meta:list=[{base:radix[2e0]=%1}]}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-28",
+    "source": "mask@{base:radix[\"2\"]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-29",
+    "source": "mask@{base:radix[2, 10]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-30",
+    "source": "mask@{base:radix[2.0000000000000001]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-31",
+    "source": "mask@{base:decimal[2]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-32",
+    "source": "mask@{base:symbol[\"state\"]=|approved|}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-33",
+    "source": "mask@{base:sep[2]=^1.2}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-34",
+    "source": "mask@{base:encoding[58]=&FFF}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-35",
+    "source": "mask@{base:custom[2]=1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "shape-36",
+    "source": "mask@{base:bits[2]=%1}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-37",
+    "source": "mask@{base:Radix[\"2\"]=%1}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-38",
+    "source": "mask@{base:sep[\".\"]=^1.2}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-39",
+    "source": "mask@{base:encoding[\"base58\"]=&FFF}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-40",
+    "source": "mask@{base:custom[\"hint\"]=^1.2}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-41",
+    "source": "mask@{base:custom[\"hint\"]=%1}:n=0",
+    "errors": []
+  },
+  {
+    "id": "shape-42",
+    "source": "mask@{base:custom[\"hint\"]=|approved|}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "quoted-key-43",
+    "source": "mask@{\"literal.@key\":radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.[\"literal.@key\"]"
+      }
+    ]
+  },
+  {
+    "id": "quoted-key-44",
+    "source": "mask@{\"a\\\\b\":radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.[\"a\\\\b\"]"
+      }
+    ]
+  },
+  {
+    "id": "quoted-key-45",
+    "source": "mask@{\"a\\\"b\":radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.[\"a\\\"b\"]"
+      }
+    ]
+  },
+  {
+    "id": "quoted-key-46",
+    "source": "mask@{\"雪\":radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.[\"雪\"]"
+      }
+    ]
+  },
+  {
+    "id": "key-and-tag-metadata-remain-distinct",
+    "source": "mask@{base:radix[2.5]=%1}:node=<tag@{base:radix[2.5]=%1}>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      },
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "authored-metadata-order-not-lexical",
+    "source": "mask@{z:radix[2.5]=%1,a:radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.z"
+      },
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.a"
+      }
+    ]
+  },
+  {
+    "id": "untyped-owner-still-validates-metadata",
+    "source": "mask@{base:radix[2.5]=%1}=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-errors-precede-metadata-errors",
+    "source": "first@{base:radix[2.5]=%1}:n[3]=0\nsecond@{base:radix[2.5]=%1}:n[3]=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.first"
+      },
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.second"
+      },
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.first.@.base"
+      },
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.second.@.base"
+      }
+    ]
+  },
+  {
+    "id": "control-key-51",
+    "source": "mask@{\"line\\nbreak\":radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.[\"line\\nbreak\"]"
+      }
+    ]
+  },
+  {
+    "id": "control-key-52",
+    "source": "mask@{\"tab\\tkey\":radix[2.5]=%1}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.[\"tab\\tkey\"]"
+      }
+    ]
+  },
+  {
+    "id": "metadata-node-head-generic",
+    "source": "mask@{meta:node=<tag:node<radix[2.5]>>}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.meta[0]"
+      }
+    ]
+  }
+]

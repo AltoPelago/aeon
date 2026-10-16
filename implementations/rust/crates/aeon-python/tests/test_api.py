@@ -10,6 +10,24 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_gp_validates_attribute_metadata(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
+        for fixture in fixtures:
+            with self.subTest(case=fixture["id"]):
+                source = 'aeon:profile="aeon.gp.profile.v1"\n' + fixture["source"]
+                result = json.loads(_native.compile_cts_json(source, rich=True, max_attribute_depth=2, max_separator_depth=2))
+                self.assertEqual(fixture["errors"], [{"code": e["code"], "path": e["path"]} for e in result["errors"]])
+                # The public API keeps the default one-clarifier limit; test
+                # the multi-clarifier shape above through the CTS limit hook.
+                if 'radix[2, 10]' in source:
+                    continue
+                if fixture["errors"]:
+                    with self.assertRaises(aeon.CompileError) as raised:
+                        pytonic.loads(source, datatype_policy="allow_custom", max_attribute_depth=2)
+                    self.assertEqual(fixture["errors"], [{"code": e.code, "path": e.path} for e in raised.exception.diagnostics])
+                else:
+                    pytonic.loads(source, datatype_policy="allow_custom", max_attribute_depth=2)
+
     def test_gp_uses_exact_numeric_radix_bases(self) -> None:
         root = Path(__file__).resolve().parents[5] / "test-fixtures"
         fixtures = json.loads((root / "radix-bases.json").read_text())

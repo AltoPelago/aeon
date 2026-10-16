@@ -1,4 +1,5 @@
-import { aeonRadixBaseFromNumber, type AesNumberLiteral, type AssignmentEvent } from '@altopelago/aeon-aes';
+import { aeonRadixBaseFromNumber, formatPath, type AesNumberLiteral, type AssignmentEvent, type AttributeEntry, type TypeAnnotation } from '@altopelago/aeon-aes';
+import type { Span } from '@altopelago/aeon-lexer';
 import type { CompileCtx, DatatypeSemantics } from '../types.js';
 
 interface ParsedDatatype {
@@ -17,6 +18,89 @@ export function validateDatatypeSemantics(
         const parsed = parseDatatype(event.datatype);
         if (!parsed) continue;
         validateParsedDatatype(parsed, semantics, ctx, event.normalizedPath, event.value.type);
+    }
+    validateMetadata(aes, semantics, ctx);
+}
+
+type Value = AssignmentEvent['value'];
+type Attributes = Extract<Value, { type: 'TypedValue' }>['attributes'];
+
+function parsedAnnotation(annotation: TypeAnnotation | null): ParsedDatatype | null {
+    if (annotation === null) return null;
+    return {
+        name: annotation.name,
+        args: annotation.genericArgs.map(parseDatatype).filter((arg): arg is ParsedDatatype => arg !== null),
+        clarifiers: annotation.clarifiers.map(value => typeof value === 'string' ? value
+            : { kind: 'NumberLiteral', value: typeof value === 'number' ? String(value) : value.value }),
+    };
+}
+
+/** Payload descendants already have events; metadata descendants do not.
+ * Walk each authored body root once, independently of metadata projection. */
+function validateMetadata(aes: readonly AssignmentEvent[], semantics: Readonly<Record<string, DatatypeSemantics>>, ctx: Pick<CompileCtx, 'error'>): void {
+    interface Task {
+        value: Value;
+        path: string;
+        metadata: boolean;
+        datatype?: ParsedDatatype | null;
+        attributes?: Attributes;
+        annotations?: ReadonlyMap<string, AttributeEntry> | undefined;
+        span?: Span;
+    }
+    const member = (path: string, key: string) => path + formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
+    const body = aes.filter(event => event.sourcePlane !== 'header');
+    const paths = new Set(body.map(event => formatPath(event.path)));
+    const tasks: Task[] = [];
+    for (const event of [...body].reverse()) {
+        // Core emits every payload ancestor; checking the immediate parent
+        // avoids repeatedly formatting all prefixes of a deep path.
+        const nested = paths.has(formatPath({ segments: event.path.segments.slice(0, -1) }));
+        if (!nested) tasks.push({ value: event.value, path: formatPath(event.path), metadata: false, annotations: event.annotations, span: event.span });
+    }
+    function check(datatype: ParsedDatatype | null | undefined, value: Value, path: string, span?: Span): void {
+        while (value.type === 'TypedValue') value = value.value;
+        if (datatype) validateParsedDatatype(datatype, semantics, { error: diagnostic => ctx.error({ ...diagnostic, ...(span ? { span } : {}) }) }, path, value.type);
+    }
+    function attributes(entries: Attributes | undefined, path: string): void {
+        for (const block of [...(entries ?? [])].reverse()) {
+            for (const [key, entry] of [...block.entries].reverse()) {
+                tasks.push({ value: entry.value, path: member(`${path}.@`, key), metadata: true, datatype: parsedAnnotation(entry.datatype), attributes: entry.attributes, span: entry.span ?? entry.value.span });
+            }
+        }
+    }
+    while (tasks.length) {
+        const task = tasks.pop()!;
+        const { value, path, metadata } = task;
+        if (metadata) check(task.datatype, value, path, task.span);
+        switch (value.type) {
+            case 'TypedValue':
+                if (metadata) check(parsedAnnotation(value.datatype), value.value, path, value.span);
+                tasks.push({ value: value.value, path, metadata });
+                attributes(value.attributes, path);
+                break;
+            case 'ObjectNode':
+                for (const binding of [...value.bindings].reverse()) {
+                    tasks.push({ value: binding.value, path: member(path, binding.key), metadata, datatype: metadata ? parsedAnnotation(binding.datatype) : null, attributes: binding.attributes, span: binding.span });
+                }
+                attributes(value.attributes, path);
+                break;
+            case 'ListNode':
+            case 'TupleLiteral':
+                for (let index = value.elements.length - 1; index >= 0; index--) tasks.push({ value: value.elements[index]!, path: `${path}[${index}]`, metadata });
+                attributes(value.attributes, path);
+                break;
+            case 'NodeLiteral': {
+                const head = `${path}[0]`;
+                if (metadata) check(parsedAnnotation(value.datatype), value, head, value.headSpan ?? value.span);
+                for (let index = value.children.length - 1; index >= 0; index--) tasks.push({ value: value.children[index]!, path: `${head}[${index}]`, metadata });
+                attributes(value.attributes, head);
+                break;
+            }
+        }
+        attributes(task.attributes, path);
+        for (const [key, entry] of [...(task.annotations ?? [])].reverse()) {
+            tasks.push({ value: entry.value, path: member(`${path}.@`, key), metadata: true, datatype: entry.datatype ? parseDatatype(entry.datatype) : null, annotations: entry.annotations, span: entry.span ?? entry.value.span });
+        }
     }
 }
 
