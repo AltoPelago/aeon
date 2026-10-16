@@ -2886,6 +2886,290 @@ mod tests {
     }
 
     #[test]
+    fn authored_reference_occurrences_match_across_compile_profiles() {
+        // Public API regressions mirrored in test-fixtures/reference-authored-order.json.
+        // Keep these inline so published crate tests do not depend on repository-only files.
+        let cases: &[(&str, &str, usize, &[&str])] = &[
+            (
+                "object-forward",
+                r###"a = { b = ~a.z, z = 1 }"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            ("object-backward", r###"a = { z = 1, b = ~a.z }"###, 1, &[]),
+            (
+                "attribute-forward",
+                r###"a@{b = ~a.@.z, z = 1} = 0"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "attribute-backward",
+                r###"a@{z = 1, b = ~a.@.z} = 0"###,
+                1,
+                &[],
+            ),
+            (
+                "attribute-pointer-forward",
+                r###"a@{b = ~>a.@.z, z = 1} = 0"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "attribute-pointer-backward",
+                r###"a@{z = 1, b = ~>a.@.z} = 0"###,
+                1,
+                &[],
+            ),
+            (
+                "attribute-self",
+                r###"a@{x = ~a.@.x} = 0"###,
+                1,
+                &["SELF_REFERENCE"],
+            ),
+            (
+                "attribute-own-payload",
+                r###"a@{x = ~a} = 0"###,
+                1,
+                &["SELF_REFERENCE"],
+            ),
+            (
+                "payload-own-earlier-attribute",
+                r###"a@{x = 1} = ~a.@.x"###,
+                1,
+                &[],
+            ),
+            (
+                "attribute-missing",
+                r###"a@{b = ~a.@.missing} = 0"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "attribute-object-forward",
+                r###"a@{meta = { b = ~a.@.meta.z, z = 1 }} = 0"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "attribute-object-backward",
+                r###"a@{meta = { z = 1, b = ~a.@.meta.z }} = 0"###,
+                1,
+                &[],
+            ),
+            (
+                "attribute-list-forward",
+                r###"a@{items = [~a.@.items[1], 7]} = 0"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "attribute-list-backward",
+                r###"a@{items = [7, ~a.@.items[0]]} = 0"###,
+                1,
+                &[],
+            ),
+            (
+                "node-head-forward",
+                r###"a = <tag@{b = ~a.@.z, z = 1}>"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "node-head-backward",
+                r###"a = <tag@{z = 1, b = ~a.@.z}>"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "anonymous-head-forward",
+                r###"a = [@{b = ~a[0].@.z, z = 1} = 0]"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "anonymous-head-backward",
+                r###"a = [@{z = 1, b = ~a[0].@.z} = 0]"###,
+                1,
+                &[],
+            ),
+            (
+                "quoted-key-forward",
+                r###""literal.@key"@{b = ~["literal.@key"].@.["z.z"], "z.z" = 1} = 0"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "quoted-key-backward",
+                r###""literal.@key"@{"z.z" = 1, b = ~["literal.@key"].@.["z.z"]} = 0"###,
+                1,
+                &[],
+            ),
+            (
+                "quoted-payload-not-attribute",
+                r###""literal.@key" = 7
+copy = ~["literal.@key"]"###,
+                1,
+                &[],
+            ),
+            (
+                "nested-attribute-forward",
+                r###"a@{b = ~a.@.z.@.q, z@{q = 7} = 1} = 0"###,
+                2,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "nested-attribute-backward",
+                r###"a@{z@{q = 7} = 1, b = ~a.@.z.@.q} = 0"###,
+                2,
+                &[],
+            ),
+            (
+                "nested-attribute-own-payload",
+                r###"a@{b@{x = ~a.@.b} = 1} = 0"###,
+                2,
+                &["SELF_REFERENCE"],
+            ),
+            (
+                "attribute-reference-shaped-data",
+                r###"a@{b = "~a.@.z", s = |~a.@.z|, z = 1} = 0"###,
+                1,
+                &[],
+            ),
+            ("ancestor-object", r###"a = { child = ~a }"###, 1, &[]),
+            (
+                "node-child-error-once",
+                r###"a = <tag(~missing)>"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "anonymous-head-own-payload",
+                r###"a = [@{b = ~a[0]} = 1]"###,
+                1,
+                &["SELF_REFERENCE"],
+            ),
+            (
+                "node-head-key-attribute-distinct",
+                r###"a@{b = 7} = <tag@{b = ~a.@.b}>"###,
+                1,
+                &[],
+            ),
+            (
+                "node-head-external-backward",
+                r###"z = 7
+a = <tag@{b = ~z}>"###,
+                1,
+                &[],
+            ),
+            (
+                "node-head-external-forward",
+                r###"a = <tag@{b = ~z}>
+z = 7"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "nested-payload-own-earlier-attribute",
+                r###"a@{b@{x = 1} = ~a.@.b.@.x} = 0"###,
+                2,
+                &[],
+            ),
+            (
+                "nested-attribute-later-payload-member",
+                r###"a@{b@{x = ~a.@.b.z} = {z = 1}} = 0"###,
+                2,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "attribute-ancestor-object",
+                r###"a@{b = {z = ~a.@.b}} = 0"###,
+                1,
+                &[],
+            ),
+            (
+                "node-head-nested-list-reference",
+                r###"a = <tag@{b = [~missing]}>"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "node-head-nested-object-reference",
+                r###"a = <tag@{b = {c = ~missing}}>"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "object-member-attribute-error-once",
+                r###"a = {b@{x = ~missing} = 1}"###,
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+            (
+                "anonymous-tuple-head-forward",
+                r###"a = (@{b = ~a[0].@.z, z = 1} = 0)"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "anonymous-node-child-head-forward",
+                r###"a = <tag(@{b = ~a[0].@.z, z = 1} = 0)>"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "quoted-attribute-own-payload",
+                r###""literal.@key"@{b = ~["literal.@key"]} = 0"###,
+                1,
+                &["SELF_REFERENCE"],
+            ),
+            (
+                "node-head-not-binding-target",
+                "a = <tag@{z = 1}>\nb = ~a.@.z",
+                1,
+                &["MISSING_REFERENCE_TARGET"],
+            ),
+        ];
+        for &(name, source, depth, expected) in cases {
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.to_owned(),
+                        CompileOptions {
+                            max_attribute_depth: depth,
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    let codes = result
+                        .errors
+                        .iter()
+                        .map(|error| error.code.as_str())
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        codes, expected,
+                        "{name}, {implementation:?}, validation_only={validation_only}"
+                    );
+                    if !expected.is_empty() {
+                        assert!(result.events.is_empty(), "{name} must fail closed");
+                        for error in &result.errors {
+                            let span = error.span.expect("reference diagnostic span");
+                            assert!(
+                                source[span.start.offset..span.end.offset].starts_with('~'),
+                                "{name}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn supports_allow_custom_datatypes() {
         let result = compile(
             "color:stroke = #ff00ff",
