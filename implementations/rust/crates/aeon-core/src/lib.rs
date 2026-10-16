@@ -3,6 +3,7 @@
 mod document;
 mod engine;
 mod flatten;
+mod gp_attributes;
 mod header;
 mod lexer;
 mod limits;
@@ -27,6 +28,7 @@ pub use engine::{
     EventBatch, EventBatches, SourceRetention,
 };
 use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
+use gp_attributes::validate_gp_attribute_clarifiers;
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
@@ -1213,6 +1215,7 @@ fn finalize_compile(
                 &mut errors,
             );
         }
+        validate_gp_attribute_clarifiers(&bindings, &mut errors);
     }
     validate_compact_reference_steps(
         &flattened.reference_steps,
@@ -1308,6 +1311,7 @@ fn validate_only_compile(
     );
     if uses_gp_profile(options.profile.as_deref(), &bindings) {
         validate_gp_validation_datatype_clarifiers(&flattened.events, &mut errors);
+        validate_gp_attribute_clarifiers(&bindings, &mut errors);
     }
     trace_compile("compile:validation_only:references");
     validate_compact_reference_steps(

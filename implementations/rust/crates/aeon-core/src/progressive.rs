@@ -25,7 +25,7 @@ use crate::{
     CompileResult, Diagnostic, EventBatch, EventBatches, SourcePlane, SourceRetention, Value,
     compile_owned_sofia_whole, compile_owned_with_implementation, compile_portability_warnings,
     event_count_exceeded_error, format_path, input_size_diagnostic_for_len,
-    validate_gp_datatype_clarifiers,
+    validate_gp_attribute_clarifiers, validate_gp_datatype_clarifiers,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +142,7 @@ struct ProgressiveValidationState {
     datatype_event_errors: ModeOrderedDiagnosticLedger,
     datatype_attribute_errors: ModeDiagnosticLedger,
     gp_profile_errors: Vec<Diagnostic>,
+    gp_attribute_errors: Vec<Diagnostic>,
     reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
     datatype_targets: HashMap<String, CompactDatatypeValue>,
     reference_targets: HashSet<String>,
@@ -191,6 +192,7 @@ impl ProgressiveValidationState {
             datatype_event_errors: ModeOrderedDiagnosticLedger::default(),
             datatype_attribute_errors: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
+            gp_attribute_errors: Vec::new(),
             reference_datatype_claims: Vec::new(),
             datatype_targets: HashMap::new(),
             reference_targets: HashSet::new(),
@@ -207,6 +209,7 @@ impl ProgressiveValidationState {
     }
 
     fn observe_bindings(&mut self, bindings: &[Binding]) {
+        validate_gp_attribute_clarifiers(bindings, &mut self.gp_attribute_errors);
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
         }
@@ -370,6 +373,7 @@ impl ProgressiveValidationState {
         errors.extend(self.effective_datatype_attribute_errors().iter().cloned());
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.gp_profile_errors.iter().cloned());
+            errors.extend(self.gp_attribute_errors.iter().cloned());
         }
         errors.extend(self.reference_errors());
         errors.extend(self.effective_typed_mode_errors().iter().cloned());
@@ -497,6 +501,7 @@ impl ProgressiveValidationState {
             retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
                 + self.datatype_attribute_errors.retained_error_count()
                 + self.gp_profile_errors.len()
+                + self.gp_attribute_errors.len()
                 + self.typed_mode_errors.retained_error_count(),
             event_count: self.event_count,
             seen_path_count: self.seen_event_paths.len(),
@@ -3502,6 +3507,20 @@ mod tests {
                 CompileOptions::default(),
             ),
             ("GP profile option", "value:n[3] = 3", gp_option),
+            (
+                "late GP metadata validation",
+                "value@{base:radix[2.5]=%1}:n=0\naeon:profile=\"aeon.gp.profile.v1\"",
+                CompileOptions::default(),
+            ),
+            (
+                "GP payload errors precede metadata errors across chunks",
+                concat!(
+                    "aeon:profile=\"aeon.gp.profile.v1\"\n",
+                    "first@{base:radix[2.5]=%1}:n[3]=0\n",
+                    "second@{base:radix[2.5]=%1}:n[3]=0",
+                ),
+                CompileOptions::default(),
+            ),
             (
                 "fail-closed duplicate suppresses event datatypes",
                 "same:string = 1\nsame:string = 2",

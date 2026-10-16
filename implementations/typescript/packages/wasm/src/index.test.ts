@@ -9,6 +9,7 @@ import genericArguments from '../../../../../test-fixtures/datatype-generic-argu
 import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
+import gpAttributeFixtures from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -18,6 +19,31 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm validates GP metadata in one-shot and every two-chunk split', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const options = { validationMode: 'loose', datatypePolicy: 'allow_custom', maxAttributeDepth: 2, maxClarifierValues: 2 } as const;
+  for (const fixture of gpAttributeFixtures) {
+    assert.deepEqual(runtime.processAeon(fixture.source, { ...options, finalize: false }).errors, [], fixture.id);
+    for (const source of [`aeon:profile="aeon.gp.profile.v1"\n${fixture.source}`, `${fixture.source}\naeon:profile="aeon.gp.profile.v1"`]) {
+      const result = runtime.processAeon(source, { ...options, finalize: false });
+      assert.deepEqual(result.errors.map(({ code, path }) => ({ code, path })), fixture.errors, fixture.id);
+      for (let split = 0; split <= source.length; split += 1) {
+        const stream = runtime.createAeonStream(options);
+        const drain = () => { while (stream.pullBatch() !== null) { /* drain provisional events */ } };
+        assert.equal(stream.push(source.slice(0, split)).accepted, true);
+        drain();
+        assert.equal(stream.push(source.slice(split)).accepted, true);
+        drain();
+        assert.equal(stream.finish().accepted, true);
+        drain();
+        const terminal = stream.takeTerminal();
+        assert.equal(terminal.status, fixture.errors.length ? 'invalidated' : 'accepted', `${fixture.id}, split=${split}`);
+        assert.deepEqual(terminal.errors.map(({ code, path }) => ({ code, path })), fixture.errors, `${fixture.id}, split=${split}`);
+      }
+    }
+  }
+});
 
 test('generated wasm GP checks exact numeric radix values across binding, generic and item contexts', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
