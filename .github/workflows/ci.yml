@@ -99,7 +99,7 @@ jobs:
       - name: Experimental TypeScript reference-safe canonical API
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
-        run: pnpm test:cts:canonical:reference-ordering
+        run: node ../../scripts/test-canonical-reference-ordering.mjs
 
   rust-sdk:
     runs-on: ubuntu-24.04
