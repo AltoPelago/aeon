@@ -35,11 +35,46 @@ const result = emitFromObject(
 );
 ```
 
+### Try reference safe canonical ordering
+
+The experimental TypeScript API contract validates authored Core references,
+then emits the smallest eligible decoded key after every step. It preserves
+references rather than evaluating them:
+
+```ts
+const result = canonicalize('d=3\nc=2\nb=~c\na=1', {
+  ordering: 'reference-safe-v1',
+  maxOrderingEdges: 1_000_000,
+});
+// Body order: a, c, b, d. A default header is added when absent.
+```
+
+The option covers header fields, root bindings, object members, and attribute
+entries, including nested metadata. List, tuple, and node-child positions remain
+unchanged. Decoded keys are compared by Unicode scalar value. Missing, forward,
+and self references in the authored source are rejected before sorting or
+default-header insertion. This checks Core reference legality, not profile or
+schema approval.
+
+Quoted reference selectors use canonical string escaping, preserving control
+characters in decoded keys without introducing raw line breaks into references.
+
+`maxOrderingEdges` caps distinct projected dependency edges; it defaults to
+1,000,000 and accepts non-negative safe integers. Ordering failures return
+diagnostics and empty text, without an alphabetical fallback.
+
+During cross-runtime rollout, omitting `ordering` retains the historical
+`lexical-v1` behavior and bytes, including its lack of authored reference
+validation. The CLI, integrity hashing, Rust, Python, and WASM have not switched
+to the new contract. Treat the opt-in output as experimental; do not mix its
+hashes or signatures with historical canonical output. `emitFromObject` and
+Telex canonicalization are unchanged.
+
 ## What This Package Does
 
 - canonicalizes parsed AEON documents into stable text
 - emits deterministic AEON from plain TypeScript objects
-- sorts header fields and binding keys lexicographically
+- supports historical lexical ordering and experimental reference-safe ordering
 - canonicalizes Telex v1 independently from AEON source canonicalization
 
 ## Common Patterns
@@ -79,7 +114,7 @@ const result = emitFromObject(
 ## Notes
 
 - Emits a default header when none exists.
-- Sorts header fields and binding keys lexicographically.
+- Uses historical lexical ordering by default; select `reference-safe-v1` explicitly during rollout.
 - Preserves reference tokens (`~` / `~>`).
 - Parses separator-spec depth up to the AEON v1 capability floor (`8`) during canonicalization.
 - `emitFromObject` emits deterministic AEON from plain TS objects and fails closed on unsupported values.

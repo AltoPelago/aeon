@@ -4,7 +4,7 @@ function escapeQuotedPathSegment(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-export function formatReferencePath(path: readonly ReferencePathPart[]): string {
+export function formatReferencePath(path: readonly ReferencePathPart[], quotedKey?: (key: string) => string): string {
     if (path.length === 0) return '';
     let result = '';
     for (let i = 0; i < path.length; i++) {
@@ -18,7 +18,7 @@ export function formatReferencePath(path: readonly ReferencePathPart[]): string 
             if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
                 result += `.${segment.key}`;
             } else {
-                result += `.["${escapeQuotedPathSegment(segment.key)}"]`;
+                result += quotedKey ? `.[${quotedKey(segment.key)}]` : `.["${escapeQuotedPathSegment(segment.key)}"]`;
             }
             continue;
         }
@@ -29,7 +29,7 @@ export function formatReferencePath(path: readonly ReferencePathPart[]): string 
         if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)) {
             result += member;
         } else {
-            result += `["${escapeQuotedPathSegment(member)}"]`;
+            result += quotedKey ? `[${quotedKey(member)}]` : `["${escapeQuotedPathSegment(member)}"]`;
         }
     }
     return result;
