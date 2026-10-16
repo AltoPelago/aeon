@@ -738,11 +738,6 @@ fn track_reference_binding(
     reference_steps.push(ValidationReferenceStep::VisibleTarget(String::from(
         path_text,
     )));
-    reference_steps.push(ValidationReferenceStep::ValidateValue {
-        path: String::from(path_text),
-        owner_path: String::from(path_text),
-        value: Box::new(clone_validation_value(value, shallow_event_values)),
-    });
     collect_attribute_reference_steps(
         path_text,
         attributes,
@@ -751,6 +746,11 @@ fn track_reference_binding(
         shallow_event_values,
         String::new(),
     );
+    reference_steps.push(ValidationReferenceStep::ValidateValue {
+        path: String::from(path_text),
+        owner_path: String::from(path_text),
+        value: Box::new(clone_validation_value(value, shallow_event_values)),
+    });
 }
 
 fn track_reference_sequence_item(
@@ -813,13 +813,6 @@ fn track_compact_reference_binding(
         String::new(),
     );
     reference_steps.push(CompactReferenceStep::VisibleTarget(String::from(path_text)));
-    append_compact_value_references(
-        unwrap_typed_value(value),
-        path_text,
-        path_text,
-        shallow_event_values,
-        reference_steps,
-    );
     collect_compact_attribute_reference_steps(
         path_text,
         attributes,
@@ -827,6 +820,13 @@ fn track_compact_reference_binding(
         reference_steps,
         shallow_event_values,
         String::new(),
+    );
+    append_compact_value_references(
+        unwrap_typed_value(value),
+        path_text,
+        path_text,
+        shallow_event_values,
+        reference_steps,
     );
 }
 
