@@ -500,9 +500,11 @@ fn validate_reference_claim(
         );
         return;
     }
-    let requires_exact_attr_visibility = target.contains(".@")
-        && !(current_path == base && target.starts_with(&format!("{current_path}.@")));
-    let is_visible = if requires_exact_attr_visibility {
+    // Metadata becomes available before its attached payload, including on
+    // anonymous sequence items. Test the exact target rather than requiring
+    // the payload's base to have been published. Use parsed attribute depth:
+    // a quoted property name containing ".@" is not an attribute selector.
+    let is_visible = if attribute_depth > 0 {
         seen_base.contains(target)
     } else {
         seen_base.contains(base)

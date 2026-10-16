@@ -3130,7 +3130,81 @@ z = 7"###,
                 &["MISSING_REFERENCE_TARGET"],
             ),
         ];
-        for &(name, source, depth, expected) in cases {
+        let anonymous_metadata_cases: &[(&str, &str, usize, &[&str])] = &[
+            (
+                "anonymous-list-payload-own-clone-metadata",
+                r###"a = [@{z = 1} = ~a[0].@.z]"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-list-payload-own-pointer-metadata",
+                r###"a = [@{z = 1} = ~>a[0].@.z]"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-list-payload-own-metadata-member",
+                r###"a = [@{z = {leaf = 1}} = ~a[0].@.z.leaf]"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-list-head-later-payload-member",
+                r###"a = [@{z = ~a[0].child} = {child = 1}]"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "anonymous-tuple-payload-own-clone-metadata",
+                r###"a = (@{z = 1} = ~a[0].@.z)"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-tuple-payload-own-pointer-metadata",
+                r###"a = (@{z = 1} = ~>a[0].@.z)"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-tuple-payload-own-metadata-member",
+                r###"a = (@{z = {leaf = 1}} = ~a[0].@.z.leaf)"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-tuple-head-later-payload-member",
+                r###"a = (@{z = ~a[0].child} = {child = 1})"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+            (
+                "anonymous-node-child-payload-own-clone-metadata",
+                r###"a = <tag(@{z = 1} = ~a[0].@.z)>"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-node-child-payload-own-pointer-metadata",
+                r###"a = <tag(@{z = 1} = ~>a[0].@.z)>"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-node-child-payload-own-metadata-member",
+                r###"a = <tag(@{z = {leaf = 1}} = ~a[0].@.z.leaf)>"###,
+                1,
+                &[],
+            ),
+            (
+                "anonymous-node-child-head-later-payload-member",
+                r###"a = <tag(@{z = ~a[0].child} = {child = 1})>"###,
+                1,
+                &["FORWARD_REFERENCE"],
+            ),
+        ];
+        for &(name, source, depth, expected) in cases.iter().chain(anonymous_metadata_cases) {
             for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
                 for validation_only in [false, true] {
                     let result = compile_owned_with_implementation(

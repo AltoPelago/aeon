@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -12,6 +13,42 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated wasm preserves authored reference availability, including anonymous metadata', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  for (const fixture of referenceOrderFixtures) {
+    const result = runtime.processAeon(fixture.source, {
+      validationMode: 'loose',
+      maxAttributeDepth: fixture.maxAttributeDepth ?? 1,
+      finalize: false,
+    });
+    assert.deepEqual(result.errors.map(error => error.code), fixture.errors, fixture.id);
+    assert.equal(result.ok, fixture.errors.length === 0, fixture.id);
+  }
+});
+
+test('streamed anonymous metadata availability is independent of chunk boundaries', async () => {
+  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
+  const runtime = await loadAeonWasm(wasm);
+  const fixtures = referenceOrderFixtures.filter(fixture =>
+    /^anonymous-(list|tuple|node-child)-(payload-own|head-later)/.test(fixture.id));
+  assert.equal(fixtures.length, 12);
+  for (const fixture of fixtures) {
+    for (let split = 0; split <= fixture.source.length; split += 1) {
+      const label = `${fixture.id}, split=${split}`;
+      const stream = runtime.createAeonStream({ validationMode: 'loose' });
+      assert.equal(stream.push(fixture.source.slice(0, split)).accepted, true, label);
+      assert.equal(stream.push(fixture.source.slice(split)).accepted, true, label);
+      assert.equal(stream.finish().accepted, true, label);
+      // These small fixtures fit in one batch; drain it before taking the terminal.
+      while (stream.pullBatch() !== null) { /* discard provisional events */ }
+      const terminal = stream.takeTerminal();
+      assert.deepEqual(terminal.errors.map(error => error.code), fixture.errors, label);
+      assert.equal(terminal.status, fixture.errors.length === 0 ? 'accepted' : 'invalidated', label);
+    }
+  }
+});
 
 test('processes a basic document through the generated wasm artifact', async () => {
   const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));

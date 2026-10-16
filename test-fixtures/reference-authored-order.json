@@ -39,5 +39,17 @@
   {"id":"anonymous-tuple-head-forward", "source":"a = (@{b = ~a[0].@.z, z = 1} = 0)", "errors":["FORWARD_REFERENCE"]},
   {"id":"anonymous-node-child-head-forward", "source":"a = <tag(@{b = ~a[0].@.z, z = 1} = 0)>", "errors":["FORWARD_REFERENCE"]},
   {"id":"quoted-attribute-own-payload", "source":"\"literal.@key\"@{b = ~[\"literal.@key\"]} = 0", "errors":["SELF_REFERENCE"]},
-  {"id":"node-head-not-binding-target", "source":"a = <tag@{z = 1}>\nb = ~a.@.z", "errors":["MISSING_REFERENCE_TARGET"]}
+  {"id":"node-head-not-binding-target", "source":"a = <tag@{z = 1}>\nb = ~a.@.z", "errors":["MISSING_REFERENCE_TARGET"]},
+  {"id":"anonymous-list-payload-own-clone-metadata","source":"a = [@{z = 1} = ~a[0].@.z]","errors":[]},
+  {"id":"anonymous-list-payload-own-pointer-metadata","source":"a = [@{z = 1} = ~>a[0].@.z]","errors":[]},
+  {"id":"anonymous-list-payload-own-metadata-member","source":"a = [@{z = {leaf = 1}} = ~a[0].@.z.leaf]","errors":[]},
+  {"id":"anonymous-list-head-later-payload-member","source":"a = [@{z = ~a[0].child} = {child = 1}]","errors":["FORWARD_REFERENCE"]},
+  {"id":"anonymous-tuple-payload-own-clone-metadata","source":"a = (@{z = 1} = ~a[0].@.z)","errors":[]},
+  {"id":"anonymous-tuple-payload-own-pointer-metadata","source":"a = (@{z = 1} = ~>a[0].@.z)","errors":[]},
+  {"id":"anonymous-tuple-payload-own-metadata-member","source":"a = (@{z = {leaf = 1}} = ~a[0].@.z.leaf)","errors":[]},
+  {"id":"anonymous-tuple-head-later-payload-member","source":"a = (@{z = ~a[0].child} = {child = 1})","errors":["FORWARD_REFERENCE"]},
+  {"id":"anonymous-node-child-payload-own-clone-metadata","source":"a = <tag(@{z = 1} = ~a[0].@.z)>","errors":[]},
+  {"id":"anonymous-node-child-payload-own-pointer-metadata","source":"a = <tag(@{z = 1} = ~>a[0].@.z)>","errors":[]},
+  {"id":"anonymous-node-child-payload-own-metadata-member","source":"a = <tag(@{z = {leaf = 1}} = ~a[0].@.z.leaf)>","errors":[]},
+  {"id":"anonymous-node-child-head-later-payload-member","source":"a = <tag(@{z = ~a[0].child} = {child = 1})>","errors":["FORWARD_REFERENCE"]}
 ]
