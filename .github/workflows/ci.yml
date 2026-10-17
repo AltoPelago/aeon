@@ -108,6 +108,9 @@ jobs:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: pnpm test:cts:all
 
+      - name: Core escaped-path public CLI parity
+        run: node ../../scripts/test-core-path-escaping.mjs
+
       - name: Experimental TypeScript reference-safe canonical API
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts

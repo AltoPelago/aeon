@@ -3,6 +3,7 @@
 Primary scripts:
 
 - `scripts/canonical-cts.sh`
+- `scripts/test-core-path-escaping.mjs`
 - `scripts/stress-fixtures.py`
 - `scripts/stress-canonical-corpus.py`
 - `scripts/stress-canonical-snippets.py`
@@ -34,10 +35,27 @@ Pipeline:
 5. Cross-implementation canonical snippet parity
 6. Cross-implementation real-document canonical corpus parity
 7. Cross-implementation diagnostic snippet parity
-8. Grammar-derived temporal flow and canonical parity
-9. Literal dispatch, symbols, strings, and trimtick flow
+8. Escaped Core path public CLI parity
+9. Grammar-derived temporal flow and canonical parity
+10. Literal dispatch, symbols, strings, and trimtick flow
 
 `--brief` keeps failure output concise for CI or quick local loops.
+
+## Core path escaping parity
+
+After building the TypeScript and Rust CLIs, run:
+
+```bash
+node scripts/test-core-path-escaping.mjs
+```
+
+The public TypeScript, Python, and Rust CLIs export the same documents to
+portable AES. Six contexts cover 108 keys, including every C0 control at the
+start, middle, and end, literal backslash escape spellings, quotes, and Unicode.
+The runner compares exact paths, reference targets, and semantic records without
+path normalization. Runtime-specific provenance fields are excluded: this is
+not a claim that the legacy adapters retain identical source spans.
+The check runs in CI and in `canonical-cts.sh`; it does not promote a CTS claim.
 
 ## Experimental reference-safe API parity
 

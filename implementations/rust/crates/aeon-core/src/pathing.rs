@@ -107,6 +107,20 @@ fn push_member_segment(output: &mut String, key: &str) {
             match ch {
                 '\\' => output.push_str("\\\\"),
                 '"' => output.push_str("\\\""),
+                '\u{0008}' => output.push_str("\\b"),
+                '\u{000c}' => output.push_str("\\f"),
+                '\n' => output.push_str("\\n"),
+                '\r' => output.push_str("\\r"),
+                '\t' => output.push_str("\\t"),
+                '\u{0000}'..='\u{001f}' => {
+                    // Canonical AES members contain JSON strings, not AEON
+                    // literal escapes or raw control characters.
+                    const HEX: &[u8; 16] = b"0123456789abcdef";
+                    let byte = ch as u8;
+                    output.push_str("\\u00");
+                    output.push(char::from(HEX[usize::from(byte >> 4)]));
+                    output.push(char::from(HEX[usize::from(byte & 15)]));
+                }
                 _ => output.push(ch),
             }
         }
@@ -133,6 +147,46 @@ fn push_usize_decimal(output: &mut String, mut value: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_control_member_and_reference_target_uses_json_escaping() {
+        let mut keys = (0_u8..32)
+            .flat_map(|byte| {
+                let ch = char::from(byte);
+                [format!("z{ch}"), format!("{ch}z"), format!("z{ch}key")]
+            })
+            .collect::<Vec<_>>();
+        keys.extend(
+            [
+                "z\\n",
+                "z\\",
+                "z\"",
+                "z\\\"",
+                "z\"].other",
+                "z.@.other",
+                "z😀",
+            ]
+            .map(str::to_owned),
+        );
+        for key in keys {
+            let quoted = serde_json::to_string(&key).expect("JSON key");
+            let expected = format!("$.[{quoted}]");
+            let path = CanonicalPath {
+                segments: vec![PathSegment::Root, PathSegment::Member(key.clone())],
+            };
+            assert_eq!(format_path(&path), expected);
+            assert_eq!(render_member_segment(&key), format!(".[{quoted}]"));
+            assert!(aes_telex::AesCanonicalPath::parse(expected.clone()).is_ok());
+            let mut segments = vec![ReferenceSegment::Key(key.clone())];
+            assert_eq!(format_reference_target(&segments), expected);
+            segments.push(ReferenceSegment::Attr(key));
+            assert_eq!(
+                format_reference_target(&segments),
+                format!("{expected}.@.[{quoted}]")
+            );
+            assert_eq!(format_reference_base(&segments), expected);
+        }
+    }
 
     #[test]
     fn renders_members_indexes_and_escaped_keys_without_intermediate_strings() {

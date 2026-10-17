@@ -1729,8 +1729,7 @@ def format_path(path: CanonicalPath) -> str:
             if is_identifier_safe(segment.key):
                 parts.append(f".{segment.key}")
             else:
-                escaped = segment.key.replace('"', '\\"')
-                parts.append(f'.["{escaped}"]')
+                parts.append(f'.[{json.dumps(segment.key, ensure_ascii=False)}]')
         elif segment.type == "index":
             assert segment.index is not None
             parts.append(f"[{segment.index}]")
@@ -1744,8 +1743,7 @@ def format_reference_target_path(path: list[object]) -> str:
             if is_identifier_safe(segment.key):
                 result += f".@.{segment.key}"
             else:
-                escaped = segment.key.replace('"', '\\"')
-                result += f'.@.["{escaped}"]'
+                result += f'.@.[{json.dumps(segment.key, ensure_ascii=False)}]'
         elif isinstance(segment, int):
             result += f"[{segment}]"
         else:
@@ -1753,8 +1751,7 @@ def format_reference_target_path(path: list[object]) -> str:
             if is_identifier_safe(key):
                 result += f".{key}"
             else:
-                escaped = key.replace('"', '\\"')
-                result += f'.["{escaped}"]'
+                result += f'.[{json.dumps(key, ensure_ascii=False)}]'
     return result
 
 

@@ -42,6 +42,11 @@ repositories.
 
 ### Fixed
 
+- Python and Rust Core now JSON-escape backslashes and control characters in
+  quoted payload and reference-target paths, preserving decoded key identity
+  through portable AES export, recursive node projection, and Telex round trips.
+  Valid control-character keys no longer panic during Rust portable export.
+  Ordinary identifiers and existing Unicode path formatting are unchanged.
 - TypeScript now rejects reserved non-`node` arguments in binding-side
   `node<T>` claims even when the argument has clarifiers, the claim annotates
   metadata or an anonymous item, or the value is a reference rather than a
