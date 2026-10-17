@@ -3,11 +3,13 @@ import assert from 'node:assert';
 import { resolveRefs } from './resolve.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
-import { resolvePaths, emitEvents, formatPath } from './index.js';
+import { resolvePaths, emitEvents, formatPath, validateReferences } from './index.js';
 
 function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {
-    const tokens = tokenize(input).tokens;
-    const ast = parse(tokens);
+    const lexed = tokenize(input);
+    assert.deepStrictEqual(lexed.errors, []);
+    const ast = parse(lexed.tokens, { maxAttributeDepth: 2 });
+    assert.deepStrictEqual(ast.errors, []);
     if (!ast.document) throw new Error('Parse failed');
     const resolved = resolvePaths(ast.document, { indexedPaths: true });
     const emitted = emitEvents(resolved, { recovery: true });
@@ -15,6 +17,82 @@ function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {
 }
 
 describe('Reference Resolution (Resolved AES)', () => {
+    for (const mode of ['strict', 'loose'] as const) {
+        for (const [name, source, expected] of [
+            ['binding attribute', 'x@{y=0}=1\nz=~x.@.y', '0'],
+            ['quoted attribute', 'x@{"y.z"=2}=1\nz=~x.@.["y.z"]', '2'],
+            ['member under attribute', 'x@{y={leaf=3}}=1\nz=~x.@.y.leaf', '3'],
+            ['index under attribute', 'x@{y=[4,5]}=1\nz=~x.@.y[1]', '5'],
+            ['nested attribute', 'x@{y@{leaf=6}=0}=1\nz=~x.@.y.@.leaf', '6'],
+            ['attribute clone chain', 'x@{a=7,b=~x.@.a}=1\nz=~x.@.b', '7'],
+            ['own already available metadata', 'x@{y=8}=~x.@.y\nz=~x', '8'],
+            ['anonymous item metadata', 'x=[@{y=9}=1]\nz=~x[0].@.y', '9'],
+            ['header descendant after root collision', 'aeon:header={x={leaf=10}}\n"aeon:x"=2\nz=~["aeon:x"].leaf', '10'],
+            ['header descendant metadata after root collision', 'aeon:header={x={leaf@{y=11}=0}}\n"aeon:x"=2\nz=~["aeon:x"].leaf.@.y', '11'],
+            ['body metadata over header metadata', 'aeon:header={x@{y=1}=0}\n"aeon:x"@{y=12}=2\nz=~["aeon:x"].@.y', '12'],
+            ['literal attribute-like member key', 'x={"a.@.b"=13}\nz=~x.["a.@.b"]', '13'],
+        ] as const) {
+            it(`resolves ${name} in ${mode} mode`, () => {
+                const events = compileToEvents(source);
+                assert.deepStrictEqual(validateReferences(events, { maxAttributeDepth: 2 }).errors, []);
+                const result = resolveRefs(events, { mode });
+                assert.deepStrictEqual(result.meta?.errors ?? [], []);
+                assert.deepStrictEqual(result.meta?.warnings ?? [], []);
+                const value = result.aes.find(event => event.key === 'z')?.value;
+                assert.strictEqual(value?.type, 'NumberLiteral');
+                if (value?.type !== 'NumberLiteral') assert.fail('Expected resolved number');
+                assert.strictEqual(value.value, expected);
+                assert.deepStrictEqual(resolveRefs(result.aes, { mode }).aes, result.aes);
+            });
+        }
+
+        for (const [name, source, code] of [
+            ['missing attribute', 'x=1\nz=~x.@.missing', 'RESOLVE_MISSING_TARGET'],
+            ['forward attribute', 'z=~x.@.y\nx@{y=0}=1', 'RESOLVE_FORWARD_REFERENCE'],
+            ['forward sibling metadata', 'x@{a=~x.@.b,b=0}=1', 'RESOLVE_FORWARD_REFERENCE'],
+            ['self metadata', 'x@{a=~x.@.a}=1', 'RESOLVE_SELF_REFERENCE'],
+            ['metadata referring to its owner', 'x@{a=~x}=1', 'RESOLVE_SELF_REFERENCE'],
+            ['shadowed header metadata', 'aeon:header={x@{y=0}=1}\n"aeon:x"=2\nz=~["aeon:x"].@.y', 'RESOLVE_MISSING_TARGET'],
+        ] as const) {
+            it(`retains ${name} diagnostics in ${mode} mode`, () => {
+                const result = resolveRefs(compileToEvents(source), { mode });
+                const diagnostics = mode === 'strict' ? result.meta?.errors : result.meta?.warnings;
+                assert.ok(diagnostics?.some(diagnostic => diagnostic.code === code));
+                assert.strictEqual(result.aes.length === 0, mode === 'strict');
+            });
+        }
+    }
+
+    it('preserves typed targets and strips identities when cloning attribute payloads', () => {
+        const events = compileToEvents(String.raw`x@{y = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>}=1
+z=~x.@.y`);
+        const result = resolveRefs(events);
+        assert.deepStrictEqual(result.meta?.errors ?? [], []);
+        const value = result.aes.find(event => event.key === 'z')?.value;
+        assert.strictEqual(value?.type, 'NodeLiteral');
+        if (value?.type !== 'NodeLiteral') assert.fail('Expected cloned node');
+        assert.strictEqual(value.structuralId, null);
+        assert.strictEqual(value.attributes[0]?.entries.get('role')?.structuralId, null);
+        assert.strictEqual(value.children[0]?.type, 'TypedValue');
+        if (value.children[0]?.type !== 'TypedValue') assert.fail('Expected typed child');
+        assert.strictEqual(value.children[0].structuralId, null);
+        assert.strictEqual(value.children[0].datatype?.name, 'string');
+    });
+
+    it('preserves pointer references to attributes rather than cloning them', () => {
+        const result = resolveRefs(compileToEvents('x@{y=0}=1\nz=~>x.@.y'));
+        assert.deepStrictEqual(result.meta?.errors ?? [], []);
+        assert.strictEqual(result.aes.find(event => event.key === 'z')?.value.type, 'PointerReference');
+    });
+
+    it('applies reference depth limits to attribute clone chains', () => {
+        const result = resolveRefs(compileToEvents('x@{a=0,b=~x.@.a}=1\nz=~x.@.b'), {
+            maxReferenceDepth: 1,
+        });
+        assert.deepStrictEqual(result.aes, []);
+        assert.ok(result.meta?.errors?.some(error => error.code === 'RESOLVE_REFERENCE_DEPTH_EXCEEDED'));
+    });
+
     it('resolves clone references to terminal values', () => {
         const events = compileToEvents('a = 1\nb = ~a');
         const result = resolveRefs(events, { mode: 'strict' });

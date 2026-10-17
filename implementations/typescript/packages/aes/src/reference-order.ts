@@ -16,6 +16,7 @@ export interface ReferenceClaim {
 interface ReferenceTarget {
     readonly ordinal: number;
     readonly eventIndex: number;
+    readonly value: Value;
 }
 
 /** Internal authored-order index. Metadata occurrences are not collapsed to their payload owner. */
@@ -59,6 +60,7 @@ export function indexReferenceOrder(events: readonly AssignmentEvent[]): {
     }
 
     function headed(value: Value, path: Path, annotations?: ReadonlyMap<string, AttributeEntry>, targetable = true, owner: Path = path, descend = true): void {
+        const targetValue = value;
         attributes(annotations, path);
         while (value.type === 'TypedValue') {
             rawAttributes(value.attributes, path, targetable, owner);
@@ -80,7 +82,7 @@ export function indexReferenceOrder(events: readonly AssignmentEvent[]): {
         const key = formatReferenceTargetPath(path);
         const candidateKey = `${plane}\0${key}`;
         if (targetable && !candidates.has(candidateKey)) {
-            candidates.set(candidateKey, { path, plane, target: { ordinal, eventIndex } });
+            candidates.set(candidateKey, { path, plane, target: { ordinal, eventIndex, value: targetValue } });
         }
         ordinal += 1;
         if (!descend) return;
@@ -139,11 +141,12 @@ export function indexReferenceOrder(events: readonly AssignmentEvent[]): {
                 const prefixKey = formatReferenceTargetPath(prefix);
                 const payload = payloads.get(prefixKey);
                 const target = targets.get(prefixKey);
-                if (payload && target && hasCompatibilitySubpath(
+                const value = payload && target ? compatibilitySubpath(
                     payload.event, reference.path.slice(length),
                     retainedByPlane.get(payload.event.sourcePlane ?? 'body')!,
-                )) {
-                    targets.set(key, target);
+                ) : undefined;
+                if (target && value) {
+                    targets.set(key, { ...target, value });
                     break;
                 }
             }
@@ -152,7 +155,7 @@ export function indexReferenceOrder(events: readonly AssignmentEvent[]): {
     return { targets, claims };
 }
 
-function hasCompatibilitySubpath(event: AssignmentEvent, path: Path, retained: ReadonlySet<Value>): boolean {
+function compatibilitySubpath(event: AssignmentEvent, path: Path, retained: ReadonlySet<Value>): Value | undefined {
     let requiresResolvedBinding = true;
     let value = event.value;
     let annotations = event.annotations;
@@ -176,28 +179,28 @@ function hasCompatibilitySubpath(event: AssignmentEvent, path: Path, retained: R
             }
             const entry = attributes.flatMap(attribute => [...attribute.entries])
                 .find(([key]) => key === segment.key)?.[1];
-            if (!entry) return false;
+            if (!entry) return undefined;
             value = entry.value;
             attributes = entry.attributes;
         } else if (typeof segment === 'string') {
-            if (value.type !== 'ObjectNode') return false;
+            if (value.type !== 'ObjectNode') return undefined;
             const binding = value.bindings.find(binding => binding.key === segment);
-            if (!binding) return false;
-            if (requiresResolvedBinding && !retained.has(binding.value)) return false;
+            if (!binding) return undefined;
+            if (requiresResolvedBinding && !retained.has(binding.value)) return undefined;
             value = binding.value;
             attributes = binding.attributes;
         } else {
-            if (!Number.isInteger(segment) || segment < 0) return false;
+            if (!Number.isInteger(segment) || segment < 0) return undefined;
             if (value.type === 'TupleLiteral' || value.type === 'NodeLiteral') requiresResolvedBinding = false;
             const child: Value | undefined = value.type === 'NodeLiteral' ? value.children[segment]
                 : value.type === 'ListNode' || value.type === 'TupleLiteral' ? value.elements[segment] : undefined;
-            if (!child) return false;
+            if (!child) return undefined;
             value = child;
             attributes = [];
         }
         annotations = undefined;
     }
-    return true;
+    return value;
 }
 
 /** Exact structural checks, never substring tests on quoted path text. */

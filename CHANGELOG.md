@@ -8,6 +8,13 @@ repositories.
 
 ## Unreleased
 
+### Fixed
+
+- TypeScript runtime clone resolution now uses Core's attribute-aware target
+  index, avoiding false `RESOLVE_MISSING_TARGET` diagnostics for valid metadata
+  references such as `x@{y=0}=1; z=~x.@.y`. Authored-order checks and header/body
+  target precedence remain aligned with Core validation.
+
 ## 0.16.0 - 2026-10-17
 
 Coordinated TypeScript, Rust, and Python implementation release; AEON remains
