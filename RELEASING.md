@@ -42,6 +42,36 @@ Avoid ad hoc folder-by-folder `npm publish`.
 
 ## Preconditions
 
+### Coordinated 0.16.0 cut
+
+The 0.16.0 preparation coordinates all three AEON implementation tracks,
+not their independently versioned providers. Review the
+[migration guide](docs/migration-0.16.0.md) and dated changelog before cutting
+tags: canonical source defaults, generic acceptance and clarifier ASTs change.
+Historical integrity verification bytes do not change.
+
+Required authority and providers are already established: canonical CTS 0.4
+with its exact specification revision, reader-only Film CTS 0.4, published
+`altopelago-aes-telex` 0.3.1 and `altopelago-sansa-runtime` 0.14.2. Preserve
+these reviewed pins; an AEON version bump does not rename immutable snapshots
+or require republishing either provider. A sibling path build alone is not a
+registry availability check.
+
+After the preparation PR merges, verify the exact `main` commit and run the
+non-publishing Rust, Python and npm workflow dispatches described below. Python
+verification includes all 15 wheels and the sdist; a local macOS wheel is not
+a substitute for that matrix. No release tag should precede these gates.
+
+Recommended coordinated publication order is the five Rust crates in their
+workflow's dependency order, the native Python distribution, then the npm
+workspace release set, using separate signed implementation tags on the checked
+commit. Confirm each workflow and its clean registry consumer before continuing.
+Only after the exact packages are visible should websites, wiki, examples and
+vendor bundles adopt 0.16.0. The examples' known canonical-reference TODOs remain
+until tested against the published packages, not merely a sibling build.
+
+### Local preparation
+
 From `implementations/typescript/`:
 
 1. Install dependencies.
