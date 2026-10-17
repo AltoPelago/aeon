@@ -51,6 +51,25 @@ test('computes deterministic hash', () => {
     assert.equal(first.hash, second.hash);
 });
 
+test('legacy integrity projection and stored digest do not adopt source dependency ordering', () => {
+    const source = 'z=1\na=~z';
+    const events = compileToEvents(source);
+    const payload = '$.a\t"~z"\n$.z\t1\n';
+    const digest = '1287a063c5d83e9e9d3397236c6509354e82e9be04689a9d769c2a2f51300e3a';
+    assert.equal(serializeCanonicalEvents(events), payload);
+    assert.equal(computeCanonicalHash(events).hash, digest);
+    const receipt = buildCanonicalReceipt(source, events, {
+        producer: { implementation: 'aeon-ts', version: '0.15.0' },
+        generatedAt: '2026-10-16T00:00:00Z',
+    });
+    assert.equal(receipt.canonical.payload, payload);
+    assert.equal(receipt.canonical.digest, digest);
+    assert.equal(verifyCanonicalReceipt(receipt, source, events).canonical.matches, true);
+    const { publicKey, privateKey } = generateEd25519KeyPair();
+    const signature = signCanonicalStream(payload, privateKey);
+    assert.equal(verifyCanonicalStreamSignature(serializeCanonicalEvents(events), signature.signature, publicKey), true);
+});
+
 test('builds canonical receipts with embedded payloads', () => {
     const source = 'a = 1\n';
     const events = compileToEvents(source);

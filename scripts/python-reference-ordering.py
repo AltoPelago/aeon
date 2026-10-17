@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test-only adapter for the opt-in API, not a new CLI/default contract."""
+"""Test-only adapter for default and explicitly selected canonical source APIs."""
 from pathlib import Path
 import json
 import sys
@@ -11,9 +11,10 @@ from aeon.canonical import CanonicalizeOptions, canonicalize
 
 def main() -> None:
     request = json.load(sys.stdin)
-    result = canonicalize(request["source"], CanonicalizeOptions(
-        ordering="reference-safe-v1", max_attribute_depth=request.get("max_attribute_depth", 1),
-    ))
+    options = CanonicalizeOptions(max_attribute_depth=request.get("max_attribute_depth", 1))
+    if "ordering" in request:
+        options.ordering = request["ordering"]
+    result = canonicalize(request["source"], options)
     errors = [error.to_json() for error in result.errors]
     # Match the existing TS/Rust test-adapter contract. Core's Python API
     # retains source/target paths; TS reference errors have no path field.

@@ -56,8 +56,8 @@ class CanonicalizeOptions:
     max_generic_depth: int = 1
     max_generic_arguments: int = 32
     max_datatype_components: int = 64
-    # Opt-in during rollout; historical default bytes remain unchanged.
-    ordering: str = "lexical-v1"
+    # Explicit lexical-v1 retains historical source bytes.
+    ordering: str = "reference-safe-v1"
     max_ordering_edges: int = 1_000_000
 
 

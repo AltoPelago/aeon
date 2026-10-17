@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Experimental API adapter: imports only the installed native Python package."""
+"""Canonical API adapter: imports only the installed native Python package."""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,7 @@ def main() -> None:
     request = json.load(sys.stdin)
     try:
         text = canonicalize(
-            request["source"], ordering="reference-safe-v1",
+            request["source"], **({"ordering": request["ordering"]} if "ordering" in request else {}),
             max_attribute_depth=request.get("max_attribute_depth", 1),
         )
         result = {"text": text, "errors": []}

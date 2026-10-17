@@ -3,9 +3,7 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
-use aeon_canonical::{
-    CanonicalOrdering, CanonicalizeOptions, canonicalize, canonicalize_with_options,
-};
+use aeon_canonical::{CanonicalOrdering, CanonicalizeOptions, canonicalize_with_options};
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
     EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment,
@@ -37,7 +35,7 @@ struct CanonicalRequestOptions {
 impl Default for CanonicalRequestOptions {
     fn default() -> Self {
         Self {
-            ordering: String::from("lexical-v1"),
+            ordering: String::from("reference-safe-v1"),
             max_ordering_edges: 1_000_000,
             max_attribute_depth: 1,
         }
@@ -1038,7 +1036,28 @@ fn process(source: &str, options: &ProcessOptions) -> ProcessResponse {
         };
     }
 
-    let canonical = canonicalize(source);
+    let canonical = canonicalize_with_options(
+        source,
+        &CanonicalizeOptions {
+            // Carry the process parser's structural capabilities through both
+            // canonical parses. Input-byte and compiler/event budgets belong
+            // to the authored input stages, not the expanded rendered text.
+            limits: aeon_core::AeonCompileLimits {
+                max_attribute_depth: options.max_attribute_depth,
+                max_clarifier_values: options
+                    .max_clarifier_values
+                    .unwrap_or(options.max_separator_depth),
+                max_generic_depth: options.max_generic_depth,
+                max_generic_arguments: options.max_generic_arguments,
+                max_datatype_components: options.max_datatype_components,
+                max_value_nesting_depth: options
+                    .max_value_nesting_depth
+                    .unwrap_or(options.max_nesting_depth),
+                ..aeon_core::AeonCompileLimits::default()
+            },
+            ..CanonicalizeOptions::default()
+        },
+    );
     let annotations = annotations_json(source);
 
     if !canonical.errors.is_empty() {
@@ -1493,15 +1512,25 @@ mod tests {
     }
 
     #[test]
-    fn standalone_canonical_opt_in_preserves_historical_process_and_default_bytes() {
+    fn standalone_and_process_default_to_reference_safe_with_explicit_legacy() {
         let source = "z=1\na=~z";
-        let legacy = canonical(source, "{}");
+        let result = canonical(source, "{}");
+        let legacy = canonical(source, r#"{"ordering":"lexical-v1"}"#);
         let process: JsonValue = serde_json::from_str(
             &process_aeon_json(source, r#"{"validationMode":"none"}"#).expect("process"),
         )
         .expect("JSON");
-        assert_eq!(legacy["text"], process["canonical"]);
-        assert_eq!(legacy, canonical(source, r#"{"ordering":"lexical-v1"}"#));
+        assert_eq!(result["text"], process["canonical"]);
+        assert_eq!(
+            result,
+            canonical(source, r#"{"ordering":"reference-safe-v1"}"#)
+        );
+        assert!(
+            result["text"]
+                .as_str()
+                .expect("text")
+                .ends_with("z = 1\na = ~z\n")
+        );
         assert!(
             legacy["text"]
                 .as_str()

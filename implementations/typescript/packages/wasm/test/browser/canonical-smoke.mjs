@@ -5,10 +5,11 @@ export function checkCanonical(runtime) {
   };
   const source = 'z=|Sofía 🌊|\na=~z';
   const options = { ordering: 'reference-safe-v1' };
-  const historical = runtime.canonicalize(source);
+  const historical = runtime.canonicalize(source, { ordering: 'lexical-v1' });
   check(historical.errors.length === 0, 'historical diagnostics');
   check(historical.text.endsWith('a = ~z\nz = |Sofía 🌊|\n'), 'historical bytes');
   const result = runtime.canonicalize(source, options);
+  check(runtime.canonicalize(source).text === result.text, 'default bytes');
   check(result.errors.length === 0, 'opt-in diagnostics');
   check(result.text.endsWith('z = |Sofía 🌊|\na = ~z\n'), 'opt-in bytes');
   check(runtime.canonicalize(result.text, options).text === result.text, 'fixed-point bytes');

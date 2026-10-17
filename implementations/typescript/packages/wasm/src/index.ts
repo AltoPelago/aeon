@@ -1,4 +1,5 @@
 export interface CanonicalizeOptions {
+  /** Defaults to reference-safe-v1; lexical-v1 preserves historical source bytes. */
   ordering?: 'lexical-v1' | 'reference-safe-v1';
   /** Distinct projected dependency edges; non-negative uint32. Default: 1,000,000. */
   maxOrderingEdges?: number;
@@ -343,7 +344,7 @@ export async function processAeon(
   return runtime.processAeon(source, options);
 }
 
-/** Canonical-only operation; default bytes remain historical lexical-v1. */
+/** Canonical-only operation; defaults to reference-safe-v1 (canonical CTS 0.4). */
 export async function canonicalize(
   source: string,
   options: CanonicalizeOptions = {},
@@ -362,7 +363,7 @@ function canonicalOptions(options: CanonicalizeOptions): Required<CanonicalizeOp
     }
   }
   // Snapshot once: inherited options/getters cannot differ from serialized data.
-  const { ordering = 'lexical-v1', maxOrderingEdges = 1_000_000, maxAttributeDepth = 1 } = options;
+  const { ordering = 'reference-safe-v1', maxOrderingEdges = 1_000_000, maxAttributeDepth = 1 } = options;
   if (ordering !== 'lexical-v1' && ordering !== 'reference-safe-v1') {
     throw new RangeError('unknown canonical ordering');
   }

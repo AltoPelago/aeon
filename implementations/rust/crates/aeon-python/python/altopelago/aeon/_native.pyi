@@ -462,7 +462,7 @@ def compile_packed(
 def compile_native(source: str) -> CompileResult: ...
 def canonicalize_native(
     source: str,
-    ordering: str = "lexical-v1",
+    ordering: str = "reference-safe-v1",
     max_ordering_edges: int = 1_000_000,
     max_attribute_depth: int = 1,
 ) -> tuple[bool, bytes]: ...

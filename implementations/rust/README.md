@@ -164,11 +164,10 @@ PyO3/maturin project whose public import is `altopelago.aeon`; the generated
 an installed wheel rather than an embedded-Python Cargo test harness. See the
 crate README for local build and ownership details.
 
-## Experimental reference safe canonical ordering
+## Reference-safe canonical ordering
 
-The unpublished internal `aeon-canonical` crate offers an explicit opt-in for
-reference-safe ordering alongside TypeScript's experimental `reference-safe-v1`
-contract:
+The internal `aeon-canonical` crate defaults to the same `reference-safe-v1`
+contract as TypeScript and Python, covered by immutable canonical CTS 0.4:
 
 ```rust
 use aeon_canonical::{CanonicalOrdering, CanonicalizeOptions, canonicalize_with_options};
@@ -193,13 +192,12 @@ Failures return diagnostics and empty text. Authored heads on the structured
 header envelope currently return `CANONICAL_ORDERING_CONFLICT`; this emitter
 does not yet render those envelope heads.
 
-`canonicalize` and default options retain historical `lexical-v1` behavior.
-The [native Python facade](crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
-also exposes this explicit opt-in, as does the standalone
-[WASM canonical API](../typescript/packages/wasm/README.md#experimental-reference-safe-canonical-ordering).
-The CLI, integrity hashing, SDK, WASM process pipeline, and
-native Python defaults have not switched contracts. Do not mix experimental
-canonical hashes with historical hashes.
+`canonicalize`, default options, the `fmt` CLI, native Python and WASM process
+output now use reference-safe ordering. Explicitly select
+`CanonicalOrdering::LexicalV1` to reproduce historical source bytes, including
+the old lack of reference validation. Do not mix canonical hashes across these
+contracts. Integrity event hashing/receipt verification remains its separate
+historical projection; SDK Telex canonicalization is unchanged.
 
 From the repository root, run the explicit Rust API CTS and TypeScript parity
 gate after building the TypeScript workspace:

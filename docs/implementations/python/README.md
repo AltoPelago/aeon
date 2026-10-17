@@ -65,7 +65,7 @@ Canonical formatting:
 - module: `aeon.canonical`
 - primary entry point: `canonicalize(source) -> CanonicalResult`
 
-The pure-Python API has an experimental explicit ordering opt-in:
+The pure-Python API defaults to reference-safe ordering (canonical CTS 0.4):
 
 ```python
 from aeon.canonical import CanonicalizeOptions, canonicalize
@@ -84,15 +84,15 @@ approval. Errors return empty text rather than partial or fallback output.
 The edge budget counts distinct projected dependencies; it accepts integers
 from zero through `2**53 - 1` (not booleans).
 
-Omitting `ordering` or selecting `"lexical-v1"` preserves historical Python
-bytes and behavior. The explicit new contract ends successful output with a
-newline to match TypeScript/Rust. The installed native-Python
-[`altopelago.aeon` facade](../../../implementations/rust/crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
-also offers an explicit opt-in, as does the standalone
-[WASM API](../../../implementations/typescript/packages/wasm/README.md#experimental-reference-safe-canonical-ordering).
-CLI, native-Python defaults, the WASM process pipeline,
-and integrity/hash APIs have not switched contracts. Treat opt-in hashes and
-signatures as experimental and separate from historical canonical bytes.
+Omitting `ordering` selects `reference-safe-v1`; successful output ends with a
+newline to match TypeScript/Rust. Explicit `"lexical-v1"` preserves historical
+Python bytes and behavior, including no authored-reference validation.
+The installed native-Python
+[`altopelago.aeon` facade](../../../implementations/rust/crates/aeon-python/README.md#reference-safe-canonical-ordering),
+the [WASM API](../../../implementations/typescript/packages/wasm/README.md#reference-safe-canonical-ordering)
+and process pipeline, and all three `fmt` CLIs use the new default too.
+Keep stored hashes/signatures tied to their original canonical contract.
+Integrity event hashing/receipt verification remains historical and independent.
 
 Numeric datatype clarifiers in the pure-Python AST use `NumberLiteral`
 nodes with exact normalized `value` text, source `raw` text, and a token

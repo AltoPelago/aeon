@@ -49,10 +49,10 @@ class ReferenceOrderingTests(unittest.TestCase):
             output.append(json.dumps(record, sort_keys=True))
         return sorted(output)
 
-    def test_selected_experimental_vectors(self):
-        manifest_path = CTS / "canonical/v1/canonical-reference-ordering-cts.v1.next.json"
+    def test_selected_released_vectors(self):
+        manifest_path = CTS / "canonical/v1/canonical-cts.v1.snapshot-0.4.json"
         manifest = json.loads(manifest_path.read_text())
-        self.assertEqual("experimental", manifest["meta"]["status"])
+        self.assertEqual("released", manifest["meta"]["status"])
         observed = 0
         excluded = 0
         for ref in manifest["suites"]:
@@ -66,7 +66,8 @@ class ReferenceOrderingTests(unittest.TestCase):
                 observed += 1
                 with self.subTest(vector=vector["id"]):
                     source = vector["input"]["source"]
-                    result = self.canonical(source)
+                    result = canonicalize(source)
+                    self.assertEqual(result, self.canonical(source))
                     self.assertEqual(vector["expected"]["ok"], not result.errors, result.errors)
                     for expected in vector["expected"]["errors"]:
                         self.assertIn(expected["code"], [error.code for error in result.errors])
@@ -82,16 +83,16 @@ class ReferenceOrderingTests(unittest.TestCase):
         self.assertEqual(197, observed)
         self.assertEqual(2, excluded)
 
-    def test_legacy_default_and_explicit_opt_in(self):
+    def test_reference_safe_default_and_explicit_legacy(self):
         source = "z=1\na=~z"
-        legacy = canonicalize(source)
-        self.assertEqual(legacy, canonicalize(source, CanonicalizeOptions(ordering="lexical-v1")))
+        legacy = canonicalize(source, CanonicalizeOptions(ordering="lexical-v1"))
         self.assertLess(legacy.text.index("a ="), legacy.text.index("z ="))
         result = self.canonical(source)
+        self.assertEqual(result, canonicalize(source))
         self.assertEqual([], result.errors)
         self.assertLess(result.text.index("z ="), result.text.index("a ="))
         # Existing positional option arguments retain their meanings.
-        self.assertEqual(legacy, canonicalize(source, CanonicalizeOptions(1, 1, 1, 32, 64)))
+        self.assertEqual(result, canonicalize(source, CanonicalizeOptions(1, 1, 1, 32, 64)))
 
     def test_rendering_boundaries_preserve_graph_and_fixed_point(self):
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/canonical-rendering-boundaries.json").read_text())
@@ -112,7 +113,7 @@ class ReferenceOrderingTests(unittest.TestCase):
             ('a@{m={}}=0', 'a@{m = { }} = 0'),
         ):
             with self.subTest(source=source):
-                legacy = canonicalize(source)
+                legacy = canonicalize(source, CanonicalizeOptions(ordering="lexical-v1"))
                 self.assertEqual([], legacy.errors)
                 self.assertTrue(legacy.text.endswith(suffix), legacy.text)
                 self.assertEqual(legacy, canonicalize(source, CanonicalizeOptions(ordering="lexical-v1")))
@@ -154,7 +155,7 @@ class ReferenceOrderingTests(unittest.TestCase):
             self.assertEqual(["CANONICAL_ORDERING_INVALID_OPTION"], [error.code for error in result.errors])
         self.assertEqual("CANONICAL_ORDERING_INVALID_OPTION", canonicalize("a=1", CanonicalizeOptions(ordering="unknown")).errors[0].code)
         # The edge budget is not interpreted for the historical contract.
-        self.assertEqual([], canonicalize("a=1", CanonicalizeOptions(max_ordering_edges=-1)).errors)
+        self.assertEqual([], canonicalize("a=1", CanonicalizeOptions(ordering="lexical-v1", max_ordering_edges=-1)).errors)
 
     def test_output_revalidation_prevents_partial_success(self):
         with patch("aeon._canonical_ordering._Renderer.render", return_value="a=~z\nz=1\n"):

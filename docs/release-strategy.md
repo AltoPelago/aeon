@@ -117,9 +117,10 @@ Before cutting a TypeScript release:
 - add the matching dated `CHANGELOG.md` section and run
   `npm run version:check` plus `npm run test:version`
 - verify any publish-surface changes are intentional and documented
-- for 0.14.0, the canonical conformance command is intentionally pinned to
-  `canonical-cts-v1-snapshot-0.3`; land that immutable CTS snapshot before the
-  implementation change so clean CI checkouts can resolve the pin
+- for 0.16.0, canonical conformance and source API/CLI defaults adopt
+  `canonical-cts-v1-snapshot-0.4` (reference-safe ordering). CI pins the merged
+  authority revision before switching the claim. Explicit `lexical-v1` remains
+  for historical source bytes; integrity event hashing does not change
 - for 0.14.0, Core conformance is pinned to
   `core-cts-v1-snapshot-0.5`, which requires decodable Base64URL values while
   preserving the opaque `encoding`, `inline`, and `embed` datatype behavior

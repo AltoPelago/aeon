@@ -656,7 +656,13 @@ async function main() {
           process.exit(3);
         }
 
-        errors = formatted.errors;
+        // Canonical CTS uses the TS reference-diagnostic projection, whose
+        // missing path is represented as '$' by this CLI adapter. Rust retains
+        // a richer source path publicly; normalize only these Core diagnostics
+        // at the test boundary, as in the standalone cross-runtime API gate.
+        errors = formatted.errors.map(error =>
+          ['FORWARD_REFERENCE', 'MISSING_REFERENCE_TARGET', 'SELF_REFERENCE', 'ATTRIBUTE_DEPTH_EXCEEDED'].includes(error.code)
+            ? { ...error, path: '$' } : error);
         warnings = [];
         ok = errors.length === 0;
         result = {

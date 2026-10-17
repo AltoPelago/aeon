@@ -155,9 +155,9 @@ incomparable; their disjoint calendar completion sets are not yet evaluated.
 Transform, Instruction, policy filtering and apply are not exposed. Inspect
 the capability fields for the individual surfaces.
 
-## Experimental reference-safe canonical ordering
+## Reference-safe canonical ordering
 
-The installed native package offers the same explicit ordering opt-in as the
+The installed native package defaults to the same reference-safe contract as the
 independent TypeScript, Rust, and pure-Python writers:
 
 ```python
@@ -179,12 +179,13 @@ not accepted. Unknown ordering names and invalid options raise `ValueError`.
 Source/ordering failures raise the existing `CompileError` with structured
 diagnostics and no partial text. Success returns `str`, as before.
 
-Omitting `ordering` or selecting `"lexical-v1"` retains historical bytes and
-behavior, including the absence of authored-reference validation. The two
-limits are validated but only applied by the experimental contract. No other
-API, CLI, integrity/hash entry point, or canonical default switches here.
-Keep experimental canonical hashes/signatures separate from historical ones.
-No canonical authority snapshot or published conformance claim is promoted.
+Omitting `ordering` selects `"reference-safe-v1"` (canonical CTS 0.4).
+Explicit `"lexical-v1"` retains historical source bytes and behavior, including
+the absence of authored-reference validation. The two limits are validated but
+only applied by the reference-safe contract. All three source `fmt` CLIs and
+WASM process output use the new default; integrity event hashing and receipt
+verification remain unchanged. Keep hashes/signatures tied to their original
+canonical contract rather than silently recanonicalizing stored payloads.
 
 ## Local development
 

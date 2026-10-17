@@ -462,7 +462,7 @@ fn compile_json(py: Python<'_>, source: &str) -> PyResult<Py<PyBytes>> {
     Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
 }
 
-#[pyfunction(signature = (source, ordering="lexical-v1", max_ordering_edges=1_000_000, max_attribute_depth=1))]
+#[pyfunction(signature = (source, ordering="reference-safe-v1", max_ordering_edges=1_000_000, max_attribute_depth=1))]
 fn canonicalize_native(
     py: Python<'_>,
     source: &str,

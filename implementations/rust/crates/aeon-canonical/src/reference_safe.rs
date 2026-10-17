@@ -1,6 +1,6 @@
-//! Opt-in authored-reference validation and deterministic dependency ordering.
+//! Authored-reference validation and deterministic dependency ordering.
 //!
-//! The historical parser/writer remains the default. This path parses through
+//! The default path parses through
 //! Core without invoking datatype, profile, schema, or reference evaluation.
 
 use std::cmp::Reverse;
@@ -10,18 +10,18 @@ use aeon_core::{AeonCompileLimits, AttributeValue, Diagnostic, ReferenceSegment,
 
 use super::{AttributeEntry, Binding, CanonicalResult, NodeValue, NullMode, Value};
 
-/// Identifies canonical bytes explicitly during the cross-runtime rollout.
+/// Identifies canonical source bytes; integrity event hashing is independent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CanonicalOrdering {
     /// Historical lexical sorting, including its existing parser behavior.
-    #[default]
     LexicalV1,
     /// Unicode-scalar smallest-eligible ordering after authored Core validation.
+    #[default]
     ReferenceSafeV1,
 }
 
-/// Options for the explicit canonical API. Existing `canonicalize` calls retain
-/// their historical bytes; neither CLI nor integrity defaults change here.
+/// Source canonicalization options. Defaults match immutable canonical CTS 0.4.
+/// Explicit LexicalV1 retains historical source bytes, not a new hash format.
 #[derive(Debug, Clone)]
 pub struct CanonicalizeOptions {
     pub ordering: CanonicalOrdering,
@@ -34,7 +34,7 @@ pub struct CanonicalizeOptions {
 impl Default for CanonicalizeOptions {
     fn default() -> Self {
         Self {
-            ordering: CanonicalOrdering::LexicalV1,
+            ordering: CanonicalOrdering::ReferenceSafeV1,
             limits: AeonCompileLimits::default(),
             max_ordering_edges: 1_000_000,
         }
@@ -44,7 +44,7 @@ impl Default for CanonicalizeOptions {
 #[must_use]
 pub fn canonicalize_with_options(source: &str, options: &CanonicalizeOptions) -> CanonicalResult {
     if options.ordering == CanonicalOrdering::LexicalV1 {
-        return super::canonicalize(source);
+        return super::canonicalize_lexical(source);
     }
     match canonicalize_reference_safe(source, options) {
         Ok(text) => CanonicalResult {
@@ -939,6 +939,16 @@ fn apply_value(value: &mut Value, orders: &Orders) -> Result<(), Diagnostic> {
 mod tests {
     use super::*;
 
+    fn legacy(source: &str) -> CanonicalResult {
+        canonicalize_with_options(
+            source,
+            &CanonicalizeOptions {
+                ordering: CanonicalOrdering::LexicalV1,
+                ..CanonicalizeOptions::default()
+            },
+        )
+    }
+
     fn options() -> CanonicalizeOptions {
         CanonicalizeOptions {
             ordering: CanonicalOrdering::ReferenceSafeV1,
@@ -960,34 +970,28 @@ mod tests {
     }
 
     #[test]
-    fn explicit_contract_preserves_historical_default() {
+    fn default_contract_is_reference_safe_and_explicit_legacy_preserves_bytes() {
         let source = "z=1\na=~z";
         assert_eq!(
             canonicalize_with_options(source, &CanonicalizeOptions::default()),
             super::super::canonicalize(source)
         );
+        assert_eq!(super::super::canonicalize(source).text, canonical(source));
         assert!(canonical(source).ends_with("z = 1\na = ~z\n"));
-        assert!(
-            super::super::canonicalize(source)
-                .text
-                .ends_with("a = ~z\nz = 1\n")
-        );
+        assert!(legacy(source).text.ends_with("a = ~z\nz = 1\n"));
     }
 
     #[test]
-    fn compact_empty_objects_keep_historical_bytes_outside_opt_in() {
+    fn compact_empty_objects_keep_historical_bytes_in_explicit_legacy() {
         for (source, suffix) in [
             ("a@{m={}}=0", "a@{m = {}} = 0\n"),
             ("a@{m=[{}]}=0", "a@{m = [{}]} = 0\n"),
             ("a@{m=<tag({})>}=0", "a@{m = <tag({})>} = 0\n"),
         ] {
-            let legacy = super::super::canonicalize(source);
+            let legacy = legacy(source);
             assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
             assert!(legacy.text.ends_with(suffix), "{}", legacy.text);
-            assert_eq!(
-                canonicalize_with_options(source, &CanonicalizeOptions::default()),
-                legacy
-            );
+            assert_eq!(super::super::canonicalize_lexical(source), legacy);
             assert!(canonical(source).contains("{  }"));
         }
     }
@@ -1121,6 +1125,7 @@ mod tests {
             for result in [
                 super::super::canonicalize(source),
                 canonicalize_with_options(source, &options()),
+                legacy(source),
             ] {
                 assert_eq!(
                     result.errors.is_empty(),
@@ -1215,14 +1220,14 @@ mod tests {
                     output.contains(&format!("custom[{normalized}]")),
                     "{output}"
                 );
-                let legacy = super::super::canonicalize(&source);
-                assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
+                let historical = legacy(&source);
+                assert!(historical.errors.is_empty(), "{:?}", historical.errors);
                 assert!(
-                    legacy.text.contains(&format!("custom[{normalized}]")),
+                    historical.text.contains(&format!("custom[{normalized}]")),
                     "{}",
-                    legacy.text
+                    historical.text
                 );
-                assert_eq!(super::super::canonicalize(&legacy.text).text, legacy.text);
+                assert_eq!(legacy(&historical.text).text, historical.text);
             }
         }
         let mut limits = options();
@@ -1247,13 +1252,10 @@ mod tests {
             (r#"a=<"aeon":custom>"#, "a = <aeon:custom>\n"),
             (r#"v=^'a.["foo"]'"#, "v = ^'a.foo'\n"),
         ] {
-            let legacy = super::super::canonicalize(source);
+            let legacy = legacy(source);
             assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
             assert!(legacy.text.ends_with(suffix), "{}", legacy.text);
-            assert_eq!(
-                canonicalize_with_options(source, &CanonicalizeOptions::default()),
-                legacy
-            );
+            assert_eq!(super::super::canonicalize_lexical(source), legacy);
         }
     }
 

@@ -35,9 +35,9 @@ const result = emitFromObject(
 );
 ```
 
-### Try reference safe canonical ordering
+### Reference-safe canonical ordering
 
-The experimental TypeScript API contract validates authored Core references,
+The default contract (canonical CTS 0.4) validates authored Core references,
 then emits the smallest eligible decoded key after every step. It preserves
 references rather than evaluating them:
 
@@ -63,25 +63,23 @@ characters in decoded keys without introducing raw line breaks into references.
 1,000,000 and accepts non-negative safe integers. Ordering failures return
 diagnostics and empty text, without an alphabetical fallback.
 
-During cross-runtime rollout, omitting `ordering` retains the historical
-`lexical-v1` behavior and bytes, including its lack of authored reference
-validation. The internal Rust canonical crate also offers an explicit opt-in;
-see the [Rust README](../../../rust/README.md#experimental-reference-safe-canonical-ordering).
-The pure-Python reference API also has an explicit opt-in; see the
-[Python guide](../../../../docs/implementations/python/README.md).
-The [installed native-Python facade](../../../rust/crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
-also offers an explicit opt-in, as does the standalone
-[WASM API](../wasm/README.md#experimental-reference-safe-canonical-ordering).
-CLI, integrity hashing, native-Python defaults, and the WASM process pipeline
-have not switched contracts. Treat opt-in output as experimental; do not mix its
-hashes or signatures with historical canonical output. `emitFromObject` and
-Telex canonicalization are unchanged.
+Omitting `ordering` selects `reference-safe-v1`. For historical source bytes,
+explicitly select `ordering: 'lexical-v1'`; that compatibility contract does not
+validate authored references. Do not mix the two contracts' hashes/signatures.
+The same default applies to the [Rust API](../../../rust/README.md#reference-safe-canonical-ordering),
+the pure-Python reference API (see the
+[Python guide](../../../../docs/implementations/python/README.md)),
+the [installed native-Python facade](../../../rust/crates/aeon-python/README.md#reference-safe-canonical-ordering),
+the [WASM API](../wasm/README.md#reference-safe-canonical-ordering) and its process
+pipeline, and all three `fmt` CLIs. Integrity receipt/event hashing remains its
+separate historical projection. `emitFromObject` and Telex canonicalization
+are unchanged. Existing stored source digests must retain their original contract.
 
 ## What This Package Does
 
 - canonicalizes parsed AEON documents into stable text
 - emits deterministic AEON from plain TypeScript objects
-- supports historical lexical ordering and experimental reference-safe ordering
+- defaults to reference-safe ordering, with explicit historical lexical compatibility
 - canonicalizes Telex v1 independently from AEON source canonicalization
 
 ## Common Patterns
@@ -121,7 +119,7 @@ const result = emitFromObject(
 ## Notes
 
 - Emits a default header when none exists.
-- Uses historical lexical ordering by default; select `reference-safe-v1` explicitly during rollout.
+- Uses reference-safe ordering by default; select `lexical-v1` only for historical compatibility.
 - Preserves reference tokens (`~` / `~>`).
 - Parses separator-spec depth up to the AEON v1 capability floor (`8`) during canonicalization.
 - `emitFromObject` emits deterministic AEON from plain TS objects and fails closed on unsupported values.

@@ -62,7 +62,7 @@ plus `datatypePolicy: 'reserved_only' | 'allow_custom'`. Use
 `validationMode: 'declared'` to honor a document's declared mode without a host
 override.
 
-## Experimental reference-safe canonical ordering
+## Reference-safe canonical ordering
 
 Use the dedicated canonical-only API when no profile validation or JSON
 materialization is wanted:
@@ -80,7 +80,7 @@ const runtime = await loadAeonWasm();
 const same = runtime.canonicalize('d=3\nc=2\nb=~c\na=1', options);
 ```
 
-The explicit opt-in calls the Rust canonical API directly. It validates
+The default contract calls the Rust canonical API directly. It validates
 authored Core references, emits the smallest eligible decoded key, preserves
 indexed positions and metadata ownership, then validates the output. It does
 not evaluate references or enforce GP/profile/schema rules. Source or ordering
@@ -95,14 +95,15 @@ shapes/unknown fields throw `TypeError`; invalid ordering/limits throw
 `RangeError`. The raw generated `canonicalize_aeon(source, optionsJson)` export
 independently rejects invalid configuration. Omitted limits use the defaults.
 
-Omitting `ordering` or choosing `lexical-v1` retains historical bytes and
-behavior, including the absence of authored-reference validation. The limits
-are validated but only applied by the experimental contract. `processAeon`,
-streams, Telex, CLI, integrity/hash APIs and all canonical defaults are unchanged.
-Do not mix experimental hashes/signatures with historical canonical bytes.
-No canonical authority snapshot or published conformance claim is promoted.
+Omitting `ordering` selects `reference-safe-v1` (canonical CTS 0.4).
+Explicit `lexical-v1` retains historical source bytes and behavior, including
+the absence of authored-reference validation. Limits are validated but only
+applied by the reference-safe contract. `processAeon` canonical output uses the
+new default too, while retaining its existing profile/materialization stages.
+Streams and Telex are unchanged. Integrity event hashing/receipt verification
+remains historical; do not silently mix hashes/signatures across contracts.
 
-PR CI checks the actual committed binary against the experimental CTS and
+PR CI checks the actual committed binary against immutable canonical CTS 0.4 and
 TypeScript parity corpus. The browser smoke page checks the standalone API on
 the main thread and in a module worker, including Unicode symbols, fixed-point
 bytes and fail-closed reference/budget errors.

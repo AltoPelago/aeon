@@ -140,7 +140,7 @@ test('head quoting and empty-head normalization do not change historical bytes',
         ['a=[@{}=1]', 'a = [@{} = 1]\n'],
         ['a@{m={}}=0', 'a@{m = {  }} = 0\n'],
     ] as const) {
-        const legacy = canonicalize(source);
+        const legacy = canonicalize(source, { ordering: 'lexical-v1' });
         assert.deepEqual(legacy.errors, []);
         assert.ok(legacy.text.endsWith(suffix), legacy.text);
         assert.deepEqual(canonicalize(source, { ordering: 'lexical-v1' }), legacy);
@@ -253,10 +253,10 @@ test('partial-collision shape matrix matches Core exact-path ownership', () => {
     assert.equal(checked, 360);
 });
 
-test('historical bytes remain the explicit default during staged rollout', () => {
+test('default is reference-safe while explicit lexical-v1 preserves historical bytes', () => {
     const source = 'z=1\na=~z';
-    const historical = canonicalize(source);
-    assert.deepEqual(historical, canonicalize(source, { ordering: 'lexical-v1' }));
+    const historical = canonicalize(source, { ordering: 'lexical-v1' });
+    assert.deepEqual(canonicalize(source), canonicalize(source, { ordering: 'reference-safe-v1' }));
     assert.deepEqual(document(historical.text).bindings.map(binding => binding.key), ['a', 'z']);
     assert.deepEqual(document(canonicalize(source, options).text).bindings.map(binding => binding.key), ['z', 'a']);
 });
@@ -271,7 +271,7 @@ test('opt-in attributed container heads have exactly one space after equals', ()
         assert.equal(canonicalize(result.text, options).text, result.text);
         assert.deepEqual(semanticGraph(result.text), semanticGraph(authored));
         // The old contract remains byte-for-byte unchanged.
-        assert.match(canonicalize(source).text, /@\{m = 1\} =  +\{/);
+        assert.match(canonicalize(source, { ordering: 'lexical-v1' }).text, /@\{m = 1\} =  +\{/);
     }
 });
 
@@ -363,7 +363,7 @@ for (const character of ['\n', '\r', '\t', '\0', '\u000b', '\u001f', '"', '\\', 
 
 test('reference selector escape correction does not change the historical contract', () => {
     const source = '"z\\nkey"=1\na=~["z\\nkey"]';
-    assert.ok(canonicalize(source).text.includes('~["z\nkey"]'));
+    assert.ok(canonicalize(source, { ordering: 'lexical-v1' }).text.includes('~["z\nkey"]'));
     assert.ok(canonicalize(source, options).text.includes('~["z\\nkey"]'));
 });
 
