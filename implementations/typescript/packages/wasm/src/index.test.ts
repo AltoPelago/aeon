@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
+import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics.json' with { type: 'json' };
 import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
@@ -109,7 +110,7 @@ test('generated wasm agrees on exact radix bases in source and portable finaliza
 
 test('generated wasm enforces type-only generic arguments in one-shot, canonical and streaming paths', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
-  for (const fixture of genericArguments) {
+  for (const fixture of [...genericArguments, ...nodeBindingGenerics]) {
     const result = runtime.processAeon(fixture.source, { validationMode: 'loose', finalize: false });
     assert.equal(result.ok, fixture.ok, fixture.source);
     const canonical = runtime.processAeon(fixture.source, { validationMode: 'none', finalize: false });

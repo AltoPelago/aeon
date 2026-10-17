@@ -1053,7 +1053,16 @@ mod tests {
             "../../../../../test-fixtures/datatype-generic-arguments.json"
         ))
         .expect("generic fixtures");
-        for fixture in fixtures.as_array().expect("fixture array") {
+        let node_bindings: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/node-binding-generics.json"
+        ))
+        .expect("node-binding fixtures");
+        for fixture in fixtures
+            .as_array()
+            .expect("fixture array")
+            .iter()
+            .chain(node_bindings.as_array().expect("fixture array"))
+        {
             let source = fixture["source"].as_str().expect("source");
             let valid = fixture["ok"].as_bool().expect("ok");
             assert_eq!(

@@ -3,6 +3,7 @@ import test from 'node:test';
 import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
+import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics.json' with { type: 'json' };
 import { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes, parseDatatypeDescriptor, formatDatatypeDescriptor } from '@altopelago/aeon-aes';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
@@ -17,7 +18,7 @@ test('the broader AES transport still preserves numeric generic components', () 
     assert.equal(formatDatatypeDescriptor(descriptor), 'custom<1.00>[1.00]');
 });
 
-for (const fixture of genericArguments) {
+for (const fixture of [...genericArguments, ...nodeBindingGenerics]) {
     test(`generic arguments must be types: ${fixture.source}`, () => {
         const parsed = parse(tokenize(fixture.source).tokens);
         assert.equal(parsed.errors.length === 0, fixture.ok);

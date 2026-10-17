@@ -336,6 +336,7 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
+            this.validateBindingNodeGeneric(datatype);
         }
 
         // Expect =
@@ -351,9 +352,6 @@ class Parser {
 
         // Parse value
         const value = this.parseValue();
-        if (datatype) {
-            this.validateBindingNodeGeneric(datatype, value);
-        }
 
         const end = this.previous().span.end;
         return {
@@ -408,6 +406,7 @@ class Parser {
             if (this.check(TokenType.Colon)) {
                 this.advance();
                 attrDatatype = this.parseTypeAnnotation();
+                this.validateBindingNodeGeneric(attrDatatype);
             }
 
             this.consume(TokenType.Equals, "Expected '=' in attribute");
@@ -535,16 +534,18 @@ class Parser {
 
     }
 
-    private validateBindingNodeGeneric(datatype: TypeAnnotation, value: Value): void {
-        if (datatype.name !== 'node' || datatype.genericArgs.length === 0 || value.type !== 'NodeLiteral') {
+    private validateBindingNodeGeneric(datatype: TypeAnnotation): void {
+        if (datatype.name !== 'node' || datatype.genericArgs.length === 0) {
             return;
         }
 
         for (const arg of datatype.genericArgs) {
-            const base = arg.split('<', 1)[0] ?? arg;
+            // Generic arguments may carry their own generics or clarifiers;
+            // neither decoration changes the reserved datatype's identity.
+            const base = arg.split(/[<\[]/, 1)[0] ?? arg;
             if (base !== 'node' && RESERVED_V1_DATATYPES.has(base)) {
                 throw new SyntaxError(
-                    "Binding-level node<T> claims over node values may use node<T> only for custom profile/domain claims or node<node>",
+                    "Binding-level node<T> claims may use node<T> only for custom profile/domain claims or node<node>; reserved child value datatypes belong on node heads",
                     datatype.span,
                     'node<node> or node<custom>',
                     this.formatTypeAnnotation(datatype)
@@ -681,6 +682,7 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
+            this.validateBindingNodeGeneric(datatype);
         }
 
         this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
