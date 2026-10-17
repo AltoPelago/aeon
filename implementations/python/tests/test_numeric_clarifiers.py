@@ -28,6 +28,7 @@ class NumericClarifierTests(unittest.TestCase):
 
     def test_generic_arguments_are_types_not_numeric_or_string_literals(self) -> None:
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/datatype-generic-arguments.json").read_text())
+        fixtures += json.loads((ROOT.parents[1] / "test-fixtures/node-binding-generics.json").read_text())
         for fixture in fixtures:
             source = fixture["source"]
             with self.subTest(source=source):

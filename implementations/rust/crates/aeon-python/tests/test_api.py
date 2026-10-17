@@ -70,6 +70,7 @@ class CompileTests(unittest.TestCase):
 
     def test_generic_arguments_are_type_descriptors_not_numeric_literals(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text())
+        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/node-binding-generics.json").read_text())
         for fixture in fixtures:
             source = fixture["source"]
             with self.subTest(source=source):

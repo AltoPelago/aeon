@@ -23,6 +23,11 @@ repositories.
 
 ### Fixed
 
+- TypeScript now rejects reserved non-`node` arguments in binding-side
+  `node<T>` claims even when the argument has clarifiers, the claim annotates
+  metadata or an anonymous item, or the value is a reference rather than a
+  literal node. This aligns Core parsing with Rust and Python. Custom/domain
+  arguments, `node<node>`, and child-content claims on tag heads are unchanged.
 - GP clarifier rules now also validate datatype arguments on ordinary node
   tag heads. Invalid claims such as `<tag:node<radix[2.5]>>` are diagnosed at
   the tag's `[0]` path across TypeScript, Rust, Python, and WASM, including
