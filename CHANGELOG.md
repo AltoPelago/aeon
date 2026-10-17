@@ -8,6 +8,14 @@ repositories.
 
 ## Unreleased
 
+## 0.16.0 - 2026-10-17
+
+Coordinated TypeScript, Rust, and Python implementation release; AEON remains
+on the v1 language line. See the [0.16.0 migration guide](docs/migration-0.16.0.md)
+for canonical source bytes, type-only generic arguments, and exact numeric
+clarifier ASTs. Published 0.15.0 artifacts and historical authority snapshots
+are unchanged.
+
 ### Added
 
 - WASM now exposes standalone `canonicalize` APIs (async or on a loaded runtime)
@@ -40,8 +48,7 @@ repositories.
   retains historical source bytes/behavior for compatibility; keep stored
   digests/signatures tied to their original contract. Integrity's legacy event
   projection, hash/receipt verification, `emitFromObject`, and Telex
-  canonicalization are unchanged. This prepares coordinated 0.16.0; no package
-  version is bumped or artifact published here.
+  canonicalization are unchanged.
 - AEON source generic arguments now require datatype descriptors. Bare numeric
   arguments such as `custom<1.0>` are rejected, including nested and node-head
   forms. Numeric clarifiers remain valid, including `list<custom[1.0]>`.
@@ -49,7 +56,7 @@ repositories.
   records and validated Film completion. TypeScript adopts AES Events CTS 0.2,
   Telex CTS 0.2, and reader-only Film CTS 0.4; pure-Python adopts the same AES
   Events and Telex targets. Rust adopts `altopelago-aes-telex` 0.3.1, and
-  committed WASM artifacts include the new validation. No package is republished here.
+  committed WASM artifacts include the new validation.
   Provisional Film inspection can still expose historical numeric generic tags,
   but those records cannot complete as accepted AES. TypeScript syntax/progress
   result types now distinguish those provisional records from validated output.
@@ -72,8 +79,8 @@ repositories.
   allocation or descent. Exercise all reader-decodable fixtures, including
   positive producer bytes, and preserve independent resource/malformed-input
   guards. Regenerate WASM for the updated locked Rust dependency graph.
-  Consumer limits, Film wire/tags, canonical defaults and AEON package versions
-  are unchanged; durable Film writing remains gated.
+  Consumer limits and Film wire/tags are unchanged; durable Film writing
+  remains gated. The canonical default change is recorded separately above.
 - Python and Rust Core now JSON-escape backslashes and control characters in
   quoted payload and reference-target paths, preserving decoded key identity
   through portable AES export, recursive node projection, and Telex round trips.
