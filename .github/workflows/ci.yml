@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
+          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
           path: aes
 
       - name: Link AES for the Rust workspace
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: d3fef60e579ea93c202f1ce74dfb21cfc074bc28
+          ref: 1782c7d79a8c73524ad1e284844b9c823342e1eb
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -161,7 +161,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
+          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -198,14 +198,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: d3fef60e579ea93c202f1ce74dfb21cfc074bc28
+          ref: 1782c7d79a8c73524ad1e284844b9c823342e1eb
           path: aeonite-cts
 
       - name: Checkout AES
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
+          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
           path: aes
 
       - name: Link AES for the Rust workspace

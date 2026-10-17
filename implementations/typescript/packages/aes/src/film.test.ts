@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { encodeTelex } from './telex.js';
+import type { FilmDecodeOptions } from './film.js';
 
 import {
     FILM_V1_PREAMBLE,
@@ -15,6 +16,58 @@ import {
 const CANONICAL_SCALAR = fromHex(
     '4f5f5fff010012000109242e6d6573736167650568656c6c6f',
 );
+// Fixed bytes from immutable Film CTS 0.4 (depth-002, depth-003 and depth-024).
+const LEAF_GENERIC = fromHex('4f5f5fff010018020203242e610f046c69737401000603696e740000000130');
+const CLARIFIED_LEAF = fromHex('4f5f5fff01002d020203242e6124046c69737401001b06637573746f6d0001021039303037313939323534373430393933000130');
+const MISSING_NESTED_ARGUMENT = fromHex('4f5f5fff010018020203242e610f046c697374010006046c69737401000130');
+
+test('Film logical depth zero accepts leaf arguments and preserves exact clarifiers', () => {
+    for (const [bytes, generic] of [
+        [LEAF_GENERIC, { datatype: 'int', generics: [], clarifiers: [] }],
+        [CLARIFIED_LEAF, { datatype: 'custom', generics: [], clarifiers: [
+            { kind: 'NumberLiteral', value: '9007199254740993' },
+        ] }],
+    ] as const) {
+        const expected = decodeFilm(bytes, { maxGenericDepth: 0 });
+        assert.deepEqual(expected.records[0]?.generics, [generic]);
+        for (let split = 0; split <= bytes.length; split += 1) {
+            const decoder = new IncrementalFilmDecoder({ aesLimits: { maxGenericDepth: 0 } });
+            assert.notEqual(decoder.push(bytes.subarray(0, split)).status, 'complete');
+            const result = decoder.push(bytes.subarray(split), { final: true });
+            assert.equal(result.status, 'complete');
+            assert.deepEqual(result.stream, expected);
+        }
+    }
+});
+
+test('Film checks generic-bearing depth before descent without bypassing independent limits', () => {
+    const cases: readonly [Uint8Array, FilmDecodeOptions, string, number, number][] = [
+        [MISSING_NESTED_ARGUMENT, { maxGenericDepth: 0 }, 'max_generic_depth', 1, 0],
+        [LEAF_GENERIC, { maxGenericDepth: 0, maxDatatypeComponents: 1 }, 'max_datatype_components', 2, 1],
+        [CLARIFIED_LEAF, { maxGenericDepth: 0, maxClarifierValues: 0 }, 'max_clarifier_values', 1, 0],
+    ];
+    for (const [bytes, options, counter, observed, limit] of cases) {
+        assert.throws(() => decodeFilm(bytes, options), (error: unknown) => {
+            assert.ok(error instanceof FilmDecodeError);
+            assert.equal(error.code, 'FILM_AES_INVALID');
+            assert.deepEqual(error.diagnostics.map(({ code, counter, observed, limit }) => (
+                { code, counter, observed, limit }
+            )), [{ code: 'AES_LIMIT_EXCEEDED', counter, observed, limit }]);
+            return true;
+        });
+    }
+});
+
+test('Film logical-depth acceptance does not suppress malformed leaf or argument errors', () => {
+    const trailingLeaf = fromHex('4f5f5fff010010020203242e610703696e740000000130');
+    for (const [bytes, depth, code] of [
+        [trailingLeaf, 0, 'FILM_NONCANONICAL'],
+        [MISSING_NESTED_ARGUMENT, 1, 'FILM_TRUNCATED'],
+    ] as const) {
+        assert.throws(() => decodeFilm(bytes, { maxGenericDepth: depth }),
+            (error: unknown) => error instanceof FilmDecodeError && error.code === code);
+    }
+});
 
 test('decodes the Film v1 specification scalar as complete portable AES', () => {
     const stream = decodeFilm(CANONICAL_SCALAR);

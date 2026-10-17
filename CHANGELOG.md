@@ -38,13 +38,14 @@ repositories.
   forms. Numeric clarifiers remain valid, including `list<custom[1.0]>`.
   Portable AES and Telex now enforce the same rule, including caller-supplied
   records and validated Film completion. TypeScript adopts AES Events CTS 0.2,
-  Telex CTS 0.2, and reader-only Film CTS 0.3; pure-Python adopts the same AES
-  Events and Telex targets. Rust uses `altopelago-aes-telex` 0.3.0, and committed
-  WASM artifacts include the new validation. No package is republished here.
+  Telex CTS 0.2, and reader-only Film CTS 0.4; pure-Python adopts the same AES
+  Events and Telex targets. Rust adopts `altopelago-aes-telex` 0.3.1, and
+  committed WASM artifacts include the new validation. No package is republished here.
   Provisional Film inspection can still expose historical numeric generic tags,
   but those records cannot complete as accepted AES. TypeScript syntax/progress
   result types now distinguish those provisional records from validated output.
-  Exact numeric clarifiers and Film physical generic-depth accounting are unchanged.
+  Exact numeric clarifiers are unchanged. The Film logical-depth correction is
+  recorded separately below.
 - TypeScript and pure-Python parsers now represent numeric datatype clarifiers
   as exact `NumberLiteral` AST nodes rather than native numbers. Consumers
   inspecting those arrays must read the node's string `value` (or `raw` for
@@ -54,6 +55,16 @@ repositories.
 
 ### Fixed
 
+- Adopt published `altopelago-aes-telex` 0.3.1 across Rust dependencies, lockfiles
+  and pinned CI/release checkouts. Align the independent TypeScript Film reader
+  with shared AES logical generic depth and advance its reader-only claim to
+  immutable Film CTS 0.4: `list<int>` fits a maximum of zero, clarified leaves
+  add no level, and over-limit generic-bearing descriptors fail before generic
+  allocation or descent. Exercise all reader-decodable fixtures, including
+  positive producer bytes, and preserve independent resource/malformed-input
+  guards. Regenerate WASM for the updated locked Rust dependency graph.
+  Consumer limits, Film wire/tags, canonical defaults and AEON package versions
+  are unchanged; durable Film writing remains gated.
 - Python and Rust Core now JSON-escape backslashes and control characters in
   quoted payload and reference-target paths, preserving decoded key identity
   through portable AES export, recursive node projection, and Telex round trips.

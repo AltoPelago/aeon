@@ -29,7 +29,7 @@
         },
         {
           "surface": "film-reader",
-          "snapshot_id": "film-cts-v1-snapshot-0.3",
+          "snapshot_id": "film-cts-v1-snapshot-0.4",
           "operations": ["decode"],
           "status": "claimed",
           "command": "pnpm test:cts:film"

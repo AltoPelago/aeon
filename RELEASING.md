@@ -97,8 +97,10 @@ pnpm publish:preflight
 
 `pnpm run ci` includes `pnpm test:cts:film`. The TypeScript Film v1 release
 surface currently claims reader conformance only: it must decode every
-reader-decodable vector in `film-cts-v1-snapshot-0.3`, while encoder-only
-vectors remain outside the claim. Adding Film encoding or durable writing to a
+reader-decodable vector in `film-cts-v1-snapshot-0.4`: 103 direct decode cases
+plus the bytes of 13 positive producer fixtures. Its 12 encoder-only negatives
+remain outside the claim. The 34 reader-applicable logical-depth cases also
+run at every incremental split. Adding Film encoding or durable writing to a
 publishable package requires a separate release-policy update and review.
 
 Once the artifact has been generated and reviewed for the current wrapper
@@ -248,9 +250,10 @@ are not masked.
 
 ## Notes
 
-- The type-only portable transport update requires `altopelago-aes-telex`
-  0.3.0. Publish and verify that provider before packaging/publishing dependent
-  AEON Rust crates or a native Python source distribution for a new release.
+- The type-only portable transport and Film logical-depth updates require
+  `altopelago-aes-telex` 0.3.1 or later. Publish and verify that provider before
+  packaging/publishing dependent AEON Rust crates or a native Python source
+  distribution for a new release.
   CI uses the reviewed pinned AES checkout; a successful path-dependency build
   does not establish crates.io availability. Do not republish AEON 0.15.0.
 - If version bumps are needed, do them before the build and dry-run pass.
