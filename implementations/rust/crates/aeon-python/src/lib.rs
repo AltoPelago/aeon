@@ -4,7 +4,9 @@ use std::time::Instant;
 use aeon_aeos::{
     ResultEnvelope, ValidationEnvelope, ValidationOptions, validate, validate_telex_records,
 };
-use aeon_canonical::{canonicalize, canonicalize_telex};
+use aeon_canonical::{
+    CanonicalOrdering, CanonicalizeOptions, canonicalize_telex, canonicalize_with_options,
+};
 use aeon_core::{
     BehaviorMode, CompileOptions, CompileResult as CoreCompileResult, DatatypePolicy,
     Diagnostic as CoreDiagnostic, ExportTelexOptions, SourcePlane, Span as CoreSpan, Value,
@@ -21,7 +23,7 @@ use aes_telex::{
     validate_aes_event_records_with_projection_and_limits,
     validate_telex_records_with_projection_and_limits,
 };
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyModule, PyTuple};
 use serde::Serialize;
@@ -460,12 +462,38 @@ fn compile_json(py: Python<'_>, source: &str) -> PyResult<Py<PyBytes>> {
     Ok(PyBytes::new(py, encoded.as_bytes()).unbind())
 }
 
-#[pyfunction]
-fn canonicalize_native(py: Python<'_>, source: &str) -> PyResult<(bool, Py<PyBytes>)> {
+#[pyfunction(signature = (source, ordering="lexical-v1", max_ordering_edges=1_000_000, max_attribute_depth=1))]
+fn canonicalize_native(
+    py: Python<'_>,
+    source: &str,
+    ordering: &str,
+    max_ordering_edges: usize,
+    max_attribute_depth: usize,
+) -> PyResult<(bool, Py<PyBytes>)> {
+    let ordering = match ordering {
+        "lexical-v1" => CanonicalOrdering::LexicalV1,
+        "reference-safe-v1" => CanonicalOrdering::ReferenceSafeV1,
+        _ => return Err(PyValueError::new_err("unknown canonical ordering")),
+    };
+    if max_ordering_edges as u64 > 9_007_199_254_740_991
+        || max_attribute_depth as u64 > 9_007_199_254_740_991
+    {
+        return Err(PyValueError::new_err(
+            "canonical limits must be non-negative safe integers",
+        ));
+    }
+    let options = CanonicalizeOptions {
+        ordering,
+        max_ordering_edges,
+        limits: aeon_core::AeonCompileLimits {
+            max_attribute_depth,
+            ..aeon_core::AeonCompileLimits::default()
+        },
+    };
     let source = source.to_owned();
     let (ok, encoded) = py
         .detach(move || {
-            let result = canonicalize(&source);
+            let result = canonicalize_with_options(&source, &options);
             if result.errors.is_empty() {
                 return Ok((true, result.text.into_bytes()));
             }

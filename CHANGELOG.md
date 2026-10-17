@@ -10,6 +10,12 @@ repositories.
 
 ### Added
 
+- Native Python `altopelago.aeon.canonicalize` now offers keyword-only
+  `ordering="reference-safe-v1"`, `max_ordering_edges`, and
+  `max_attribute_depth` options backed directly by the Rust canonical API.
+  The default remains historical lexical ordering; failures still raise
+  `CompileError` without partial text. Installed-wheel behavior, typing, and
+  experimental CTS/TypeScript byte parity are checked in PR CI.
 - The pure-Python reference canonical API now offers the experimental
   `CanonicalizeOptions(ordering="reference-safe-v1")` opt-in, matching the
   TypeScript/Rust dependency-aware ordering contract. It validates authored
