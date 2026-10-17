@@ -722,10 +722,6 @@ class Reader {
       this.record,
       'datatype',
     );
-    if (depth > aesLimits.maxGenericDepth) {
-      throw aesLimitError('max_generic_depth', depth, aesLimits.maxGenericDepth,
-        this.absolutePosition(), this.record, 'datatype');
-    }
     const length = this.readLimitedLength(
       'max_field_bytes', filmLimits.maxFieldBytes, 'datatype',
     );
@@ -742,6 +738,12 @@ class Reader {
     const genericCount = descriptor.readCount(
       'generic-count', 'max_generic_arguments', aesLimits.maxGenericArguments,
     );
+    // Only generic-bearing levels contribute; leaf descriptor frames do not.
+    // Reject before allocating or traversing this level's generic arguments.
+    if (genericCount > 0 && depth > aesLimits.maxGenericDepth) {
+      throw aesLimitError('max_generic_depth', depth, aesLimits.maxGenericDepth,
+        descriptor.absolutePosition(), this.record, 'datatype');
+    }
     ensureDatatypeComponentCapacity(
       components.count,
       genericCount,

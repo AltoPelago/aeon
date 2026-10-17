@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -67,6 +68,32 @@ function streamForCts(stream) {
     };
 }
 
+function checkRead(read, vector, codec) {
+    if (vector.expected.ok === false) {
+        assert.throws(read, (error) => {
+            assert.ok(error instanceof codec.FilmDecodeError);
+            const expected = vector.expected.error;
+            if (expected.code !== undefined) assert.equal(error.code, expected.code);
+            if (expected.stage !== undefined) assert.equal(error.stage, expected.stage);
+            if (expected.diagnostic_codes !== undefined) {
+                assert.deepEqual(error.diagnostics.map(({ code }) => code).sort(),
+                    [...expected.diagnostic_codes].sort());
+            }
+            return true;
+        });
+        return undefined;
+    }
+    const stream = read();
+    if (vector.operation === 'decode' && vector.expected.stream !== undefined) {
+        assert.deepEqual(streamForCts(stream), vector.expected.stream);
+    } else if (vector.operation === 'encode') {
+        assert.deepEqual(streamForCts(stream), vector.input.stream);
+    } else if (vector.operation === 'transcode') {
+        assert.deepEqual(streamForCts(stream), streamForCts(codec.parseTelex(vector.input.telex)));
+    }
+    return stream;
+}
+
 async function main() {
     const manifestPath = option('--cts');
     const modulePath = option('--module');
@@ -74,59 +101,63 @@ async function main() {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.meta.format, 'film.aes');
     assert.equal(manifest.meta.format_version, '1');
-    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.3');
+    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.4');
 
-    let passed = 0;
+    let directDecode = 0;
+    let producerFixtures = 0;
     let encoderOnly = 0;
-    let expectedEncoderOnly = 0;
+    let incrementalVectors = 0;
+    let incrementalSplits = 0;
     for (const suiteRef of manifest.suites) {
         const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
-        const suite = JSON.parse(await readFile(suitePath, 'utf8'));
+        const suiteBytes = await readFile(suitePath);
+        assert.equal(createHash('sha256').update(suiteBytes).digest('hex'), suiteRef.content_sha256,
+            `${suiteRef.id}: suite digest differs from the immutable manifest`);
+        const suite = JSON.parse(suiteBytes.toString('utf8'));
         assert.equal(suite.id, suiteRef.id);
         const excluded = new Set(suiteRef.exclude_tests ?? []);
         const vectors = suite.tests.filter((vector) => !excluded.has(vector.id));
-        expectedEncoderOnly += vectors.filter((vector) => vector.operation === 'encode').length;
         for (const vector of vectors) {
-            if (vector.operation === 'encode') {
+            if (vector.operation === 'encode' && vector.expected.film_hex === undefined) {
+                assert.equal(vector.expected.ok, false, `${vector.id}: missing positive producer bytes`);
                 encoderOnly += 1;
                 continue;
             }
+            if (vector.operation === 'decode') directDecode += 1;
+            else producerFixtures += 1;
             const filmHex = vector.operation === 'decode'
                 ? vector.input.film_hex
                 : vector.expected.film_hex;
             assert.notEqual(filmHex, undefined, `${vector.operation} vector does not provide Film bytes for reader verification`);
             try {
-                try {
-                    const stream = codec.decodeFilm(fromHex(filmHex), vectorOptions(vector));
-                    assert.notEqual(vector.expected.ok, false, 'expected Film decoding to fail');
-                    if (vector.operation === 'decode' && vector.expected.stream !== undefined) {
-                        assert.deepEqual(streamForCts(stream), vector.expected.stream);
-                    } else if (vector.operation === 'transcode') {
-                        const telex = codec.parseTelex(vector.input.telex);
-                        assert.deepEqual(streamForCts(stream), streamForCts(telex));
+                const bytes = fromHex(filmHex);
+                const options = vectorOptions(vector);
+                const expected = checkRead(() => codec.decodeFilm(bytes, options), vector, codec);
+                if (suiteRef.id === 'next-film-logical-generic-depth') {
+                    for (let split = 0; split <= bytes.length; split += 1) {
+                        const actual = checkRead(() => {
+                            const decoder = new codec.IncrementalFilmDecoder(options);
+                            const first = decoder.push(bytes.subarray(0, split));
+                            assert.notEqual(first.status, 'complete');
+                            const final = decoder.push(bytes.subarray(split), { final: true });
+                            assert.equal(final.status, 'complete');
+                            return final.stream;
+                        }, vector, codec);
+                        assert.deepEqual(actual, expected, `incremental split=${split}`);
+                        incrementalSplits += 1;
                     }
-                } catch (error) {
-                    assert.equal(vector.expected.ok, false, `unexpected Film decode failure: ${error.message}`);
-                    assert.ok(error instanceof codec.FilmDecodeError);
-                    if (vector.expected.error.code !== undefined) {
-                        assert.equal(error.code, vector.expected.error.code);
-                    } else {
-                        assert.equal(error.stage, 'aes');
-                        assert.deepEqual(
-                            error.diagnostics.map(({ code }) => code).sort(),
-                            [...vector.expected.error.diagnostic_codes].sort(),
-                        );
-                    }
+                    incrementalVectors += 1;
                 }
-                passed += 1;
             } catch (error) {
                 throw new Error(`${vector.id}: ${error.message}`, { cause: error });
             }
         }
     }
-    assert.equal(encoderOnly, expectedEncoderOnly);
-    const encoderOnlyLabel = encoderOnly === 1 ? 'vector' : 'vectors';
-    process.stdout.write(`Film reader CTS passed: ${passed} vector(s); ${encoderOnly} encoder-only ${encoderOnlyLabel} skipped\n`);
+    assert.deepEqual({ directDecode, producerFixtures, encoderOnly, incrementalVectors }, {
+        directDecode: 103, producerFixtures: 13, encoderOnly: 12, incrementalVectors: 34,
+    });
+    process.stdout.write(`Film reader CTS passed: ${directDecode} decode + ${producerFixtures} producer fixtures; `
+        + `${encoderOnly} encoder-only negatives skipped; ${incrementalVectors} incremental vectors / ${incrementalSplits} splits\n`);
 }
 
 main().catch((error) => {
