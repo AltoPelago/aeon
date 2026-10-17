@@ -12,10 +12,10 @@ import { compareScalarKeys, referenceSafeOrders, reorderDocument } from './order
 
 const options = { ordering: 'reference-safe-v1' as const, maxAttributeDepth: 2 };
 
-test('the broader AES transport still preserves numeric generic components', () => {
-    const descriptor = parseDatatypeDescriptor('custom<1.00>[1.00]');
-    assert.deepEqual(descriptor.generics, [{ kind: 'NumberLiteral', value: '1.00' }]);
-    assert.equal(formatDatatypeDescriptor(descriptor), 'custom<1.00>[1.00]');
+test('AES transport rejects numeric generics but preserves numeric clarifier spelling', () => {
+    assert.throws(() => parseDatatypeDescriptor('custom<1.00>[1.00]'));
+    const descriptor = parseDatatypeDescriptor('custom<child[1.00]>[1.00]');
+    assert.equal(formatDatatypeDescriptor(descriptor), 'custom<child[1.00]>[1.00]');
 });
 
 for (const fixture of [...genericArguments, ...nodeBindingGenerics]) {

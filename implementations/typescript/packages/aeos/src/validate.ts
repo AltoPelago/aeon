@@ -1769,7 +1769,7 @@ function portableDatatype(record: TelexRecord): string | undefined {
     if (!Array.isArray(record.generics) || !Array.isArray(record.clarifiers)) return record.datatype;
     return formatDatatypeDescriptor({
         datatype: record.datatype,
-        generics: record.generics as readonly (AesDatatypeDescriptor | AesNumberLiteral)[],
+        generics: record.generics as readonly AesDatatypeDescriptor[],
         clarifiers: record.clarifiers as readonly (AesStringLiteral | AesNumberLiteral)[],
     });
 }

@@ -97,7 +97,7 @@ pnpm publish:preflight
 
 `pnpm run ci` includes `pnpm test:cts:film`. The TypeScript Film v1 release
 surface currently claims reader conformance only: it must decode every
-reader-decodable vector in `film-cts-v1-snapshot-0.2`, while encoder-only
+reader-decodable vector in `film-cts-v1-snapshot-0.3`, while encoder-only
 vectors remain outside the claim. Adding Film encoding or durable writing to a
 publishable package requires a separate release-policy update and review.
 
@@ -248,6 +248,11 @@ are not masked.
 
 ## Notes
 
+- The type-only portable transport update requires `altopelago-aes-telex`
+  0.3.0. Publish and verify that provider before packaging/publishing dependent
+  AEON Rust crates or a native Python source distribution for a new release.
+  CI uses the reviewed pinned AES checkout; a successful path-dependency build
+  does not establish crates.io availability. Do not republish AEON 0.15.0.
 - If version bumps are needed, do them before the build and dry-run pass.
 - If `@altopelago/aeon-wasm` has a changed Rust/WASM source, locked Rust
   dependency, pinned Rust toolchain, wrapper version, or generator, regenerate

@@ -29,10 +29,22 @@
         },
         {
           "surface": "film-reader",
-          "snapshot_id": "film-cts-v1-snapshot-0.2",
+          "snapshot_id": "film-cts-v1-snapshot-0.3",
           "operations": ["decode"],
           "status": "claimed",
           "command": "pnpm test:cts:film"
+        },
+        {
+          "surface": "aes-events",
+          "snapshot_id": "aes-events-cts-v1-snapshot-0.2",
+          "status": "claimed",
+          "command": "pnpm test:cts:aes:events"
+        },
+        {
+          "surface": "telex",
+          "snapshot_id": "telex-cts-v1-snapshot-0.2",
+          "status": "claimed",
+          "command": "pnpm test:cts:telex"
         },
         {
           "surface": "canonical",
@@ -126,6 +138,18 @@
       "implementation_version": "0.15.0",
       "workspace": "implementations/python",
       "claims": [
+        {
+          "surface": "aes-events",
+          "snapshot_id": "aes-events-cts-v1-snapshot-0.2",
+          "status": "claimed",
+          "command": "python3 -m unittest discover -s tests -p test_telex.py"
+        },
+        {
+          "surface": "telex",
+          "snapshot_id": "telex-cts-v1-snapshot-0.2",
+          "status": "claimed",
+          "command": "python3 -m unittest discover -s tests -p test_telex.py"
+        },
         {
           "surface": "core",
           "snapshot_id": "core-cts-v1-snapshot-0.5",

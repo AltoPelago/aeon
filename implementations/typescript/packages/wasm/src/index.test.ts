@@ -7,6 +7,7 @@ import referenceOrderFixtures from '../../../../../test-fixtures/reference-autho
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics.json' with { type: 'json' };
+import transportGenerics from '../../../../../test-fixtures/transport-generic-arguments.json' with { type: 'json' };
 import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
 import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
@@ -21,6 +22,21 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated WASM rejects literal Telex generics and retains exact recursive clarifiers', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const wire = (datatype: string): string => `telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype=${datatype}\nvalue=0\n`;
+  for (const datatype of transportGenerics.invalid_datatypes) {
+    for (const operation of [runtime.validateTelex, runtime.canonicalizeTelex, runtime.materializeTelex]) {
+      assert.throws(() => operation(wire(datatype)), (error: unknown) => error instanceof TelexWasmError
+        && error.code === 'TELEX_INVALID_DATATYPE' && error.line === 5, datatype);
+    }
+  }
+  const source = wire(transportGenerics.valid_datatype);
+  assert.equal(runtime.validateTelex(source).valid, true);
+  assert.equal(runtime.canonicalizeTelex(source), source);
+  assert.deepEqual(runtime.materializeTelex(source).document, { a: 0 });
+});
 
 test('generated wasm validates GP unprojected claims in one-shot and every two-chunk split', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

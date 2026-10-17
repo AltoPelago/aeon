@@ -1208,6 +1208,36 @@ mod tests {
     }
 
     #[test]
+    fn transport_generics_match_the_type_only_contract() {
+        let fixtures: JsonValue = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/transport-generic-arguments.json"
+        ))
+        .expect("fixtures");
+        let wire = |datatype: &str| {
+            format!("telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype={datatype}\nvalue=0\n")
+        };
+        for datatype in fixtures["invalid_datatypes"]
+            .as_array()
+            .expect("invalid types")
+        {
+            let source = wire(datatype.as_str().expect("datatype"));
+            let error = aes_telex::parse_telex(&source).expect_err("literal generic");
+            assert_eq!(error.code, "TELEX_INVALID_DATATYPE");
+            assert_eq!(error.line, Some(5));
+            assert!(aes_telex::canonicalize_telex(&source).is_err());
+            assert!(load_telex_str::<JsonValue>(&source, TelexLoadOptions::default()).is_err());
+        }
+        let source = wire(fixtures["valid_datatype"].as_str().expect("valid type"));
+        assert_eq!(
+            aes_telex::canonicalize_telex(&source).expect("canonical"),
+            source
+        );
+        let loaded = load_telex_str::<JsonValue>(&source, TelexLoadOptions::default())
+            .expect("exact clarifiers");
+        assert_eq!(loaded.document, json!({ "a": 0 }));
+    }
+
+    #[test]
     fn loads_complete_telex_without_reconstructing_parser_events() {
         let wire = "telex.aes=1\n\npath=$.config\nkind=ObjectNode\n\npath=$.config.name\nkind=StringLiteral\nvalue=AEON\n\npath=$.config.values\nkind=ListNode\n\npath=$.config.values[0]\nkind=NumberLiteral\nvalue=2\n\npath=$.config.values[1]\nkind=NumberLiteral\nvalue=3\n";
         let loaded =

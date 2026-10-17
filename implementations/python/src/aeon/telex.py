@@ -212,11 +212,7 @@ class _DatatypeParser:
         values: list[dict[str, object]] = []
         while True:
             self.skip_space()
-            if re.match(r"[A-Za-z_]", self.peek() or ""):
-                values.append(self.parse_descriptor(depth + 1))
-            else:
-                self.count_item()
-                values.append({"kind": "NumberLiteral", "value": self.parse_number(",>")})
+            values.append(self.parse_descriptor(depth + 1))
             if len(values) > self.limits.max_generic_arguments:
                 self.fail_limit("max_generic_arguments", len(values), self.limits.max_generic_arguments)
             self.skip_space()
@@ -318,7 +314,7 @@ def _format_datatype(descriptor: Mapping[str, object]) -> str:
     generic_text = ""
     if isinstance(generics, list) and generics:
         generic_text = "<" + ", ".join(
-            _format_datatype(item) if isinstance(item, Mapping) and "datatype" in item else str(item["value"])
+            _format_datatype(item)
             for item in generics
         ) + ">"
     clarifier_text = ""
@@ -354,8 +350,7 @@ def _assert_datatype_descriptor(
         if isinstance(item, Mapping) and "datatype" in item:
             _assert_datatype_descriptor(item, limits, state, depth + 1)
         else:
-            _count_datatype_item(state, limits)
-            _assert_tagged_literal(item, {"NumberLiteral"})
+            raise DatatypeError("Datatype generic argument must be a datatype descriptor", "AES_INVALID_DATATYPE")
     for item in clarifiers:
         _count_datatype_item(state, limits)
         _assert_tagged_literal(item, {"StringLiteral", "NumberLiteral"})

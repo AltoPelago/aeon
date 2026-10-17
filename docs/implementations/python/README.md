@@ -75,8 +75,9 @@ precision already lost before the call. Portable AES uses its existing
 
 AEON source generic arguments must be datatype descriptors. `custom<1.0>`
 is invalid; `custom<number>[1.0]` and `list<custom[1.0]>` retain numeric
-clarifiers on valid type names. The broader AES/Telex descriptor codec is
-unchanged.
+clarifiers on valid type names. Portable AES records and Telex descriptors
+enforce the same type-only rule; numeric literals belong in clarifier brackets,
+not generic angle brackets. Telex preserves their exact numeric strings.
 
 Limits and policy:
 

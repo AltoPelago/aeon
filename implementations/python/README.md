@@ -41,7 +41,8 @@ Current CTS status:
 - `aes`: green
 - `annotations`: green
 - `aeos`: green
-- `telex/v1`: green (snapshot 0.1)
+- portable `aes.events.v1`: green (snapshot 0.2)
+- `telex/v1`: green (snapshot 0.2)
 
 Implementation note:
 

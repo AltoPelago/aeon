@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
           path: aes
 
       - name: Link AES for the Rust workspace
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 765ca2b6d49676309d234db26f425dbbc3afa91e
+          ref: d3fef60e579ea93c202f1ce74dfb21cfc074bc28
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -90,6 +90,18 @@ jobs:
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: npm run validate:cts-claims
+
+      - name: Setup Python for reference tests
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Pure-Python reference tests and transport conformance
+        working-directory: .
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+          AES_ROOT: ${{ github.workspace }}/aes
+        run: python3 -m unittest discover -s implementations/python/tests -p 'test_*.py'
 
       - name: CTS conformance (all lanes)
         env:
@@ -115,7 +127,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -152,14 +164,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 765ca2b6d49676309d234db26f425dbbc3afa91e
+          ref: d3fef60e579ea93c202f1ce74dfb21cfc074bc28
           path: aeonite-cts
 
       - name: Checkout AES
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
           path: aes
 
       - name: Link AES for the Rust workspace

@@ -1,4 +1,4 @@
-import type { PartialAesStreamLimits, TelexRecord } from './telex.js';
+import type { AesDatatypeDescriptor, AesNumberLiteral, PartialAesStreamLimits, TelexRecord } from './telex.js';
 import * as implementation from './film-internal.js';
 
 export const FILM_VERSION = '1' as const;
@@ -32,6 +32,21 @@ export interface FilmStream {
     readonly records: readonly TelexRecord[];
 }
 
+/** Physical descriptors may contain historical numeric generic tags; not accepted AES. */
+export interface FilmSyntaxDatatypeDescriptor extends Omit<AesDatatypeDescriptor, 'generics'> {
+    readonly generics: readonly (FilmSyntaxDatatypeDescriptor | AesNumberLiteral)[];
+}
+
+export interface FilmSyntaxRecord extends Pick<TelexRecord,
+    'header' | 'path' | 'kind' | 'datatype' | 'clarifiers' | 'identity' | 'value' | 'origin' | 'span'> {
+    readonly generics?: readonly (FilmSyntaxDatatypeDescriptor | AesNumberLiteral)[];
+    readonly [extension: string]: unknown;
+}
+
+export interface FilmSyntaxStream extends Omit<FilmStream, 'records'> {
+    readonly records: readonly FilmSyntaxRecord[];
+}
+
 export interface FilmDecodeError extends Error {
     readonly code: string;
     readonly offset: number;
@@ -51,13 +66,15 @@ export const FilmDecodeError = implementation.FilmDecodeError as unknown as {
 
 export type FilmIncrementalStatus = 'need-more-input' | 'provisional' | 'complete';
 
-export interface FilmIncrementalResult {
-    readonly status: FilmIncrementalStatus;
-    readonly records: readonly TelexRecord[];
-    readonly stream: FilmStream | null;
+interface FilmIncrementalCounters {
     readonly bufferedBytes: number;
     readonly inputBytes: number;
 }
+
+export type FilmIncrementalResult = FilmIncrementalCounters & (
+    | { readonly status: 'complete'; readonly records: readonly TelexRecord[]; readonly stream: FilmStream }
+    | { readonly status: Exclude<FilmIncrementalStatus, 'complete'>; readonly records: readonly FilmSyntaxRecord[]; readonly stream: FilmSyntaxStream | null }
+);
 
 export interface IncrementalFilmDecoder {
     push(input: Uint8Array, options?: { readonly final?: boolean }): FilmIncrementalResult;
@@ -75,8 +92,8 @@ export function normalizeFilmLimits(options: FilmDecodeOptions = {}): Readonly<F
 }
 
 /** Decode canonical Film framing into provisional owned AES records. */
-export function decodeFilmSyntax(input: Uint8Array, options: FilmDecodeOptions = {}): FilmStream {
-    return implementation.decodeFilmSyntax(input, options) as FilmStream;
+export function decodeFilmSyntax(input: Uint8Array, options: FilmDecodeOptions = {}): FilmSyntaxStream {
+    return implementation.decodeFilmSyntax(input, options) as FilmSyntaxStream;
 }
 
 /** Decode Film and return records only after complete AES validation succeeds. */

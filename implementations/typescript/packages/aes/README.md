@@ -31,6 +31,20 @@ if (result.errors.length === 0) {
   acceptance until portable AES validation succeeds
 - splits compact Telex datatypes into `datatype`, `generics`, and `clarifiers`
 
+Generic arguments must be recursive datatype descriptors, never tagged numeric
+or string literals. For example, `custom<1.0>` is invalid while
+`custom<child[9007199254740993]>[2.0000000000000001]` preserves exact clarifier
+strings. The selected targets are AES Events CTS 0.2, Telex CTS 0.2, and
+reader-only Film CTS 0.3. TypeScript exposes no Film writer.
+
+Film syntax inspection and incremental progress remain provisional and can
+expose historical physical numeric generic tags. Their `FilmSyntaxStream` and
+`FilmSyntaxRecord` types do not imply valid AES. Only `decodeFilm()` or an
+incremental result with `status === 'complete'` returns validated type-only
+records. Existing physical Film generic-depth accounting is unchanged.
+`validateTelexRecords()` accepts untrusted/provisional records for diagnostics;
+that does not grant them the validated writer input type.
+
 ## API
 
 - `emitAssignmentEvents(input, options?)`

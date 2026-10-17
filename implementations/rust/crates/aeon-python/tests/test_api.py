@@ -10,6 +10,24 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_transport_generic_boundaries(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/transport-generic-arguments.json").read_text())
+        for datatype in fixtures["invalid_datatypes"]:
+            source = f"telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype={datatype}\nvalue=0\n"
+            with self.subTest(datatype=datatype):
+                with self.assertRaises(aeon.TelexError):
+                    aeon.canonicalize_telex(source)
+                loaded = aeon.load_telex_text(source)
+                self.assertFalse(loaded.ok)
+                self.assertEqual("telex_syntax", loaded.error_kind)
+                with self.assertRaises(aeon.TelexError):
+                    loaded.require_ok()
+        source = f"telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype={fixtures['valid_datatype']}\nvalue=0\n"
+        self.assertEqual(source, aeon.canonicalize_telex(source))
+        loaded = aeon.load_telex_text(source)
+        self.assertTrue(loaded.ok)
+        self.assertEqual({"a": 0}, loaded.document)
+
     def test_gp_validates_unprojected_claims(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
         fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-tag-head-clarifiers.json").read_text())
