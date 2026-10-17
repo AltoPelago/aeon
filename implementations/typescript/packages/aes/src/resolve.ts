@@ -8,8 +8,9 @@
 import type { AssignmentEvent, AttributeEntry } from './events.js';
 import type { Value, Attribute, AttributeValue, Binding, ReferencePathSegment } from '@altopelago/aeon-parser';
 import type { Span } from '@altopelago/aeon-lexer';
-import { formatPath, type CanonicalPath } from './paths.js';
+import { formatPath } from './paths.js';
 import { formatReferenceTargetPath } from './reference-target.js';
+import { indexReferenceOrder, isReferenceToSelf } from './reference-order.js';
 
 export interface ResolveDiagnostic {
     readonly message: string;
@@ -98,11 +99,10 @@ export function resolveRefs(
     const resolutionMap: Record<string, string> = {};
     const cycles: { path: readonly ReferencePathSegment[] }[] = [];
 
-    const pathToIndex = new Map<string, number>();
-    for (let i = 0; i < aes.length; i++) {
-        const pathStr = formatPath(aes[i]!.path);
-        pathToIndex.set(pathStr, i);
-    }
+    // Share Core's exact-path, source-plane and metadata availability rules.
+    // Attributes have no independent AssignmentEvents, but are real targets.
+    const { targets, claims } = indexReferenceOrder(aes);
+    const claimByReference = new Map(claims.map(claim => [claim.reference, claim]));
 
     const resolvedCache = new Map<string, Value>();
 
@@ -123,46 +123,17 @@ export function resolveRefs(
         else warnings.push(diag);
     }
 
-    function getPathMembers(path: CanonicalPath): Array<string | number> {
-        const members: Array<string | number> = [];
-        for (const segment of path.segments) {
-            if (segment.type === 'member') members.push(segment.key);
-            if (segment.type === 'index') members.push(segment.index);
-        }
-        return members;
-    }
-
-    function resolveValueAtSubpath(value: Value, segments: readonly ReferencePathSegment[]): Value | null {
-        if (value.type === 'TypedValue') {
-            return resolveValueAtSubpath(value.value, segments);
-        }
-        if (segments.length === 0) return value;
-        const [head, ...rest] = segments;
-        if (typeof head === 'object' && head !== null && head.type === 'attr') {
-            return null;
-        }
-        if (value.type === 'ObjectNode' && typeof head === 'string') {
-            const binding = value.bindings.find((b) => b.key === head);
-            if (!binding) return null;
-            return resolveValueAtSubpath(binding.value, rest);
-        }
-        if ((value.type === 'ListNode' || value.type === 'TupleLiteral') && typeof head === 'number') {
-            const element = value.elements[head];
-            if (!element) return null;
-            return resolveValueAtSubpath(element, rest);
-        }
-        return null;
-    }
-
     function resolveClone(
-        ref: { path: readonly ReferencePathSegment[]; span: Span },
+        ref: Extract<Value, { type: 'CloneReference' }>,
         sourcePath: string,
         sourceIndex: number,
         stack: readonly string[]
     ): Value {
         const targetPath = formatReferenceTargetPath(ref.path);
+        const claim = claimByReference.get(ref);
+        sourcePath = claim ? formatReferenceTargetPath(claim.path) : sourcePath;
 
-        if (targetPath === sourcePath) {
+        if (claim ? isReferenceToSelf(claim.path, ref.path) : targetPath === sourcePath) {
             addDiag(
                 strict ? 'error' : 'warning',
                 `Self reference: '${sourcePath}' references itself`,
@@ -173,8 +144,8 @@ export function resolveRefs(
             return { ...ref, type: 'CloneReference' } as Value;
         }
 
-        const targetIndex = pathToIndex.get(targetPath);
-        if (targetIndex === undefined) {
+        const target = targets.get(targetPath);
+        if (target === undefined) {
             addDiag(
                 strict ? 'error' : 'warning',
                 `Missing reference target: '${targetPath}'`,
@@ -185,7 +156,8 @@ export function resolveRefs(
             return { ...ref, type: 'CloneReference' } as Value;
         }
 
-        if (targetIndex > sourceIndex) {
+        const targetIndex = target.eventIndex;
+        if (claim ? target.ordinal > claim.ordinal : targetIndex > sourceIndex) {
             addDiag(
                 strict ? 'error' : 'warning',
                 `Forward reference: '${sourcePath}' references '${targetPath}' defined later`,
@@ -225,21 +197,7 @@ export function resolveRefs(
             return withoutStructuralIdentities(resolvedCache.get(targetPath)!);
         }
 
-        const targetEvent = aes[targetIndex]!;
-        const targetMembers = getPathMembers(targetEvent.path);
-        const remainder = ref.path.slice(targetMembers.length);
-        const targetValue = resolveValueAtSubpath(targetEvent.value, remainder);
-        if (!targetValue) {
-            addDiag(
-                strict ? 'error' : 'warning',
-                `Missing reference target: '${targetPath}'`,
-                'RESOLVE_MISSING_TARGET',
-                ref.span,
-                sourcePath
-            );
-            return { ...ref, type: 'CloneReference' } as Value;
-        }
-        const resolved = resolveValue(targetValue, targetPath, targetIndex, [...stack, targetPath]);
+        const resolved = resolveValue(target.value, targetPath, targetIndex, [...stack, targetPath]);
         resolvedCache.set(targetPath, resolved);
         resolutionMap[`${sourcePath}::${targetPath}`] = targetPath;
         return withoutStructuralIdentities(resolved);

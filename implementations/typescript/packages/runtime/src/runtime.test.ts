@@ -74,6 +74,32 @@ test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     assert.equal((result.document as Record<string, unknown>).copy, 'AEON');
 });
 
+for (const mode of ['strict', 'loose'] as const) {
+    for (const [source, expected] of [
+        ['x@{y=0}=1\nz=~x.@.y', 0],
+        ['x@{y={leaf=2}}=1\nz=~x.@.y.leaf', 2],
+        ['x@{y=[3,4]}=1\nz=~x.@.y[1]', 4],
+        ['x@{a=5,b=~x.@.a}=1\nz=~x.@.b', 5],
+        ['x@{y@{leaf=6}=0}=1\nz=~x.@.y.@.leaf', 6],
+    ] as const) {
+        test(`runtime resolves attribute target without spurious diagnostics (${mode}: ${source})`, () => {
+            const result = runRuntime(source, { mode, output: 'json', maxAttributeDepth: 2 });
+            assert.deepEqual(result.meta.errors, []);
+            assert.deepEqual(result.meta.warnings, []);
+            assert.equal((result.document as Record<string, unknown>).z, expected);
+            const value = result.aes.find(event => event.key === 'z')?.value;
+            assert.equal(value?.type, 'NumberLiteral');
+        });
+    }
+
+    test(`runtime still rejects genuinely missing attribute targets (${mode})`, () => {
+        const result = runRuntime('x=1\nz=~x.@.missing', { mode, output: 'json' });
+        assert.ok([...result.meta.errors, ...result.meta.warnings].some(diagnostic =>
+            diagnostic.code === 'MISSING_REFERENCE_TARGET' || diagnostic.code === 'RESOLVE_MISSING_TARGET'));
+        if (mode === 'strict') assert.equal(result.document, undefined);
+    });
+}
+
 test('runs Telex -> portable AES -> schema -> JSON materialization', () => {
     const wire = compileToTelex('name = "AEON"\nvalues = [2, 3]\ncopy = ~values').telex;
     assert.ok(wire);
