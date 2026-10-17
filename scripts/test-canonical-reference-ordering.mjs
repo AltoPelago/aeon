@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Explicit API conformance check for the experimental TypeScript/Rust/Python/WASM contracts.
-// Historical CLI/CTS claims and default canonical bytes are not changed.
+// Default API conformance check for immutable canonical CTS 0.4 on all runtimes.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -13,12 +12,13 @@ import numericClarifiers from '../test-fixtures/numeric-clarifiers.json' with { 
 import genericArguments from '../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 
 const root = getRepoRoot();
-const manifestPath = path.resolve(resolveCTSPath('cts/canonical/v1/canonical-reference-ordering-cts.v1.next.json'));
+const manifestPath = path.resolve(resolveCTSPath('cts/canonical/v1/canonical-cts.v1.snapshot-0.4.json'));
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-assert.equal(manifest.meta.snapshot_id, 'canonical-reference-ordering-next-cts-v1-snapshot-0.1');
+assert.equal(manifest.meta.snapshot_id, 'canonical-cts-v1-snapshot-0.4');
 assert.equal(manifest.meta.lane, 'canonical');
 assert.equal(manifest.meta.sut_protocol, 'cts.protocol.v1');
-assert.equal(manifest.meta.status, 'experimental');
+assert.equal(manifest.meta.status, 'released');
+assert.equal(manifest.meta.specification_revision, 'ae427af77568518a71aaf86ec0dc620e07658944');
 const load = packageName => import(pathToFileURL(path.join(root, 'implementations/typescript/packages', packageName, 'dist/index.js')).href);
 const backend = process.argv[2] ?? 'typescript';
 assert.ok(['typescript', 'rust', 'python', 'python-native', 'wasm'].includes(backend), 'backend must be typescript, rust, python, python-native, or wasm');
@@ -46,12 +46,13 @@ const canonicalize = backend === 'typescript' ? (await load('canonical')).canoni
   : (source, options = {}) => JSON.parse(execFileSync(
     backend === 'rust' ? rustAdapter : python,
     backend === 'rust' ? [] : backend === 'python-native' ? ['-I', pythonAdapter] : [pythonAdapter],
-    { input: JSON.stringify({ source, max_attribute_depth: options.maxAttributeDepth ?? 1 }), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    { input: JSON.stringify({ source, ...(options.ordering ? { ordering: options.ordering } : {}), max_attribute_depth: options.maxAttributeDepth ?? 1 }), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
   ));
 const { tokenize } = await load('lexer');
 const { parse } = await load('parser');
 const { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes } = await load('aes');
-const options = { ordering: 'reference-safe-v1' };
+// Deliberately omit ordering: this gate must prove the public default, not only opt-in.
+const options = {};
 const normalizeText = text => text.replace(/\r\n?/g, '\n').trimEnd();
 
 function graph(source, includeHeaders, maxAttributeDepth = 1) {
@@ -98,6 +99,7 @@ for (const suiteRef of manifest.suites) {
     try {
       const source = vector.input.source;
       const result = canonicalize(source, options);
+      assert.deepEqual(canonicalize(source, { ordering: 'reference-safe-v1' }), result, 'explicit/default contract parity');
       assert.deepEqual(vector.expected.warnings ?? [], [], 'canonical API does not emit warnings');
       assert.equal(result.errors.length === 0, vector.expected.ok, 'success status');
       checkDiagnostics(vector.expected.errors, result.errors);
@@ -124,6 +126,8 @@ for (const suiteRef of manifest.suites) {
   }
 }
 console.log(`${backend} reference-safe-v1 API CTS: pass=${passed} fail=${failed} manifest-excluded=${excluded}`);
+assert.equal(passed + failed, 197, 'all selected immutable CTS vectors must run');
+assert.equal(excluded, 2, 'only the two superseded immutable exclusions');
 if (backend !== 'typescript') {
   const typescriptCanonicalize = (await load('canonical')).canonicalize;
   const sources = [];

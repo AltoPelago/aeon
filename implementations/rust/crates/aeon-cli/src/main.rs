@@ -6150,7 +6150,11 @@ mod tests {
         for source in ["a = +Infinity\n", "a = +NaN\n"] {
             let (code, output) = format_source_for_cli(source, None).expect("fmt result");
             assert_eq!(code, ExitCode::from(1), "{source}");
-            assert!(output.contains("Invalid number literal"), "{output}");
+            // The default writer now reports the native Core parser diagnostic.
+            assert!(
+                output.contains("Unexpected token '+' [SYNTAX_ERROR]"),
+                "{output}"
+            );
         }
     }
 

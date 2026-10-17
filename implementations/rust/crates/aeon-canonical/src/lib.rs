@@ -86,6 +86,11 @@ enum NullMode {
 
 #[must_use]
 pub fn canonicalize(source: &str) -> CanonicalResult {
+    canonicalize_with_options(source, &CanonicalizeOptions::default())
+}
+
+// Preserve the historical source parser/writer only behind explicit LexicalV1.
+fn canonicalize_lexical(source: &str) -> CanonicalResult {
     let source = strip_preamble(&strip_leading_bom(source));
     let mut parser = Parser::new(&source);
     let bindings = match parser.parse_document() {
@@ -3049,7 +3054,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nmixed:n = ~order.total\norder:o = {\n  total:n = 2\n}\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\norder:o = {\n  total:n = 2\n}\nmixed:n = ~order.total\n"
         );
     }
 
@@ -3059,7 +3064,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\nmixed:n = ~>order.total\norder:o = {\n  total:n = 2\n}\n"
+            "aeon:header = {\n  encoding = \"utf-8\"\n  mode = \"transport\"\n  profile = \"core\"\n  version = \"1.0\"\n}\norder:o = {\n  total:n = 2\n}\nmixed:n = ~>order.total\n"
         );
     }
 
@@ -3148,7 +3153,7 @@ mod tests {
     fn canonicalizes_bracketed_reference_paths_and_root_prefixes() {
         let result = canonicalize(
             "aeon:mode = \"transport\"\n\
-             a = { \"b.c\" = 1 }\n\
+             a@{meta={deep=2}} = { \"b.c\" = 1 }\n\
              v = ~$.a.[\"b.c\"]\n\
              p = ~>$.a\n\
              q = ~a.@.[\"meta\"].deep\n",
@@ -3156,7 +3161,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\na = {\n  \"b.c\" = 1\n}\np = ~>a\nq = ~a.@.meta.deep\nv = ~a.[\"b.c\"]\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\na@{meta = { deep = 2 }} = {\n  \"b.c\" = 1\n}\np = ~>a\nq = ~a.@.meta.deep\nv = ~a.[\"b.c\"]\n"
         );
     }
 
@@ -3524,13 +3529,13 @@ mod tests {
     #[test]
     fn parses_node_heads_with_attributes_before_datatype() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\nscene:node = <panel(\n  <button@{ action:lookup = ~$.scene[1] }:node(\n    > `\n      Click\n      Here\n    `\n  )>\n)>\n",
+            "aeon:mode = \"custom\"\ntarget=1\nscene:node = <panel(\n  <button@{ action:lookup = ~$.target }:node(\n    > `\n      Click\n      Here\n    `\n  )>\n)>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(
             result
                 .text
-                .contains("<button@{action:lookup = ~scene[1]}:node(")
+                .contains("<button@{action:lookup = ~target}:node(")
         );
     }
 
@@ -3583,7 +3588,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\nscene:node = <panel@{meta:object = { deep:number = 1 }}:node(\n  <button@{action:lookup = ~>target}:node>\n)>\ntarget:number = 1\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\ntarget:number = 1\nscene:node = <panel@{meta:object = { deep:number = 1 }}:node(\n  <button@{action:lookup = ~>target}:node>\n)>\n"
         );
     }
 
@@ -3595,7 +3600,7 @@ mod tests {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\nbundle:object = {\n  meta:object = {\n    alpha:lookup = ~>target\n    \"z.k\":lookup = ~target\n  }\n  refs:list<object> = [\n    {\n      ptr:lookup = ~>target\n      \"z.k\":lookup = ~target\n    },\n    {\n      \"a.b\":lookup = ~>target\n      beta:lookup = ~target\n    }\n  ]\n}\ntarget:number = 1\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\ntarget:number = 1\nbundle:object = {\n  meta:object = {\n    alpha:lookup = ~>target\n    \"z.k\":lookup = ~target\n  }\n  refs:list<object> = [\n    {\n      ptr:lookup = ~>target\n      \"z.k\":lookup = ~target\n    },\n    {\n      \"a.b\":lookup = ~>target\n      beta:lookup = ~target\n    }\n  ]\n}\n"
         );
     }
 
@@ -3604,7 +3609,7 @@ mod tests {
         let result = canonicalize("a = 3e-3\nb = %3e-3\n");
         assert_eq!(result.text, "");
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+        assert_eq!(result.errors[0].code, "INVALID_NUMBER");
         assert!(
             result.errors[0]
                 .message
@@ -3650,7 +3655,7 @@ mod tests {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");
-            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert_eq!(result.errors[0].code, "INVALID_DATE");
             assert!(
                 result.errors[0].message.starts_with("Invalid date literal"),
                 "{:?}",
@@ -3728,7 +3733,10 @@ mod tests {
             let result = canonicalize(source);
             assert_eq!(result.text, "", "{source}");
             assert_eq!(result.errors.len(), 1, "{source}");
-            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(matches!(
+                result.errors[0].code.as_str(),
+                "INVALID_DATE" | "INVALID_DATETIME"
+            ));
             assert!(
                 result.errors[0].message.starts_with("Invalid date literal")
                     || result.errors[0]

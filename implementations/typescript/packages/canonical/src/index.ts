@@ -24,7 +24,7 @@ export interface CanonicalResult {
 }
 
 export interface CanonicalizeOptions {
-    /** Explicit canonical contract during rollout. Default: lexical-v1 (historical bytes). */
+    /** Canonical contract. Default: reference-safe-v1; lexical-v1 retains historical bytes. */
     readonly ordering?: 'lexical-v1' | 'reference-safe-v1';
     /** Maximum distinct projected dependency edges for reference-safe-v1. Default: 1,000,000. */
     readonly maxOrderingEdges?: number;
@@ -117,7 +117,7 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
         return { text: '', errors: parsed.errors };
     }
 
-    const ordering = options.ordering ?? 'lexical-v1';
+    const ordering = options.ordering ?? 'reference-safe-v1';
     if (ordering !== 'lexical-v1' && ordering !== 'reference-safe-v1') {
         return { text: '', errors: [new CanonicalOrderingError('CANONICAL_ORDERING_INVALID_OPTION', 'Unknown canonical ordering contract', parsed.document.span)] };
     }

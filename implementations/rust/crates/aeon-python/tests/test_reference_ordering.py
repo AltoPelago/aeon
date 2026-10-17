@@ -15,14 +15,18 @@ class ReferenceOrderingTests(unittest.TestCase):
     def canonical(self, source, **options):
         return aeon.canonicalize(source, ordering="reference-safe-v1", **options)
 
-    def test_historical_default_is_not_promoted(self):
+    def test_reference_safe_default_and_explicit_legacy(self):
         source = "z=1\na=~z"
-        legacy = aeon.canonicalize(source)
+        legacy = aeon.canonicalize(source, ordering="lexical-v1")
         self.assertTrue(legacy.endswith("a = ~z\nz = 1\n"), legacy)
         self.assertEqual(legacy, aeon.canonicalize(source, ordering="lexical-v1", max_ordering_edges=0))
         self.assertTrue(self.canonical(source).endswith("z = 1\na = ~z\n"))
+        self.assertEqual(self.canonical(source), aeon.canonicalize(source))
+        ok, payload = _native.canonicalize_native(source)
+        self.assertTrue(ok)
+        self.assertEqual(aeon.canonicalize(source), payload.decode("utf-8"))
         parameters = inspect.signature(aeon.canonicalize).parameters
-        self.assertEqual("lexical-v1", parameters["ordering"].default)
+        self.assertEqual("reference-safe-v1", parameters["ordering"].default)
         self.assertEqual(inspect.Parameter.KEYWORD_ONLY, parameters["ordering"].kind)
         with self.assertRaises(TypeError):
             aeon.canonicalize(source, "reference-safe-v1")

@@ -26,14 +26,17 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('committed WASM standalone canonical opt-in preserves default process behavior', async () => {
+test('committed WASM standalone and process defaults are reference-safe with explicit legacy', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   const source = 'z=1\na=~z';
-  const legacy = runtime.canonicalize(source);
+  const resultDefault = runtime.canonicalize(source);
+  const legacy = runtime.canonicalize(source, { ordering: 'lexical-v1' });
   assert.deepEqual(legacy.errors, []);
   assert.ok(legacy.text.endsWith('a = ~z\nz = 1\n'));
   assert.deepEqual(runtime.canonicalize(source, { ordering: 'lexical-v1' }), legacy);
-  assert.equal(runtime.processAeon(source, { validationMode: 'none' }).canonical.text, legacy.text);
+  assert.deepEqual(resultDefault, runtime.canonicalize(source, { ordering: 'reference-safe-v1' }));
+  assert.ok(resultDefault.text.endsWith('z = 1\na = ~z\n'));
+  assert.equal(runtime.processAeon(source, { validationMode: 'none' }).canonical.text, resultDefault.text);
   assert.equal(runtime.processAeon(source, { validationMode: 'loose', finalize: false }).canonical.text, '');
   const options = { ordering: 'reference-safe-v1' as const };
   const result = runtime.canonicalize('d=3\nc=2\nb=~c\na=1', options);
@@ -45,16 +48,36 @@ test('committed WASM standalone canonical opt-in preserves default process behav
 test('committed WASM canonical source and ordering failures have no partial text', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   for (const [source, code] of [['a=~z\nz=1', 'FORWARD_REFERENCE'], ['a=~missing', 'MISSING_REFERENCE_TARGET'], ['a=~a', 'SELF_REFERENCE']]) {
-    const result = runtime.canonicalize(source!, { ordering: 'reference-safe-v1' });
+    const result = runtime.canonicalize(source!);
     assert.equal(result.text, '');
     assert.equal(result.errors[0]?.code, code);
     assert.equal(result.errors[0]?.path, '$.a');
+    const process = runtime.processAeon(source!, { validationMode: 'none' });
+    assert.equal(process.canonical.text, '');
+    assert.ok(process.errors.some(error => error.code === code));
   }
   const result = runtime.canonicalize('z=1\na=~z', { ordering: 'reference-safe-v1', maxOrderingEdges: 0 });
   assert.equal(result.text, '');
   assert.equal(result.errors[0]?.code, 'CANONICAL_ORDERING_LIMIT_EXCEEDED');
   assert.equal(result.errors[0]?.phase, null);
   assert.deepEqual(runtime.canonicalize('z=1\na={b=~z,c=~>z}', { ordering: 'reference-safe-v1', maxOrderingEdges: 1 }).errors, []);
+});
+
+test('WASM process canonicalization honors configured metadata limits', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const source = 'a@{z@{x=1}=1,b=~a.@.z.@.x}=0';
+  assert.equal(runtime.processAeon(source, { validationMode: 'none' }).canonical.text, '');
+  const result = runtime.processAeon(source, { validationMode: 'none', maxAttributeDepth: 2 });
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.canonical.text, runtime.canonicalize(source, { maxAttributeDepth: 2 }).text);
+});
+
+test('WASM process input budget does not become a canonical output budget', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const result = runtime.processAeon('a=1', { validationMode: 'none', maxInputBytes: 3 });
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.canonical.text.endsWith('a = 1\n'));
+  assert.equal(runtime.processAeon('a=1', { validationMode: 'none', maxInputBytes: 2 }).canonical.text, '');
 });
 
 test('committed WASM canonicalization is Core-only and preserves metadata/literal boundaries', async () => {

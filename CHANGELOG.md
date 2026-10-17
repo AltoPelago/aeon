@@ -11,28 +11,37 @@ repositories.
 ### Added
 
 - WASM now exposes standalone `canonicalize` APIs (async or on a loaded runtime)
-  with an explicit experimental `ordering: 'reference-safe-v1'` option, backed
+  with an explicit `ordering: 'reference-safe-v1'` option, backed
   directly by Rust. Options are checked on both sides of the bridge, failures
   return diagnostics without partial text, and committed artifacts are regenerated
-  with wasm-pack 0.14.0. PR CI checks experimental CTS/TypeScript parity using the
-  actual binary. Historical defaults and `processAeon` are unchanged.
+  with wasm-pack 0.14.0. PR CI checks immutable CTS/TypeScript parity using the
+  actual binary. The default/process migration is described below.
 - Native Python `altopelago.aeon.canonicalize` now offers keyword-only
   `ordering="reference-safe-v1"`, `max_ordering_edges`, and
   `max_attribute_depth` options backed directly by the Rust canonical API.
-  The default remains historical lexical ordering; failures still raise
+  Failures still raise
   `CompileError` without partial text. Installed-wheel behavior, typing, and
-  experimental CTS/TypeScript byte parity are checked in PR CI.
-- The pure-Python reference canonical API now offers the experimental
-  `CanonicalizeOptions(ordering="reference-safe-v1")` opt-in, matching the
+  immutable CTS/TypeScript byte parity are checked in PR CI.
+- The pure-Python reference canonical API now offers
+  `CanonicalizeOptions(ordering="reference-safe-v1")`, matching the
   TypeScript/Rust dependency-aware ordering contract. It validates authored
   Core references before sorting and checks the emitted document again,
   preserves indexed positions and metadata, and caps distinct projected edges
-  with `max_ordering_edges`. Existing Python defaults, CLI, native-Python,
-  WASM, and integrity/hash entry points have not switched contracts. No new
-  canonical authority snapshot or package version is promoted here.
+  with `max_ordering_edges`.
 
 ### Breaking
 
+- Source canonicalization now defaults to `reference-safe-v1`, adopting
+  immutable canonical CTS 0.4 in TypeScript, Rust and Python, including native
+  Python, standalone WASM, all three `fmt` CLIs and WASM `processAeon` output.
+  Authored missing/forward/self references fail before sorting; valid references
+  are preserved by smallest-eligible Unicode-scalar ordering. Indexed positions
+  are unchanged. Failures produce no partial source text. Explicit `lexical-v1`
+  retains historical source bytes/behavior for compatibility; keep stored
+  digests/signatures tied to their original contract. Integrity's legacy event
+  projection, hash/receipt verification, `emitFromObject`, and Telex
+  canonicalization are unchanged. This prepares coordinated 0.16.0; no package
+  version is bumped or artifact published here.
 - AEON source generic arguments now require datatype descriptors. Bare numeric
   arguments such as `custom<1.0>` are rejected, including nested and node-head
   forms. Numeric clarifiers remain valid, including `list<custom[1.0]>`.

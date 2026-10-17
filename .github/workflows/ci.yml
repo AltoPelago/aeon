@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 1782c7d79a8c73524ad1e284844b9c823342e1eb
+          ref: 3dcbcb7611657af8d3af83e93c4d12568a3f0ce1
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -132,12 +132,12 @@ jobs:
       - name: Core escaped-path public CLI parity
         run: node ../../scripts/test-core-path-escaping.mjs
 
-      - name: Experimental TypeScript reference-safe canonical API
+      - name: Canonical CTS 0.4 TypeScript default and explicit API
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs
 
-      - name: Experimental Python reference-safe canonical API and TypeScript parity
+      - name: Canonical CTS 0.4 Python default API and TypeScript parity
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs python
@@ -198,7 +198,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 1782c7d79a8c73524ad1e284844b9c823342e1eb
+          ref: 3dcbcb7611657af8d3af83e93c4d12568a3f0ce1
           path: aeonite-cts
 
       - name: Checkout AES
@@ -243,5 +243,5 @@ jobs:
       - name: Canonical CTS lane
         run: bash ./scripts/canonical-cts.sh --mode all --brief
 
-      - name: Experimental Rust reference-safe canonical API and TypeScript parity
+      - name: Canonical CTS 0.4 Rust default API and TypeScript parity
         run: node scripts/test-canonical-reference-ordering.mjs rust

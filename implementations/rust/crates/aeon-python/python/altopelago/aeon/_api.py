@@ -37,11 +37,11 @@ def compile_to_telex(source: str) -> bytes:
 def canonicalize(
     source: str,
     *,
-    ordering: Literal["lexical-v1", "reference-safe-v1"] = "lexical-v1",
+    ordering: Literal["lexical-v1", "reference-safe-v1"] = "reference-safe-v1",
     max_ordering_edges: int = 1_000_000,
     max_attribute_depth: int = 1,
 ) -> str:
-    """Canonicalize natively; reference-safe ordering is experimental and opt-in.
+    """Canonicalize natively with reference-safe ordering (canonical CTS 0.4).
 
     Invalid options raise ValueError. Source/ordering failures raise CompileError
     without partial text. Limits affect only the reference-safe contract;

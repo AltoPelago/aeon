@@ -779,10 +779,10 @@ test('strips surrounding comments from multiline node layouts during canonicaliz
             'aeon:header = {',
             '  mode = "custom"',
             '}',
+            'target:number = 1',
             'scene:node = <panel@{meta:object = { deep:number = 1 }}:node(',
             '  <button@{action:lookup = ~>target}:node>',
             ')>',
-            'target:number = 1',
         ].join('\n') + '\n'
     );
 });
@@ -808,6 +808,7 @@ test('canonicalizes mixed clone and pointer references inside nested object and 
             'aeon:header = {',
             '  mode = "custom"',
             '}',
+            'target:number = 1',
             'bundle:object = {',
             '  meta:object = {',
             '    alpha:lookup = ~>target',
@@ -824,7 +825,6 @@ test('canonicalizes mixed clone and pointer references inside nested object and 
             '    }',
             '  ]',
             '}',
-            'target:number = 1',
         ].join('\n') + '\n'
     );
 });

@@ -1,4 +1,4 @@
-//! Test adapter for the experimental API, not a change to the released CLI.
+//! Test adapter for default and explicitly selected canonical source APIs.
 use std::io::{self, Read};
 
 use aeon_canonical::{CanonicalOrdering, CanonicalizeOptions, canonicalize_with_options};
@@ -12,7 +12,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = canonicalize_with_options(
         source,
         &CanonicalizeOptions {
-            ordering: CanonicalOrdering::ReferenceSafeV1,
+            ordering: match request["ordering"].as_str() {
+                None => CanonicalOrdering::default(),
+                Some("reference-safe-v1") => CanonicalOrdering::ReferenceSafeV1,
+                Some("lexical-v1") => CanonicalOrdering::LexicalV1,
+                _ => return Err("unknown ordering".into()),
+            },
             limits: aeon_core::AeonCompileLimits {
                 max_attribute_depth: request["max_attribute_depth"]
                     .as_u64()

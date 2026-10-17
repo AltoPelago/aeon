@@ -58,6 +58,12 @@ Canonical formatting:
 - crate: `aeon-canonical`
 - primary entry point: `canonicalize(source: &str) -> CanonicalResult`
 
+This and the `fmt` CLI default to reference-safe ordering (canonical CTS 0.4).
+The library's `canonicalize_with_options` retains explicit
+`CanonicalOrdering::LexicalV1` for historical source bytes. The CLI exposes no
+legacy-ordering flag; integrity event hashing/receipt verification is separate
+and unchanged. See the [ordering guide](../../../implementations/rust/README.md#reference-safe-canonical-ordering).
+
 Annotation extraction:
 
 - crate: `aeon-annotations`

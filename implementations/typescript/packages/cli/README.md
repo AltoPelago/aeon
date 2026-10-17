@@ -45,6 +45,13 @@ aeon fmt ./document.aeon --write
 
 ## Common Options
 
+`fmt` uses reference-safe canonical ordering (canonical CTS 0.4). It rejects
+authored missing, forward and self references before sorting rather than
+repairing them. It does not evaluate references or enforce profile/schema
+policy. Use the canonical library's explicit `ordering: 'lexical-v1'` option
+only when reproducing historical source bytes; the CLI has no compatibility
+ordering flag. Integrity hashing/receipt verification remains unchanged.
+
 - `--json` - emit machine-readable JSON where supported
 - `--annotations` - include annotation stream records
 - `--annotations-only` - inspect only annotation stream records

@@ -57,9 +57,9 @@ path normalization. Runtime-specific provenance fields are excluded: this is
 not a claim that the legacy adapters retain identical source spans.
 The check runs in CI and in `canonical-cts.sh`; it does not promote a CTS claim.
 
-## Experimental reference-safe API parity
+## Released reference-safe API parity
 
-After building the TypeScript workspace, run the separate opt-in API checks:
+After building the TypeScript workspace, run the default/explicit API checks:
 
 ```bash
 node scripts/test-canonical-reference-ordering.mjs
@@ -69,11 +69,12 @@ PYTHON=python3.12 node scripts/test-canonical-reference-ordering.mjs python
 PYTHON_NATIVE=/path/to/installed-wheel/venv/bin/python node scripts/test-canonical-reference-ordering.mjs python-native
 ```
 
-They select the experimental reference-ordering manifest with its declared
+They select immutable canonical CTS 0.4 with its declared
 exclusions, validate authored/output Core reference legality and semantic
-graph preservation, and check fixed-point bytes. The Rust, WASM and Python adapters
+graph preservation, and check fixed-point bytes. Every vector checks both the
+omitted-ordering default and explicit `reference-safe-v1`. The Rust, WASM and Python adapters
 also compare the rendering/collision corpus against TypeScript. The Python
-adapter exercises the real pure-Python opt-in and preserves actual text on
+adapter exercises the real pure-Python default and preserves actual text on
 failure; it normalizes reference-diagnostic paths to the existing TS/Rust
 adapter contract without changing Python's public diagnostics.
 
