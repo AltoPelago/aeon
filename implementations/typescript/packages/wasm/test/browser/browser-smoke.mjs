@@ -1,4 +1,5 @@
 import { loadAeonWasm } from '../../dist/index.js';
+import { checkCanonical } from './canonical-smoke.mjs';
 
 const status = document.querySelector('[data-testid="status"]');
 const reportNode = document.querySelector('[data-testid="report"]');
@@ -9,6 +10,7 @@ function invariant(condition, message) {
 
 async function runMainThread() {
   const runtime = await loadAeonWasm();
+  const canonical = checkCanonical(runtime);
   const result = runtime.processAeon(
     'title:string = "Sofía 🌊"\ncount:int32 = 3\n',
     { validationMode: 'strict' },
@@ -39,6 +41,7 @@ async function runMainThread() {
   invariant(terminal.exposedEventCount === 1, 'main-thread exposed-event count drifted');
 
   return {
+    canonical,
     oneShotEvents: result.events.length,
     compileOnlyKind: compileOnly.events[0]?.valueType,
     cancellation: terminal.status,

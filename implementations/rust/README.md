@@ -195,7 +195,9 @@ does not yet render those envelope heads.
 
 `canonicalize` and default options retain historical `lexical-v1` behavior.
 The [native Python facade](crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
-also exposes this explicit opt-in. The CLI, integrity hashing, SDK, WASM, and
+also exposes this explicit opt-in, as does the standalone
+[WASM canonical API](../typescript/packages/wasm/README.md#experimental-reference-safe-canonical-ordering).
+The CLI, integrity hashing, SDK, WASM process pipeline, and
 native Python defaults have not switched contracts. Do not mix experimental
 canonical hashes with historical hashes.
 
@@ -212,8 +214,8 @@ canonical lane. Released CTS claims and historical snapshots remain unchanged.
 
 Numeric datatype clarifiers now retain exact value-number semantics in all
 independent writers; the parity corpus covers large integers, decimals and
-exponents, including nested datatype descriptors. WASM exposure and
-authority/default promotion remain separate review gates.
+exponents, including nested datatype descriptors. Authority/default promotion
+remains a separate review gate.
 
 ## CTS
 

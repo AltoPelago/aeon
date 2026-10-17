@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
+import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
 import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics.json' with { type: 'json' };
@@ -16,12 +17,89 @@ import gpTagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifie
 
 import {
   loadAeonWasm,
+  canonicalize,
+  type CanonicalizeOptions,
   TelexWasmError,
   type AeonStreamBatch,
   type EventSummary,
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('committed WASM standalone canonical opt-in preserves default process behavior', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const source = 'z=1\na=~z';
+  const legacy = runtime.canonicalize(source);
+  assert.deepEqual(legacy.errors, []);
+  assert.ok(legacy.text.endsWith('a = ~z\nz = 1\n'));
+  assert.deepEqual(runtime.canonicalize(source, { ordering: 'lexical-v1' }), legacy);
+  assert.equal(runtime.processAeon(source, { validationMode: 'none' }).canonical.text, legacy.text);
+  assert.equal(runtime.processAeon(source, { validationMode: 'loose', finalize: false }).canonical.text, '');
+  const options = { ordering: 'reference-safe-v1' as const };
+  const result = runtime.canonicalize('d=3\nc=2\nb=~c\na=1', options);
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.text.endsWith('a = 1\nc = 2\nb = ~c\nd = 3\n'));
+  assert.deepEqual(await canonicalize('d=3\nc=2\nb=~c\na=1', options), result);
+});
+
+test('committed WASM canonical source and ordering failures have no partial text', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const [source, code] of [['a=~z\nz=1', 'FORWARD_REFERENCE'], ['a=~missing', 'MISSING_REFERENCE_TARGET'], ['a=~a', 'SELF_REFERENCE']]) {
+    const result = runtime.canonicalize(source!, { ordering: 'reference-safe-v1' });
+    assert.equal(result.text, '');
+    assert.equal(result.errors[0]?.code, code);
+    assert.equal(result.errors[0]?.path, '$.a');
+  }
+  const result = runtime.canonicalize('z=1\na=~z', { ordering: 'reference-safe-v1', maxOrderingEdges: 0 });
+  assert.equal(result.text, '');
+  assert.equal(result.errors[0]?.code, 'CANONICAL_ORDERING_LIMIT_EXCEEDED');
+  assert.equal(result.errors[0]?.phase, null);
+  assert.deepEqual(runtime.canonicalize('z=1\na={b=~z,c=~>z}', { ordering: 'reference-safe-v1', maxOrderingEdges: 1 }).errors, []);
+});
+
+test('committed WASM canonicalization is Core-only and preserves metadata/literal boundaries', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const options = { ordering: 'reference-safe-v1' as const, maxAttributeDepth: 2 };
+  const gpSource = 'aeon:profile="aeon.gp.profile.v1"\nx:radix[2.0000000000000001]=%1';
+  assert.deepEqual(runtime.canonicalize(gpSource, options).errors, []);
+  assert.ok(runtime.processAeon(gpSource, { validationMode: 'loose', finalize: false }).errors.some(error => error.code === 'PROFILE_DATATYPE_CLARIFIER_INVALID'));
+  for (const fixture of renderingFixtures) {
+    const result = runtime.canonicalize(fixture.source, options);
+    assert.deepEqual(result.errors, [], fixture.id);
+    assert.ok(result.text.includes(fixture.fragment), fixture.id);
+    assert.deepEqual(runtime.canonicalize(result.text, options), result, fixture.id);
+  }
+  const deep = 'a@{z@{x=1}=1,b=~a.@.z.@.x}=0';
+  assert.equal(runtime.canonicalize(deep, { ordering: 'reference-safe-v1' }).text, '');
+  assert.deepEqual(runtime.canonicalize(deep, options).errors, []);
+});
+
+test('WASM canonical options are checked before JSON conversion and read once', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const key of ['maxOrderingEdges', 'maxAttributeDepth']) {
+    for (const value of [-1, 0.5, NaN, Infinity, 2 ** 32, Number.MAX_SAFE_INTEGER, true, false, null, '1']) {
+      assert.throws(() => runtime.canonicalize('a=1', { [key]: value } as CanonicalizeOptions), RangeError, `${key}=${String(value)}`);
+    }
+  }
+  assert.throws(() => runtime.canonicalize('a=1', { ordering: 'unknown' } as unknown as CanonicalizeOptions), RangeError);
+  assert.throws(() => runtime.canonicalize('a=1', { maxOrderEdges: 1 } as CanonicalizeOptions), TypeError);
+  for (const value of [null, [], 1, true, 'reference-safe-v1']) {
+    assert.throws(() => runtime.canonicalize('a=1', value as CanonicalizeOptions), TypeError);
+  }
+  let reads = 0;
+  const inherited = Object.create({ get ordering() { reads += 1; return 'reference-safe-v1'; } }) as CanonicalizeOptions;
+  assert.ok(runtime.canonicalize('z=1\na=~z', inherited).text.endsWith('z = 1\na = ~z\n'));
+  assert.equal(reads, 1);
+  assert.deepEqual(runtime.canonicalize('a=1', { ordering: 'reference-safe-v1', maxOrderingEdges: 0xffff_ffff, maxAttributeDepth: 0 }).errors, []);
+});
+
+test('generated WASM canonical export rejects invalid raw options independently', async () => {
+  const generated = await import('../pkg/aeon_wasm.js');
+  await generated.default({ module_or_path: readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')) });
+  for (const options of ['{"ordering":"unknown"}', '{"maxOrderingEdges":4294967296}', '{"maxOrderingEdges":true}', '{"maxAttributeDepth":null}', '{"unexpected":1}', 'null', '[]']) {
+    assert.throws(() => generated.canonicalize_aeon('a=1', options));
+  }
+});
 
 test('committed WASM JSON-escapes control keys in Core event and reference paths', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

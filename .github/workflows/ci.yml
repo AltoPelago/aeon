@@ -142,6 +142,11 @@ jobs:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs python
 
+      - name: Committed WASM reference-safe canonical API and TypeScript parity
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+        run: node ../../scripts/test-canonical-reference-ordering.mjs wasm
+
   rust-sdk:
     runs-on: ubuntu-24.04
     defaults:

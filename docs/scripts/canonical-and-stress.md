@@ -64,13 +64,14 @@ After building the TypeScript workspace, run the separate opt-in API checks:
 ```bash
 node scripts/test-canonical-reference-ordering.mjs
 node scripts/test-canonical-reference-ordering.mjs rust
+node scripts/test-canonical-reference-ordering.mjs wasm
 PYTHON=python3.12 node scripts/test-canonical-reference-ordering.mjs python
 PYTHON_NATIVE=/path/to/installed-wheel/venv/bin/python node scripts/test-canonical-reference-ordering.mjs python-native
 ```
 
 They select the experimental reference-ordering manifest with its declared
 exclusions, validate authored/output Core reference legality and semantic
-graph preservation, and check fixed-point bytes. The Rust and Python adapters
+graph preservation, and check fixed-point bytes. The Rust, WASM and Python adapters
 also compare the rendering/collision corpus against TypeScript. The Python
 adapter exercises the real pure-Python opt-in and preserves actual text on
 failure; it normalizes reference-diagnostic paths to the existing TS/Rust
@@ -84,6 +85,12 @@ partial canonical text. As with the existing adapters, reference diagnostic
 paths are normalized only at the test protocol boundary; public native paths,
 spans, and phases are retained. PR CI builds and installs a wheel, runs its full
 behavioral suite and typing check, then runs this parity gate.
+
+The `wasm` backend loads the committed `pkg/aeon_wasm_bg.wasm` through the
+built public wrapper and calls its standalone canonical API directly. It
+checks actual success/failure text and normalizes reference paths only at the
+same test protocol boundary. Public WASM diagnostics are not rewritten. PR CI
+runs this gate separately from the historical canonical claim lane.
 
 These are not released canonical claims or a change to CLI/default/hash
 behavior. Python unit tests independently enumerate the legal orders of all

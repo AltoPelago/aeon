@@ -10,6 +10,12 @@ repositories.
 
 ### Added
 
+- WASM now exposes standalone `canonicalize` APIs (async or on a loaded runtime)
+  with an explicit experimental `ordering: 'reference-safe-v1'` option, backed
+  directly by Rust. Options are checked on both sides of the bridge, failures
+  return diagnostics without partial text, and committed artifacts are regenerated
+  with wasm-pack 0.14.0. PR CI checks experimental CTS/TypeScript parity using the
+  actual binary. Historical defaults and `processAeon` are unchanged.
 - Native Python `altopelago.aeon.canonicalize` now offers keyword-only
   `ordering="reference-safe-v1"`, `max_ordering_edges`, and
   `max_attribute_depth` options backed directly by the Rust canonical API.
