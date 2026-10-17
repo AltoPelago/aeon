@@ -328,6 +328,7 @@ function renderValue(value: Value, indent: number, opts: { inlineOnly: boolean }
         case 'TypedValue': {
             const rendered = renderValue(value.value, indent, opts, referencePath);
             const head = `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+            if (referencePath.referenceSafe && head === '') return rendered;
             if (rendered.length === 0) {
                 return [`${head} = `];
             }
@@ -504,8 +505,11 @@ function renderValueInline(value: Value, referencePath: ReferenceFormatter): str
 
 function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatter): string {
     switch (value.type) {
-        case 'TypedValue':
-            return `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)} = ${renderCompactInlineValue(value.value, referencePath)}`;
+        case 'TypedValue': {
+            const head = `${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+            const rendered = renderCompactInlineValue(value.value, referencePath);
+            return referencePath.referenceSafe && head === '' ? rendered : `${head} = ${rendered}`;
+        }
         case 'StringLiteral':
             return value.trimticks
                 ? formatCompactTrimtick(value.value)

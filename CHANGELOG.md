@@ -8,6 +8,17 @@ repositories.
 
 ## Unreleased
 
+### Added
+
+- The pure-Python reference canonical API now offers the experimental
+  `CanonicalizeOptions(ordering="reference-safe-v1")` opt-in, matching the
+  TypeScript/Rust dependency-aware ordering contract. It validates authored
+  Core references before sorting and checks the emitted document again,
+  preserves indexed positions and metadata, and caps distinct projected edges
+  with `max_ordering_edges`. Existing Python defaults, CLI, native-Python,
+  WASM, and integrity/hash entry points have not switched contracts. No new
+  canonical authority snapshot or package version is promoted here.
+
 ### Breaking
 
 - AEON source generic arguments now require datatype descriptors. Bare numeric

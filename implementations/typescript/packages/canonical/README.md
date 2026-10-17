@@ -67,7 +67,9 @@ During cross-runtime rollout, omitting `ordering` retains the historical
 `lexical-v1` behavior and bytes, including its lack of authored reference
 validation. The internal Rust canonical crate also offers an explicit opt-in;
 see the [Rust README](../../../rust/README.md#experimental-reference-safe-canonical-ordering).
-The CLI, integrity hashing, Python, and WASM interfaces have not switched
+The pure-Python reference API also has an explicit opt-in; see the
+[Python guide](../../../../docs/implementations/python/README.md).
+The CLI, integrity hashing, native-Python, and WASM interfaces have not switched
 to the new contract. Treat the opt-in output as experimental; do not mix its
 hashes or signatures with historical canonical output. `emitFromObject` and
 Telex canonicalization are unchanged.

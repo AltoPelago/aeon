@@ -516,7 +516,7 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
                 render_structural_identity(entry.structural_id.as_deref()),
                 render_attributes(&entry.attributes),
                 render_canonical_datatype(entry.datatype.as_deref(), entry.rank.is_some()),
-                render_value_inline(&entry.value)
+                render_value_inline_with_contract(&entry.value, entry.rank.is_some())
             )
         })
         .collect::<Vec<_>>()
@@ -526,6 +526,12 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
 }
 
 fn render_value_inline(value: &Value) -> String {
+    render_value_inline_with_contract(value, false)
+}
+
+// Attribute values use compact rendering recursively. Preserve historical
+// empty-object bytes unless the ordering planner supplied the explicit contract.
+fn render_value_inline_with_contract(value: &Value, reference_safe: bool) -> String {
     match value {
         Value::Attributed {
             canonical_head,
@@ -539,7 +545,7 @@ fn render_value_inline(value: &Value) -> String {
                 render_structural_identity(structural_id.as_deref()),
                 render_attributes(attributes),
                 render_canonical_datatype(datatype.as_deref(), *canonical_head),
-                render_value_inline(value)
+                render_value_inline_with_contract(value, reference_safe || *canonical_head)
             )
         }
         Value::String { value, trimticks } => {
@@ -560,7 +566,7 @@ fn render_value_inline(value: &Value) -> String {
         },
         Value::Object(bindings) => {
             if bindings.is_empty() {
-                return String::from("{}");
+                return String::from(if reference_safe { "{  }" } else { "{}" });
             }
             let mut nested = bindings.clone();
             nested.sort_by(compare_bindings);
@@ -578,7 +584,10 @@ fn render_value_inline(value: &Value) -> String {
                                 binding.datatype.as_deref(),
                                 binding.canonical_key
                             ),
-                            render_value_inline(&binding.value)
+                            render_value_inline_with_contract(
+                                &binding.value,
+                                reference_safe || binding.canonical_key,
+                            )
                         )
                     })
                     .collect::<Vec<_>>()
@@ -589,7 +598,7 @@ fn render_value_inline(value: &Value) -> String {
             "[{}]",
             items
                 .iter()
-                .map(render_value_inline)
+                .map(|item| render_value_inline_with_contract(item, reference_safe))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -597,7 +606,7 @@ fn render_value_inline(value: &Value) -> String {
             "({})",
             items
                 .iter()
-                .map(render_value_inline)
+                .map(|item| render_value_inline_with_contract(item, reference_safe))
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -626,7 +635,12 @@ fn render_value_inline(value: &Value) -> String {
                     "{head}({})>",
                     node.children
                         .iter()
-                        .map(render_value_inline)
+                        .map(|child| {
+                            render_value_inline_with_contract(
+                                child,
+                                reference_safe || node.canonical_key,
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join(", ")
                 )

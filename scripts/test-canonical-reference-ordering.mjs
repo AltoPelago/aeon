@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Explicit API conformance check for the experimental TypeScript/Rust contracts.
+// Explicit API conformance check for the experimental TypeScript/Rust/Python contracts.
 // Historical CLI/CTS claims and default canonical bytes are not changed.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -21,15 +21,21 @@ assert.equal(manifest.meta.sut_protocol, 'cts.protocol.v1');
 assert.equal(manifest.meta.status, 'experimental');
 const load = packageName => import(pathToFileURL(path.join(root, 'implementations/typescript/packages', packageName, 'dist/index.js')).href);
 const backend = process.argv[2] ?? 'typescript';
-assert.ok(['typescript', 'rust'].includes(backend), 'backend must be typescript or rust');
+assert.ok(['typescript', 'rust', 'python'].includes(backend), 'backend must be typescript, rust, or python');
+const backendLabel = backend === 'rust' ? 'Rust' : 'Python';
 const rustAdapter = path.join(root, 'implementations/rust/target/debug/examples/reference_ordering');
 if (backend === 'rust') {
   execFileSync('cargo', ['build', '--locked', '-p', 'aeon-canonical', '--example', 'reference_ordering'], {
     cwd: path.join(root, 'implementations/rust'), stdio: 'inherit',
   });
 }
+const pythonAdapter = path.join(root, 'scripts/python-reference-ordering.py');
 const canonicalize = backend === 'typescript' ? (await load('canonical')).canonicalize
-  : (source, options = {}) => JSON.parse(execFileSync(rustAdapter, [], { input: JSON.stringify({ source, max_attribute_depth: options.maxAttributeDepth ?? 1 }), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
+  : (source, options = {}) => JSON.parse(execFileSync(
+    backend === 'rust' ? rustAdapter : (process.env.PYTHON ?? 'python3'),
+    backend === 'rust' ? [] : [pythonAdapter],
+    { input: JSON.stringify({ source, max_attribute_depth: options.maxAttributeDepth ?? 1 }), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+  ));
 const { tokenize } = await load('lexer');
 const { parse } = await load('parser');
 const { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes } = await load('aes');
@@ -106,7 +112,7 @@ for (const suiteRef of manifest.suites) {
   }
 }
 console.log(`${backend} reference-safe-v1 API CTS: pass=${passed} fail=${failed} manifest-excluded=${excluded}`);
-if (backend === 'rust') {
+if (backend !== 'typescript') {
   const typescriptCanonicalize = (await load('canonical')).canonicalize;
   const sources = [];
   const renderingSources = new Map(renderingFixtures.map(fixture => [fixture.source, fixture.fragment]));
@@ -170,7 +176,7 @@ if (backend === 'rust') {
       const actual = canonicalize(source, parityOptions);
       if (genericSources.has(source)) {
         assert.equal(expected.errors.length === 0, genericSources.get(source), 'generic type grammar');
-        assert.equal(actual.errors.length === 0, genericSources.get(source), 'native generic type grammar');
+        assert.equal(actual.errors.length === 0, genericSources.get(source), 'selected backend generic type grammar');
       }
       if (renderingSources.has(source)) {
         assert.deepEqual(expected.errors, [], 'rendering regression must be valid input');
@@ -189,9 +195,9 @@ if (backend === 'rust') {
       parityPassed += 1;
     } catch (error) {
       failed += 1;
-      if (failed <= 10) console.error(`Rust/TypeScript parity ${JSON.stringify(source)}: ${error.message.slice(0, 1200)}`);
+      if (failed <= 10) console.error(`${backendLabel}/TypeScript parity ${JSON.stringify(source)}: ${error.message.slice(0, 1200)}`);
     }
   }
-  console.log(`Rust/TypeScript reference-safe-v1 parity: pass=${parityPassed} fail=${sources.length - parityPassed}`);
+  console.log(`${backendLabel}/TypeScript reference-safe-v1 parity: pass=${parityPassed} fail=${sources.length - parityPassed}`);
 }
 process.exitCode = failed === 0 ? 0 : 1;
