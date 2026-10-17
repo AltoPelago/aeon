@@ -32,8 +32,9 @@ Runs the canonical conformance lane:
   5. Cross-implementation canonical snippet parity
   6. Cross-implementation real-document canonical corpus parity
   7. Cross-implementation diagnostic snippet parity
-  8. Grammar-derived temporal flow and canonical parity
-  9. Literal dispatch, symbols, strings, and trimtick flow
+  8. Escaped Core path public CLI parity
+  9. Grammar-derived temporal flow and canonical parity
+ 10. Literal dispatch, symbols, strings, and trimtick flow
 
 Examples:
   bash ./scripts/canonical-cts.sh
@@ -139,6 +140,10 @@ if [[ "$brief" -eq 1 ]]; then
   diag_cmd+=(--brief)
 fi
 "${diag_cmd[@]}"
+echo
+
+echo "-- Escaped Core path public CLI parity"
+node "$ROOT_DIR/scripts/test-core-path-escaping.mjs"
 echo
 
 echo "-- Grammar-derived temporal flow and canonical parity"

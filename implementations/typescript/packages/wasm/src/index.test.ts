@@ -23,6 +23,20 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+test('committed WASM JSON-escapes control keys in Core event and reference paths', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (let code = 0; code < 32; code += 1) {
+    const key = `z${String.fromCharCode(code)}`;
+    const quoted = JSON.stringify(key);
+    const source = `${quoted}=1\ncopy=~[${quoted}]`;
+    const result = runtime.processAeon(source, { validationMode: 'loose', finalize: false });
+    assert.deepEqual(result.errors, [], source);
+    assert.equal(result.events[0]?.path, `$.[${quoted}]`, source);
+    assert.equal(result.events[1]?.path, '$.copy', source);
+    assert.equal(result.events[1]?.valueType, 'CloneReference', source);
+  }
+});
+
 test('generated WASM rejects literal Telex generics and retains exact recursive clarifiers', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   const wire = (datatype: string): string => `telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype=${datatype}\nvalue=0\n`;

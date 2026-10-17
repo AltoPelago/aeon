@@ -94,26 +94,6 @@ class ReferenceOrderingTests(unittest.TestCase):
         self.assertEqual(legacy, canonicalize(source, CanonicalizeOptions(1, 1, 1, 32, 64)))
 
     def test_rendering_boundaries_preserve_graph_and_fixed_point(self):
-        def decoded_tree(source, include_headers):
-            # Compare decoded AST keys/selectors directly for the newline
-            # regressions. Historical Core path serialization leaves terminal
-            # LF unescaped, so its portable adapter is not an oracle for them.
-            document = self.document(source)
-            if not include_headers:
-                document.header = None
-
-            def normalize(value):
-                if isinstance(value, list):
-                    return [normalize(item) for item in value]
-                if isinstance(value, dict):
-                    result = {key: normalize(item) for key, item in value.items() if key not in {"span", "head_span"}}
-                    if "bindings" in result:
-                        result["bindings"].sort(key=lambda binding: binding["key"])
-                    return result
-                return value
-
-            return normalize(asdict(document))
-
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/canonical-rendering-boundaries.json").read_text())
         for fixture in fixtures:
             with self.subTest(fixture=fixture["id"]):
@@ -123,8 +103,7 @@ class ReferenceOrderingTests(unittest.TestCase):
                 self.assertIn(fixture["fragment"], result.text)
                 self.assertEqual(result.text, self.canonical(result.text, max_attribute_depth=2).text)
                 include_headers = self.document(source).header is not None
-                oracle = decoded_tree if fixture["id"].startswith("newline-") else self.graph
-                self.assertEqual(oracle(source, include_headers), oracle(result.text, include_headers))
+                self.assertEqual(self.graph(source, include_headers), self.graph(result.text, include_headers))
 
     def test_new_rendering_fixes_do_not_change_historical_bytes(self):
         for source, suffix in (

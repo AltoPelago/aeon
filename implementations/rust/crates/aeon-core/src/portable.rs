@@ -1867,6 +1867,33 @@ mod tests {
     }
 
     #[test]
+    fn control_keys_project_nodes_attributes_and_references_without_panicking() {
+        for byte in 0_u8..32 {
+            let key = format!("z{}", char::from(byte));
+            let quoted = serde_json::to_string(&key).expect("JSON key");
+            let path = format!("$.[{quoted}]");
+            let events = project(&format!(
+                "{quoted}@{{{quoted}=1}}=<outer(<inner(\"leaf\")>)>\ncopy=~[{quoted}][0][0]\npointer=~>[{quoted}].@.[{quoted}]"
+            ));
+            assert_eq!(events[0].path, path);
+            assert_eq!(events[1].path, format!("{path}.@.[{quoted}]"));
+            assert!(
+                events
+                    .iter()
+                    .any(|event| event.path == format!("{path}[0][0][0][0]"))
+            );
+            assert_eq!(
+                events[events.len() - 2].value,
+                Some(format!("{path}[0][0][0][0]"))
+            );
+            assert_eq!(
+                events.last().expect("pointer").value,
+                Some(format!("{path}.@.[{quoted}]"))
+            );
+        }
+    }
+
+    #[test]
     fn named_legacy_adapter_returns_an_explicit_conversion_report() {
         let result = compile(
             "a@{role = \"root\"} = <tag(\"child\")>\ncopy = ~a[0]\nitems:list<int> = [1]",
