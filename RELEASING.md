@@ -273,10 +273,23 @@ The npm release workflow likewise finishes with a separate clean job that has
 no repository checkout. It installs the exact published `@altopelago/aeon-sdk`
 version together with every other public package at that version, thereby
 checking the complete npm release set and its public dependency graph, and
-exercises the checked read/finalize API. All three registry smoke jobs retry
-dependency resolution for up to two minutes to tolerate normal index
-propagation, but run the behavioral check only once so implementation failures
-are not masked.
+exercises the checked read/finalize API. Its install step retries for up to ten
+minutes to tolerate registry propagation. Each attempt forces online metadata
+revalidation (`--prefer-online`), uses a fresh cache, and caps the npm process
+at 60 seconds (or the remaining budget), with a five-second forced-kill grace.
+Network requests have a 15-second timeout and no internal retry loop. A separate
+step runs the behavioral check exactly once, only after installation succeeds,
+so implementation failures are not masked. The install step has an outer
+12-minute timeout as a final backstop. Rust and Python registry smoke jobs
+retain their two-minute dependency-resolution retry windows.
+
+If npm publication succeeds but its clean consumer fails, rerun **only the
+failed Clean npm consumer job**. Do not rerun the successful publish job or
+dispatch another publication of the same immutable versions. No release tag or
+published package needs changing to recover a delayed registry consumer.
+`npm run test:release-workflows` exercises the actual workflow shell with
+simulated delayed availability, persistent failure and behavioral failure;
+these tests also run in normal CI.
 
 ## Notes
 

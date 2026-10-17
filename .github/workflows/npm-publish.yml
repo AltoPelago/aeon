@@ -131,15 +131,36 @@ jobs:
           node-version: 22.14.0
           registry-url: https://registry.npmjs.org
 
-      - name: Install exact registry package and exercise public API
+      - name: Install exact registry packages with propagation retries
+        timeout-minutes: 12
         env:
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
           mkdir aeon-registry-smoke
           cd aeon-registry-smoke
           npm init --yes
-          for attempt in $(seq 1 12); do
-            if npm install --ignore-scripts --no-audit --fund=false \
+          deadline=$((SECONDS + 600))
+          attempt=0
+          installed=false
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            attempt=$((attempt + 1))
+            remaining=$((deadline - SECONDS))
+            # timeout 0 disables its limit: never pass an exhausted budget.
+            if [ "$remaining" -le 0 ]; then
+              break
+            fi
+            attempt_timeout=$remaining
+            if [ "$attempt_timeout" -gt 60 ]; then
+              attempt_timeout=60
+            fi
+            echo "npm registry install attempt $attempt ($remaining seconds remaining)"
+            # Revalidate metadata and never reuse a previous attempt's cache.
+            # Bound each install, including npm's own network retries.
+            if timeout --kill-after=5s "${attempt_timeout}s" \
+              npm install --registry=https://registry.npmjs.org \
+              --prefer-online --cache="${RUNNER_TEMP}/aeon-npm-consumer-cache-${attempt}" \
+              --fetch-retries=0 --fetch-timeout=15000 \
+              --ignore-scripts --no-audit --fund=false \
               "@altopelago/aeon-aes@${VERSION}" \
               "@altopelago/aeon-annotation-stream@${VERSION}" \
               "@altopelago/aeon-canonical@${VERSION}" \
@@ -157,11 +178,26 @@ jobs:
               "@altopelago/aeon-typegen@${VERSION}" \
               "@altopelago/aeon-wasm@${VERSION}" \
               "@altopelago/aeos-core@${VERSION}"; then
+              installed=true
               break
             fi
-            if [ "$attempt" -eq 12 ]; then
-              exit 1
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then
+              break
             fi
-            sleep 10
+            delay=20
+            if [ "$remaining" -lt "$delay" ]; then
+              delay=$remaining
+            fi
+            echo "Install failed; retrying registry resolution in $delay seconds."
+            sleep "$delay"
           done
+          if [ "$installed" != true ]; then
+            echo "::error::Could not install the exact npm release set within 600 seconds. Publication already completed; rerun only the failed Clean npm consumer job."
+            exit 1
+          fi
+
+      - name: Exercise installed public API once
+        working-directory: aeon-registry-smoke
+        run: |
           node --input-type=module -e 'import { readAeonChecked } from "@altopelago/aeon-sdk"; const result = readAeonChecked("greeting:string = \"Hello\"\n"); if (result.finalized.document.greeting !== "Hello") process.exit(1)'

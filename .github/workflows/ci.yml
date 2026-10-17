@@ -50,6 +50,10 @@ jobs:
         working-directory: .
         run: npm run test:version
 
+      - name: Release-workflow retry tests
+        working-directory: .
+        run: npm run test:release-workflows
+
       - name: Version consistency
         working-directory: .
         run: npm run version:check
