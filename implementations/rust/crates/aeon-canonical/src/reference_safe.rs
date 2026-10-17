@@ -1123,15 +1123,15 @@ mod tests {
                 }
             }
         }
-        // Normalization itself must not rewrite invalid numeric generic
-        // arguments, even though public canonical entry points reject them.
+        // Type-only transport descriptors retain numeric clarifiers on each
+        // valid nested type; canonicalization normalizes those numeric values.
         assert_eq!(
-            super::super::normalize_datatype("custom<1.00>[1.00]"),
-            "custom<1.00>[1.0]"
+            super::super::normalize_datatype("custom<child[1.00]>[1.00]"),
+            "custom<child[1.0]>[1.0]"
         );
         assert_eq!(
-            format_datatype("custom<child<1.00>>[1.00]").expect("format"),
-            "custom<child<1.00>>[1.0]"
+            format_datatype("custom<child[1.00]>[1.00]").expect("format"),
+            "custom<child[1.0]>[1.0]"
         );
     }
 

@@ -20,7 +20,7 @@ export interface AesNumberLiteral {
 
 export interface AesDatatypeDescriptor {
     readonly datatype: string;
-    readonly generics: readonly (AesDatatypeDescriptor | AesNumberLiteral)[];
+    readonly generics: readonly AesDatatypeDescriptor[];
     readonly clarifiers: readonly (AesStringLiteral | AesNumberLiteral)[];
 }
 
@@ -29,7 +29,7 @@ export interface TelexRecord {
     readonly path?: string;
     readonly kind?: PortableAesKind | string;
     readonly datatype?: string;
-    readonly generics?: readonly (AesDatatypeDescriptor | AesNumberLiteral)[];
+    readonly generics?: readonly AesDatatypeDescriptor[];
     readonly clarifiers?: readonly (AesStringLiteral | AesNumberLiteral)[];
     readonly identity?: string;
     readonly value?: string;
@@ -220,8 +220,9 @@ export function validateTelex(
     return implementation.validateTelex(input, options) as TelexValidationResult;
 }
 
+/** Validate untrusted logical records, including provisional Film inspection output. */
 export function validateTelexRecords(
-    records: readonly (TelexRecord | PortableAesEvent)[],
+    records: readonly unknown[],
     options: TelexValidationOptions = {},
 ): TelexValidationResult {
     return implementation.validateTelexRecords(records, options) as TelexValidationResult;

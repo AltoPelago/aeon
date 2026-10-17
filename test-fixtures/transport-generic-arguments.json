@@ -1,0 +1,22 @@
+{
+  "invalid_datatypes": [
+    "custom<2>",
+    "custom<1.00>[1.00]",
+    "custom<-2>",
+    "custom<.5>",
+    "custom<1e3>",
+    "custom<9007199254740993>",
+    "custom<\"int\">",
+    "custom<nested<2>>"
+  ],
+  "literal_arguments": [
+    { "kind": "NumberLiteral", "value": "2" },
+    { "kind": "NumberLiteral", "value": "9007199254740993" },
+    { "kind": "StringLiteral", "value": "int" }
+  ],
+  "valid_datatype": "custom<nested[9007199254740993]>[2.0000000000000001]",
+  "legacy_film": [
+    "4f5f5fff010017020203242e610e06637573746f6d010203312e30000130",
+    "4f5f5fff010022020203242e611906637573746f6d01000e06637573746f6d010203312e3000000130"
+  ]
+}

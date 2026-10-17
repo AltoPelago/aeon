@@ -21,10 +21,11 @@ FIXTURES = json.loads((ROOT.parents[1] / "test-fixtures/numeric-clarifiers.json"
 
 
 class NumericClarifierTests(unittest.TestCase):
-    def test_aes_transport_numeric_generics_are_not_changed(self) -> None:
-        descriptor = parse_datatype_descriptor("custom<1.00>[1.00]")
-        self.assertEqual([{"kind": "NumberLiteral", "value": "1.00"}], descriptor["generics"])
-        self.assertEqual("custom<1.00>[1.00]", format_datatype_descriptor(descriptor))
+    def test_aes_transport_rejects_numeric_generics_but_preserves_clarifiers(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_datatype_descriptor("custom<1.00>[1.00]")
+        descriptor = parse_datatype_descriptor("custom<child[1.00]>[1.00]")
+        self.assertEqual("custom<child[1.00]>[1.00]", format_datatype_descriptor(descriptor))
 
     def test_generic_arguments_are_types_not_numeric_or_string_literals(self) -> None:
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/datatype-generic-arguments.json").read_text())

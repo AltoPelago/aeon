@@ -13,7 +13,15 @@ repositories.
 - AEON source generic arguments now require datatype descriptors. Bare numeric
   arguments such as `custom<1.0>` are rejected, including nested and node-head
   forms. Numeric clarifiers remain valid, including `list<custom[1.0]>`.
-  The broader AES/Telex transport descriptor format is unchanged.
+  Portable AES and Telex now enforce the same rule, including caller-supplied
+  records and validated Film completion. TypeScript adopts AES Events CTS 0.2,
+  Telex CTS 0.2, and reader-only Film CTS 0.3; pure-Python adopts the same AES
+  Events and Telex targets. Rust uses `altopelago-aes-telex` 0.3.0, and committed
+  WASM artifacts include the new validation. No package is republished here.
+  Provisional Film inspection can still expose historical numeric generic tags,
+  but those records cannot complete as accepted AES. TypeScript syntax/progress
+  result types now distinguish those provisional records from validated output.
+  Exact numeric clarifiers and Film physical generic-depth accounting are unchanged.
 - TypeScript and pure-Python parsers now represent numeric datatype clarifiers
   as exact `NumberLiteral` AST nodes rather than native numbers. Consumers
   inspecting those arrays must read the node's string `value` (or `raw` for

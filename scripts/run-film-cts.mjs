@@ -74,7 +74,7 @@ async function main() {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.meta.format, 'film.aes');
     assert.equal(manifest.meta.format_version, '1');
-    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.2');
+    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.3');
 
     let passed = 0;
     let encoderOnly = 0;

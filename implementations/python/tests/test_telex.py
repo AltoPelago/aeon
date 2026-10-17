@@ -16,6 +16,8 @@ from aeon.telex import (
     TelexSyntaxError,
     canonicalize_telex,
     encode_telex,
+    format_datatype_descriptor,
+    parse_datatype_descriptor,
     parse_telex,
     validate_telex,
     validate_telex_records,
@@ -42,6 +44,38 @@ AES_ROOT = Path(
 
 
 class TelexConformanceTests(unittest.TestCase):
+    def test_transport_generic_boundaries(self) -> None:
+        fixtures = json.loads((ROOT.parents[1] / "test-fixtures/transport-generic-arguments.json").read_text())
+        for datatype in fixtures["invalid_datatypes"]:
+            source = f"telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype={datatype}\nvalue=0\n"
+            with self.subTest(datatype=datatype):
+                with self.assertRaises(ValueError):
+                    parse_datatype_descriptor(datatype)
+                for operation in (parse_telex, canonicalize_telex, validate_telex):
+                    with self.assertRaises(TelexSyntaxError) as raised:
+                        operation(source)
+                    self.assertEqual("TELEX_INVALID_DATATYPE", raised.exception.code)
+                    self.assertEqual(5, raised.exception.line)
+                loaded = load_telex_text(source)
+                self.assertFalse(loaded.ok)
+        for literal in fixtures["literal_arguments"]:
+            for generics in ([literal], [{"datatype": "nested", "generics": [literal], "clarifiers": []}]):
+                descriptor = {"datatype": "custom", "generics": generics, "clarifiers": []}
+                record = {"path": "$.a", "kind": "NumberLiteral", **descriptor, "value": "0"}
+                with self.subTest(generics=generics):
+                    with self.assertRaises(ValueError):
+                        format_datatype_descriptor(descriptor)
+                    self.assertFalse(validate_telex_records([record])["valid"])
+                    with self.assertRaises(ValueError):
+                        encode_telex([record])
+        descriptor = parse_datatype_descriptor(fixtures["valid_datatype"])
+        self.assertEqual(fixtures["valid_datatype"], format_datatype_descriptor(descriptor))
+        record = {"path": "$.a", "kind": "NumberLiteral", **descriptor, "value": "0"}
+        self.assertTrue(validate_telex_records([record])["valid"])
+        encoded = encode_telex([record])
+        self.assertEqual([record], parse_telex(encoded).records)
+        self.assertEqual(encoded, canonicalize_telex(encoded))
+
     def test_encoder_enforces_shared_structural_limits(self) -> None:
         with self.assertRaises(TelexSyntaxError) as raised:
             encode_telex(
@@ -232,12 +266,14 @@ class TelexConformanceTests(unittest.TestCase):
         self.assertEqual("FINALIZE_UNREPRESENTABLE_NODE_HEADS", result["meta"]["errors"][0]["code"])
 
     def test_shared_portable_aes_event_snapshot(self) -> None:
-        manifest_path = CTS_ROOT / "aes" / "v1" / "aes-events-cts.v1.snapshot-0.1.json"
+        manifest_path = CTS_ROOT / "aes" / "v1" / "aes-events-cts.v1.snapshot-0.2.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         observed = 0
         for suite_ref in manifest["suites"]:
             suite = json.loads((manifest_path.parent / suite_ref["file"]).read_text(encoding="utf-8"))
             for vector in suite["tests"]:
+                if vector["id"] in suite_ref.get("exclude_tests", []):
+                    continue
                 observed += 1
                 with self.subTest(vector=vector["id"]):
                     payload = vector["input"]
@@ -254,27 +290,36 @@ class TelexConformanceTests(unittest.TestCase):
                         expected["diagnostic_codes"],
                         [item["code"] for item in result["diagnostics"]],
                     )
-        self.assertEqual(38, observed)
+        self.assertEqual(48, observed)
 
     def test_shared_telex_snapshot(self) -> None:
-        manifest_path = CTS_ROOT / "telex" / "v1" / "telex-cts.v1.snapshot-0.1.json"
+        manifest_path = CTS_ROOT / "telex" / "v1" / "telex-cts.v1.snapshot-0.2.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         observed = 0
         for suite_ref in manifest["suites"]:
             suite = json.loads((manifest_path.parent / suite_ref["file"]).read_text(encoding="utf-8"))
             for vector in suite["tests"]:
+                if vector["id"] in suite_ref.get("exclude_tests", []):
+                    continue
                 observed += 1
                 with self.subTest(vector=vector["id"]):
                     self.assert_vector(vector)
-        self.assertEqual(50, observed)
+        self.assertEqual(61, observed)
 
     def test_draft_telex_resource_limit_vectors(self) -> None:
+        manifest_path = AES_ROOT / "conformance" / "telex" / "v1" / "telex-cts.v1.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        suite_ref = next(item for item in manifest["suites"] if item["id"] == "resource-limits")
         suite_path = AES_ROOT / "conformance" / "telex" / "v1" / "suites" / "03-resource-limits.json"
         suite = json.loads(suite_path.read_text(encoding="utf-8"))
+        observed = 0
         for vector in suite["tests"]:
+            if vector["id"] in suite_ref.get("exclude_tests", []):
+                continue
+            observed += 1
             with self.subTest(vector=vector["id"]):
                 self.assert_vector(vector)
-        self.assertEqual(34, len(suite["tests"]))
+        self.assertEqual(32, observed)
 
     def assert_vector(self, vector: dict[str, object]) -> None:
         payload = vector["input"]

@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -152,7 +152,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: e9eb812d55cc69c5036c999c8bd2ea2585628666
+          ref: c8fec99c4680581fc41754c4316c913b4c8116cc
           path: aes
 
       - name: Link AES beside AEON checkout

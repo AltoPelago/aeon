@@ -97,7 +97,8 @@ async function main() {
         const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
         const suite = JSON.parse(await readFile(suitePath, 'utf8'));
         assert.equal(suite.id, suiteRef.id);
-        for (const vector of suite.tests) {
+        const excluded = new Set(suiteRef.exclude_tests ?? []);
+        for (const vector of suite.tests.filter((vector) => !excluded.has(vector.id))) {
             const options = limitOptions(vector);
             const semanticOptions = {
                 ...options,

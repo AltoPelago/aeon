@@ -45,7 +45,7 @@ export interface PortableAesEvent {
     readonly kind: PortableAesKind;
     readonly identity?: string;
     readonly datatype?: string;
-    readonly generics?: readonly (AesDatatypeDescriptor | AesNumberLiteral)[];
+    readonly generics?: readonly AesDatatypeDescriptor[];
     readonly clarifiers?: readonly (AesStringLiteral | AesNumberLiteral)[];
     readonly value?: string;
     readonly origin?: string;

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { encodeTelex } from './telex.js';
 
 import {
     FILM_V1_PREAMBLE,
@@ -90,8 +91,9 @@ test('incremental Film decoding withholds completion until final input', () => {
     ]);
 
     const complete = decoder.finish();
-    assert.equal(complete.status, 'complete');
+    if (complete.status !== 'complete') assert.fail('expected validated completion');
     assert.deepEqual(complete.stream?.records, second.records);
+    assert.equal(encodeTelex(complete.stream.records), 'telex.aes=1\n\npath=$.message\nkind=StringLiteral\nvalue=hello\n');
 });
 
 function fromHex(input: string): Uint8Array {
