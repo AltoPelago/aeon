@@ -155,6 +155,37 @@ incomparable; their disjoint calendar completion sets are not yet evaluated.
 Transform, Instruction, policy filtering and apply are not exposed. Inspect
 the capability fields for the individual surfaces.
 
+## Experimental reference-safe canonical ordering
+
+The installed native package offers the same explicit ordering opt-in as the
+independent TypeScript, Rust, and pure-Python writers:
+
+```python
+text = aeon.canonicalize("d=3\nc=2\nb=~c\na=1", ordering="reference-safe-v1",
+                         max_ordering_edges=1_000_000, max_attribute_depth=1)
+# Body order: a, c, b, d. A default header is inserted when absent.
+```
+
+This calls the Rust canonical API directly, with Python's interpreter lock
+released during native work. It validates authored Core references before
+sorting, preserves reference intent, metadata ownership and indexed positions,
+and revalidates emitted text. It does not evaluate references or approve
+profiles/schemas. In particular, this does not impose GP temporal/radix policy.
+
+`max_ordering_edges` caps distinct projected dependency edges;
+`max_attribute_depth` bounds authored/output metadata and reference traversal.
+Both are keyword-only, non-negative integers up to `2**53 - 1`; booleans are
+not accepted. Unknown ordering names and invalid options raise `ValueError`.
+Source/ordering failures raise the existing `CompileError` with structured
+diagnostics and no partial text. Success returns `str`, as before.
+
+Omitting `ordering` or selecting `"lexical-v1"` retains historical bytes and
+behavior, including the absence of authored-reference validation. The two
+limits are validated but only applied by the experimental contract. No other
+API, CLI, integrity/hash entry point, or canonical default switches here.
+Keep experimental canonical hashes/signatures separate from historical ones.
+No canonical authority snapshot or published conformance claim is promoted.
+
 ## Local development
 
 Create and activate a virtual environment, install maturin, and then run:

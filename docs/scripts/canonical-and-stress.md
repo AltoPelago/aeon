@@ -65,6 +65,7 @@ After building the TypeScript workspace, run the separate opt-in API checks:
 node scripts/test-canonical-reference-ordering.mjs
 node scripts/test-canonical-reference-ordering.mjs rust
 PYTHON=python3.12 node scripts/test-canonical-reference-ordering.mjs python
+PYTHON_NATIVE=/path/to/installed-wheel/venv/bin/python node scripts/test-canonical-reference-ordering.mjs python-native
 ```
 
 They select the experimental reference-ordering manifest with its declared
@@ -74,6 +75,15 @@ also compare the rendering/collision corpus against TypeScript. The Python
 adapter exercises the real pure-Python opt-in and preserves actual text on
 failure; it normalizes reference-diagnostic paths to the existing TS/Rust
 adapter contract without changing Python's public diagnostics.
+
+The `python-native` backend imports only the installed `altopelago.aeon`
+facade, using Python isolated mode (no checkout/PYTHONPATH fallback). Successful
+text is returned directly. `CompileError` diagnostics are adapted to the test
+protocol's error response; that public API's exception channel carries no
+partial canonical text. As with the existing adapters, reference diagnostic
+paths are normalized only at the test protocol boundary; public native paths,
+spans, and phases are retained. PR CI builds and installs a wheel, runs its full
+behavioral suite and typing check, then runs this parity gate.
 
 These are not released canonical claims or a change to CLI/default/hash
 behavior. Python unit tests independently enumerate the legal orders of all

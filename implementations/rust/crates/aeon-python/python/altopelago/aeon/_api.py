@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from . import _native
 from ._loading import LoadedDocument, LoadedTelexDocument
@@ -34,11 +34,28 @@ def compile_to_telex(source: str) -> bytes:
     raise CompileError(diagnostics)
 
 
-def canonicalize(source: str) -> str:
-    """Return the canonical AEON spelling of one complete document."""
+def canonicalize(
+    source: str,
+    *,
+    ordering: Literal["lexical-v1", "reference-safe-v1"] = "lexical-v1",
+    max_ordering_edges: int = 1_000_000,
+    max_attribute_depth: int = 1,
+) -> str:
+    """Canonicalize natively; reference-safe ordering is experimental and opt-in.
+
+    Invalid options raise ValueError. Source/ordering failures raise CompileError
+    without partial text. Limits affect only the reference-safe contract;
+    lexical-v1 retains historical behavior and bytes.
+    """
+
+    if ordering not in ("lexical-v1", "reference-safe-v1"):
+        raise ValueError("unknown canonical ordering")
+    for name, value in (("max_ordering_edges", max_ordering_edges), ("max_attribute_depth", max_attribute_depth)):
+        if type(value) is not int or not 0 <= value <= 2**53 - 1:
+            raise ValueError(f"{name} must be a non-negative safe integer (not bool)")
 
     try:
-        ok, payload = _native.canonicalize_native(source)
+        ok, payload = _native.canonicalize_native(source, ordering, max_ordering_edges, max_attribute_depth)
     except RuntimeError as error:
         raise NativeError(str(error)) from error
     if ok:

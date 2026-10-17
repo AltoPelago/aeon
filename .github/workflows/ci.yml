@@ -103,6 +103,27 @@ jobs:
           AES_ROOT: ${{ github.workspace }}/aes
         run: python3 -m unittest discover -s implementations/python/tests -p 'test_*.py'
 
+      - name: Install native Python wheel build and typing tools
+        run: python3 -m pip install maturin==1.15.0 mypy==1.19.1
+
+      - name: Build native Python wheel
+        working-directory: implementations/rust/crates/aeon-python
+        run: >-
+          python3 -m maturin build --release --locked --interpreter python3
+          --out "${RUNNER_TEMP}/aeon-native-ordering-wheel"
+
+      - name: Install and test native Python wheel
+        working-directory: .
+        run: |
+          python3 -m pip install --force-reinstall --no-index --no-deps --only-binary=:all: "${RUNNER_TEMP}"/aeon-native-ordering-wheel/*.whl
+          python3 -m unittest discover -s implementations/rust/crates/aeon-python/tests -p 'test_*.py'
+          python3 -m mypy --strict implementations/rust/crates/aeon-python/tests/typing/canonical.py
+
+      - name: Installed native Python reference-safe canonical API and TypeScript parity
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+        run: node ../../scripts/test-canonical-reference-ordering.mjs python-native
+
       - name: CTS conformance (all lanes)
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts

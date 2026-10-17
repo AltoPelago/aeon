@@ -21,19 +21,22 @@ assert.equal(manifest.meta.sut_protocol, 'cts.protocol.v1');
 assert.equal(manifest.meta.status, 'experimental');
 const load = packageName => import(pathToFileURL(path.join(root, 'implementations/typescript/packages', packageName, 'dist/index.js')).href);
 const backend = process.argv[2] ?? 'typescript';
-assert.ok(['typescript', 'rust', 'python'].includes(backend), 'backend must be typescript, rust, or python');
-const backendLabel = backend === 'rust' ? 'Rust' : 'Python';
+assert.ok(['typescript', 'rust', 'python', 'python-native'].includes(backend), 'backend must be typescript, rust, python, or python-native');
+const backendLabel = backend === 'rust' ? 'Rust' : backend === 'python-native' ? 'Native Python' : 'Python';
 const rustAdapter = path.join(root, 'implementations/rust/target/debug/examples/reference_ordering');
 if (backend === 'rust') {
   execFileSync('cargo', ['build', '--locked', '-p', 'aeon-canonical', '--example', 'reference_ordering'], {
     cwd: path.join(root, 'implementations/rust'), stdio: 'inherit',
   });
 }
-const pythonAdapter = path.join(root, 'scripts/python-reference-ordering.py');
+const pythonAdapter = path.join(root, backend === 'python-native'
+  ? 'scripts/native-python-reference-ordering.py' : 'scripts/python-reference-ordering.py');
+const python = backend === 'python-native' ? (process.env.PYTHON_NATIVE ?? process.env.PYTHON ?? 'python3')
+  : (process.env.PYTHON ?? 'python3');
 const canonicalize = backend === 'typescript' ? (await load('canonical')).canonicalize
   : (source, options = {}) => JSON.parse(execFileSync(
-    backend === 'rust' ? rustAdapter : (process.env.PYTHON ?? 'python3'),
-    backend === 'rust' ? [] : [pythonAdapter],
+    backend === 'rust' ? rustAdapter : python,
+    backend === 'rust' ? [] : backend === 'python-native' ? ['-I', pythonAdapter] : [pythonAdapter],
     { input: JSON.stringify({ source, max_attribute_depth: options.maxAttributeDepth ?? 1 }), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
   ));
 const { tokenize } = await load('lexer');

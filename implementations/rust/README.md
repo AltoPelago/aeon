@@ -194,9 +194,10 @@ header envelope currently return `CANONICAL_ORDERING_CONFLICT`; this emitter
 does not yet render those envelope heads.
 
 `canonicalize` and default options retain historical `lexical-v1` behavior.
-The CLI, integrity hashing, SDK, native Python, and WASM interfaces have not
-switched contracts. Do not mix experimental canonical hashes with historical
-hashes.
+The [native Python facade](crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
+also exposes this explicit opt-in. The CLI, integrity hashing, SDK, WASM, and
+native Python defaults have not switched contracts. Do not mix experimental
+canonical hashes with historical hashes.
 
 From the repository root, run the explicit Rust API CTS and TypeScript parity
 gate after building the TypeScript workspace:
@@ -209,11 +210,10 @@ node scripts/test-canonical-reference-ordering.mjs rust
 GitHub CI runs this experimental gate alongside the historical three-runtime
 canonical lane. Released CTS claims and historical snapshots remain unchanged.
 
-Before contract promotion, numeric datatype clarifiers still need a separate
-preservation review: TypeScript currently emits `custom[9007199254740992]` for
-authored `custom[9007199254740993]`, while Rust retains the exact integer.
-Decimal/exponent spelling can also differ. The ordering gate does not claim
-complete datatype-clarifier byte parity.
+Numeric datatype clarifiers now retain exact value-number semantics in all
+independent writers; the parity corpus covers large integers, decimals and
+exponents, including nested datatype descriptors. WASM exposure and
+authority/default promotion remain separate review gates.
 
 ## CTS
 
