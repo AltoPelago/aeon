@@ -2,7 +2,7 @@
   "name": "aeon-main",
   "private": true,
   "scripts": {
-    "ci": "npm run test:version && npm run version:check && npm --prefix implementations/typescript run ci",
+    "ci": "npm run test:version && npm run test:release-workflows && npm run version:check && npm --prefix implementations/typescript run ci",
     "ci:typescript": "npm --prefix implementations/typescript run ci:typescript",
     "ci:canonical": "npm --prefix implementations/typescript run ci:canonical",
     "ci:rust": "cargo fmt --all --check --manifest-path implementations/rust/Cargo.toml && cargo check --workspace --all-targets --manifest-path implementations/rust/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path implementations/rust/Cargo.toml && PYO3_BUILD_EXTENSION_MODULE=1 cargo test --workspace --all-targets --all-features --manifest-path implementations/rust/Cargo.toml",
@@ -21,6 +21,7 @@
     "version:set": "node ./scripts/version.mjs set",
     "version:recover": "node ./scripts/version.mjs recover",
     "test:version": "node --test ./test/version-tool.test.mjs",
+    "test:release-workflows": "node --test ./test/npm-publish-workflow.test.mjs",
     "oracle:gen": "node stress-tests/tools/gen-oracle.mjs",
     "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run"
   }
