@@ -1,5 +1,145 @@
 [
   {
+    "id": "newline-root-clone",
+    "source": "\"z\\n\"=1\na=~[\"z\\n\"]",
+    "fragment": "\"z\\n\" = 1\na = ~[\"z\\n\"]"
+  },
+  {
+    "id": "newline-root-pointer",
+    "source": "\"z\\n\"=1\na=~>[\"z\\n\"]",
+    "fragment": "~>[\"z\\n\"]"
+  },
+  {
+    "id": "newline-object-clone",
+    "source": "holder={\"z\\n\"=1,a=~holder.[\"z\\n\"]}",
+    "fragment": "~holder.[\"z\\n\"]"
+  },
+  {
+    "id": "newline-attribute-pointer",
+    "source": "holder@{\"z\\n\"=1}=0\na=~>holder.@.[\"z\\n\"]",
+    "fragment": "~>holder.@.[\"z\\n\"]"
+  },
+  {
+    "id": "newline-compact-attribute-clone",
+    "source": "holder@{\"z\\n\"=1,a=~holder.@.[\"z\\n\"]}=0",
+    "fragment": "~holder.@.[\"z\\n\"]"
+  },
+  {
+    "id": "newline-compact-object-pointer",
+    "source": "holder@{m={\"z\\n\"=1,a=~>holder.@.m.[\"z\\n\"]}}=0",
+    "fragment": "~>holder.@.m.[\"z\\n\"]"
+  },
+  {
+    "id": "newline-node-tag",
+    "source": "a=<\"z\\n\">",
+    "fragment": "<\"z\\n\">"
+  },
+  {
+    "id": "newline-anonymous-head",
+    "source": "a=[@{\"z\\n\"=1}=~a[0].@.[\"z\\n\"]]",
+    "fragment": "~a[0].@.[\"z\\n\"]"
+  },
+  {
+    "id": "newline-header-key",
+    "source": "aeon:header={\"z\\n\"=1}\na=~[\"aeon:z\\n\"]",
+    "fragment": "~[\"aeon:z\\n\"]"
+  },
+  {
+    "id": "empty-anonymous-list",
+    "source": "a=[@{}=1]",
+    "fragment": "a = [1]"
+  },
+  {
+    "id": "empty-anonymous-tuple",
+    "source": "a=(@{}=1)",
+    "fragment": "a = (1)"
+  },
+  {
+    "id": "empty-anonymous-node",
+    "source": "a=<tag(@{}=1)>",
+    "fragment": "1"
+  },
+  {
+    "id": "empty-anonymous-nested",
+    "source": "a=[@{}=[@{}=1]]",
+    "fragment": "  [\n    1\n  ]"
+  },
+  {
+    "id": "empty-anonymous-object",
+    "source": "a=[@{}={z=1,a=0}]",
+    "fragment": "a = ["
+  },
+  {
+    "id": "empty-anonymous-reference",
+    "source": "z=1\na=[@{}=~z]",
+    "fragment": "a = [~z]"
+  },
+  {
+    "id": "empty-anonymous-compact-list",
+    "source": "a@{m=[@{}=1]}=0",
+    "fragment": "m = [1]"
+  },
+  {
+    "id": "empty-anonymous-compact-tuple",
+    "source": "a@{m=(@{}=1)}=0",
+    "fragment": "m = (1)"
+  },
+  {
+    "id": "empty-anonymous-compact-node",
+    "source": "a@{m=<tag(@{}=1)>}=0",
+    "fragment": "m = <tag(1)>"
+  },
+  {
+    "id": "empty-anonymous-compact-object",
+    "source": "a@{m=[@{}={z=1,a=0}]}=0",
+    "fragment": "m = [{ a = 0, z = 1 }]"
+  },
+  {
+    "id": "empty-anonymous-keeps-type",
+    "source": "a=[@{}:custom=1]",
+    "fragment": ":custom = 1"
+  },
+  {
+    "id": "empty-anonymous-keeps-identity",
+    "source": "a=[\\VALUE\\@{}=1]",
+    "fragment": "\\VALUE\\ = 1"
+  },
+  {
+    "id": "empty-compact-object",
+    "source": "a@{m={}}=0",
+    "fragment": "m = {  }"
+  },
+  {
+    "id": "empty-compact-list-object",
+    "source": "a@{m=[{}]}=0",
+    "fragment": "m = [{  }]"
+  },
+  {
+    "id": "empty-compact-tuple-object",
+    "source": "a@{m=({})}=0",
+    "fragment": "m = ({  })"
+  },
+  {
+    "id": "empty-compact-node-object",
+    "source": "a@{m=<tag({})>}=0",
+    "fragment": "m = <tag({  })>"
+  },
+  {
+    "id": "empty-compact-nested-object",
+    "source": "a@{m={z={},a=0}}=0",
+    "fragment": "m = { a = 0, z = {  } }"
+  },
+  {
+    "id": "empty-compact-anonymous-object",
+    "source": "a@{m=[@{}={}]}=0",
+    "fragment": "m = [{  }]"
+  },
+  {
+    "id": "empty-compact-typed-object",
+    "source": "a@{m=[:custom={}]}=0",
+    "fragment": "m = [:custom = {  }]"
+  },
+  {
     "id": "aeon-head-root-typed-key",
     "source": "\"aeon\":custom=1",
     "fragment": "\"aeon\":custom"

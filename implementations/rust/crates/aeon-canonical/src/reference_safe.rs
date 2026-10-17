@@ -209,6 +209,17 @@ fn convert_value(value: &aeon_core::Value) -> Value {
             structural_id,
             datatype,
             attributes,
+            value,
+            ..
+        } if structural_id.is_none() && datatype.is_none() && attributes.is_empty() => {
+            // Empty anonymous heads carry no metadata. Removing their wrapper
+            // also removes its `=`, rather than emitting an invalid bare one.
+            convert_value(value)
+        }
+        Native::TypedValue {
+            structural_id,
+            datatype,
+            attributes,
             attribute_order,
             value,
         } => Value::Attributed {
@@ -961,6 +972,24 @@ mod tests {
                 .text
                 .ends_with("a = ~z\nz = 1\n")
         );
+    }
+
+    #[test]
+    fn compact_empty_objects_keep_historical_bytes_outside_opt_in() {
+        for (source, suffix) in [
+            ("a@{m={}}=0", "a@{m = {}} = 0\n"),
+            ("a@{m=[{}]}=0", "a@{m = [{}]} = 0\n"),
+            ("a@{m=<tag({})>}=0", "a@{m = <tag({})>} = 0\n"),
+        ] {
+            let legacy = super::super::canonicalize(source);
+            assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
+            assert!(legacy.text.ends_with(suffix), "{}", legacy.text);
+            assert_eq!(
+                canonicalize_with_options(source, &CanonicalizeOptions::default()),
+                legacy
+            );
+            assert!(canonical(source).contains("{  }"));
+        }
     }
 
     #[test]

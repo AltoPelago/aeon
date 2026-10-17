@@ -137,6 +137,8 @@ test('head quoting and empty-head normalization do not change historical bytes',
         ['a@{"aeon":custom=1}=0', 'a@{aeon:custom = 1} = 0\n'],
         ['a=<"aeon":custom>', 'a = <aeon:custom>\n'],
         ['a@{}=0', 'a@{} = 0\n'],
+        ['a=[@{}=1]', 'a = [@{} = 1]\n'],
+        ['a@{m={}}=0', 'a@{m = {  }} = 0\n'],
     ] as const) {
         const legacy = canonicalize(source);
         assert.deepEqual(legacy.errors, []);

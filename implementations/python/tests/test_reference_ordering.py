@@ -93,6 +93,51 @@ class ReferenceOrderingTests(unittest.TestCase):
         # Existing positional option arguments retain their meanings.
         self.assertEqual(legacy, canonicalize(source, CanonicalizeOptions(1, 1, 1, 32, 64)))
 
+    def test_rendering_boundaries_preserve_graph_and_fixed_point(self):
+        def decoded_tree(source, include_headers):
+            # Compare decoded AST keys/selectors directly for the newline
+            # regressions. Historical Core path serialization leaves terminal
+            # LF unescaped, so its portable adapter is not an oracle for them.
+            document = self.document(source)
+            if not include_headers:
+                document.header = None
+
+            def normalize(value):
+                if isinstance(value, list):
+                    return [normalize(item) for item in value]
+                if isinstance(value, dict):
+                    result = {key: normalize(item) for key, item in value.items() if key not in {"span", "head_span"}}
+                    if "bindings" in result:
+                        result["bindings"].sort(key=lambda binding: binding["key"])
+                    return result
+                return value
+
+            return normalize(asdict(document))
+
+        fixtures = json.loads((ROOT.parents[1] / "test-fixtures/canonical-rendering-boundaries.json").read_text())
+        for fixture in fixtures:
+            with self.subTest(fixture=fixture["id"]):
+                source = fixture["source"]
+                result = self.canonical(source, max_attribute_depth=2)
+                self.assertEqual([], result.errors, result.errors)
+                self.assertIn(fixture["fragment"], result.text)
+                self.assertEqual(result.text, self.canonical(result.text, max_attribute_depth=2).text)
+                include_headers = self.document(source).header is not None
+                oracle = decoded_tree if fixture["id"].startswith("newline-") else self.graph
+                self.assertEqual(oracle(source, include_headers), oracle(result.text, include_headers))
+
+    def test_new_rendering_fixes_do_not_change_historical_bytes(self):
+        for source, suffix in (
+            ('"z\\n"=1', 'z\n = 1'),
+            ('a=[@{}=1]', 'a = [@{} = 1]'),
+            ('a@{m={}}=0', 'a@{m = { }} = 0'),
+        ):
+            with self.subTest(source=source):
+                legacy = canonicalize(source)
+                self.assertEqual([], legacy.errors)
+                self.assertTrue(legacy.text.endswith(suffix), legacy.text)
+                self.assertEqual(legacy, canonicalize(source, CanonicalizeOptions(ordering="lexical-v1")))
+
     def test_four_entry_graphs_converge_to_independent_minimum(self):
         keys = ["d", "c", "b", "a"]
         possible = [(key, target) for index, key in enumerate(keys) for target in keys[:index]]

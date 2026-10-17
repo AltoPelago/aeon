@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import heapq
+import re
 from typing import TYPE_CHECKING
 
 from .ast import (
@@ -183,8 +184,22 @@ class _Renderer:
         elif key == "aeon" and owner.datatype is not None and not identity and not attributes:
             formatted = self.format.format_string(key)  # Avoid the aeon: namespace token.
         else:
-            formatted = self.format.format_binding_key(key)
+            formatted = key if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else self.format.format_string(key)
         return formatted + identity + attributes + self.format.render_type(owner.datatype)
+
+    def reference(self, payload: CloneReference | PointerReference) -> str:
+        # Historical helpers use `$`, which accepts a position before a final
+        # newline. Keep decoded keys intact in this explicit contract only.
+        result = "~>" if isinstance(payload, PointerReference) else "~"
+        for index, segment in enumerate(payload.path):
+            if isinstance(segment, int):
+                result += f"[{segment}]"
+                continue
+            attribute = isinstance(segment, AttributePathSegment)
+            key = segment.key if attribute else str(segment)
+            result += ".@." if attribute else ("." if index else "")
+            result += key if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else f"[{self.format.format_string(key)}]"
+        return result
 
     def attributes(self, attributes: list[Attribute]) -> str:
         if not attributes:
@@ -242,7 +257,8 @@ class _Renderer:
     def value(self, payload: Value, indent: int, inline: bool) -> list[str]:
         if isinstance(payload, TypedValue):
             rendered = self.value(payload.value, indent, inline)
-            return [self.head(None, payload) + " = " + rendered[0].lstrip(), *rendered[1:]]
+            head = self.head(None, payload)
+            return [head + " = " + rendered[0].lstrip(), *rendered[1:]] if head else rendered
         if isinstance(payload, ObjectNode):
             lines = [" " * indent + "{"]
             for child in self.ordered(payload.bindings, payload.bindings):
@@ -256,15 +272,18 @@ class _Renderer:
             return self.collection(payload.elements, indent, opening, closing)
         if isinstance(payload, NodeLiteral):
             return self.node(payload, indent, inline)
+        if isinstance(payload, (CloneReference, PointerReference)):
+            return [self.reference(payload)]
         return self.format.render_value(payload, indent, inline_only=inline)
 
     def compact(self, payload: Value) -> str:
         if isinstance(payload, TypedValue):
-            return self.head(None, payload) + " = " + self.compact(payload.value)
+            head = self.head(None, payload)
+            return (head + " = " if head else "") + self.compact(payload.value)
         if isinstance(payload, ObjectNode):
             entries = [f"{self.head(binding.key, binding)} = {self.compact(binding.value)}"
                        for binding in self.ordered(payload.bindings, payload.bindings)]
-            return "{ " + ", ".join(entries) + " }" if entries else "{ }"
+            return "{ " + ", ".join(entries) + " }"
         if isinstance(payload, (ListNode, TupleLiteral)):
             opening, closing = ("[", "]") if isinstance(payload, ListNode) else ("(", ")")
             return opening + ", ".join(self.compact(item) for item in payload.elements) + closing
@@ -272,6 +291,8 @@ class _Renderer:
             head = "<" + self.head(payload.tag, payload)
             return head + ("(" + ", ".join(self.compact(item) for item in payload.children) + ")>"
                            if payload.children else ">")
+        if isinstance(payload, (CloneReference, PointerReference)):
+            return self.reference(payload)
         return self.format.render_compact_inline_value(payload)
 
     def render(self) -> str:
