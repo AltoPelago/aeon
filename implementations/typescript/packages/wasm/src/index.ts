@@ -1,3 +1,20 @@
+export interface CanonicalizeOptions {
+  ordering?: 'lexical-v1' | 'reference-safe-v1';
+  /** Distinct projected dependency edges; non-negative uint32. Default: 1,000,000. */
+  maxOrderingEdges?: number;
+  /** Authored/output metadata depth; non-negative uint32. Default: 1. */
+  maxAttributeDepth?: number;
+}
+
+export interface CanonicalDiagnostic extends Omit<Diagnostic, 'phase'> {
+  phase: string | null;
+}
+
+export interface CanonicalResult {
+  text: string;
+  errors: CanonicalDiagnostic[];
+}
+
 export interface ProcessOptions {
   validationMode?: 'declared' | 'strict' | 'custom' | 'loose' | 'none';
   datatypePolicy?: 'reserved_only' | 'allow_custom';
@@ -265,6 +282,7 @@ interface RustWasmProcessResult {
 }
 
 export interface AeonWasmRuntime {
+  canonicalize(source: string, options?: CanonicalizeOptions): CanonicalResult;
   processAeon(source: string, options?: ProcessOptions): ProcessResult;
   createAeonStream(options?: AeonStreamOptions): AeonStream;
   validateTelex(source: string, options?: TelexOptions): TelexValidationResult;
@@ -277,6 +295,7 @@ interface GeneratedAeonWasmModule {
   default: (initInput?: unknown) => Promise<unknown>;
   AeonStream: new (optionsJson: string) => GeneratedAeonStream;
   process_aeon(source: string, optionsJson: string): string;
+  canonicalize_aeon(source: string, optionsJson: string): string;
   validate_telex(source: string, optionsJson: string): string;
   canonicalize_telex(source: string, optionsJson: string): string;
   check_telex_completeness(source: string, optionsJson: string): string;
@@ -322,6 +341,37 @@ export async function processAeon(
 ): Promise<ProcessResult> {
   const runtime = await loadAeonWasm();
   return runtime.processAeon(source, options);
+}
+
+/** Canonical-only operation; default bytes remain historical lexical-v1. */
+export async function canonicalize(
+  source: string,
+  options: CanonicalizeOptions = {},
+): Promise<CanonicalResult> {
+  const runtime = await loadAeonWasm();
+  return runtime.canonicalize(source, options);
+}
+
+function canonicalOptions(options: CanonicalizeOptions): Required<CanonicalizeOptions> {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new TypeError('canonical options must be an object');
+  }
+  for (const key of Object.keys(options)) {
+    if (!['ordering', 'maxOrderingEdges', 'maxAttributeDepth'].includes(key)) {
+      throw new TypeError(`unknown canonical option ${key}`);
+    }
+  }
+  // Snapshot once: inherited options/getters cannot differ from serialized data.
+  const { ordering = 'lexical-v1', maxOrderingEdges = 1_000_000, maxAttributeDepth = 1 } = options;
+  if (ordering !== 'lexical-v1' && ordering !== 'reference-safe-v1') {
+    throw new RangeError('unknown canonical ordering');
+  }
+  for (const [name, value] of Object.entries({ maxOrderingEdges, maxAttributeDepth })) {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
+      throw new RangeError(`${name} must be a non-negative uint32 integer`);
+    }
+  }
+  return { ordering, maxOrderingEdges, maxAttributeDepth };
 }
 
 export async function createAeonStream(
@@ -380,6 +430,9 @@ async function loadGeneratedModule(initInput: unknown): Promise<AeonWasmRuntime>
   });
 
   return {
+    canonicalize(source: string, options: CanonicalizeOptions = {}): CanonicalResult {
+      return JSON.parse(module.canonicalize_aeon(source, JSON.stringify(canonicalOptions(options)))) as CanonicalResult;
+    },
     processAeon(source: string, options: ProcessOptions = {}): ProcessResult {
       return parseProcessResult(module.process_aeon(source, JSON.stringify(options)));
     },

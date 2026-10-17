@@ -3,7 +3,9 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
-use aeon_canonical::canonicalize;
+use aeon_canonical::{
+    CanonicalOrdering, CanonicalizeOptions, canonicalize, canonicalize_with_options,
+};
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
     EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment,
@@ -22,6 +24,25 @@ use aes_telex::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use wasm_bindgen::prelude::*;
+
+#[derive(Debug, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct CanonicalRequestOptions {
+    ordering: String,
+    // Explicit WASM-width limits, also enforced in native boundary tests.
+    max_ordering_edges: u32,
+    max_attribute_depth: u32,
+}
+
+impl Default for CanonicalRequestOptions {
+    fn default() -> Self {
+        Self {
+            ordering: String::from("lexical-v1"),
+            max_ordering_edges: 1_000_000,
+            max_attribute_depth: 1,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -288,6 +309,50 @@ pub fn process_aeon_json(source: &str, options_json: &str) -> Result<String, Str
     let options = parse_process_options(options_json)?;
     let result = process(source, &options);
     serde_json::to_string(&result).map_err(|error| format!("failed to serialize response: {error}"))
+}
+
+/// Standalone canonicalization: no process/profile/materialization pipeline.
+#[wasm_bindgen(js_name = canonicalize_aeon)]
+pub fn canonicalize_aeon_wasm(source: &str, options_json: &str) -> Result<String, JsValue> {
+    canonicalize_aeon_json(source, options_json).map_err(|error| JsValue::from_str(&error))
+}
+
+pub fn canonicalize_aeon_json(source: &str, options_json: &str) -> Result<String, String> {
+    // Serde structs also accept positional JSON sequences; this API accepts
+    // only named options, including at the raw generated-WASM boundary.
+    if !options_json.trim().is_empty() && !options_json.trim_start().starts_with('{') {
+        return Err("canonical options JSON must be an object".to_string());
+    }
+    let options: CanonicalRequestOptions =
+        serde_json::from_str(if options_json.trim().is_empty() {
+            "{}"
+        } else {
+            options_json
+        })
+        .map_err(|error| format!("invalid canonical options JSON: {error}"))?;
+    let ordering = match options.ordering.as_str() {
+        "lexical-v1" => CanonicalOrdering::LexicalV1,
+        "reference-safe-v1" => CanonicalOrdering::ReferenceSafeV1,
+        _ => {
+            return Err(format!(
+                "unsupported canonical ordering {:?}",
+                options.ordering
+            ));
+        }
+    };
+    let result = canonicalize_with_options(
+        source,
+        &CanonicalizeOptions {
+            ordering,
+            max_ordering_edges: options.max_ordering_edges as usize,
+            limits: aeon_core::AeonCompileLimits {
+                max_attribute_depth: options.max_attribute_depth as usize,
+                ..aeon_core::AeonCompileLimits::default()
+            },
+        },
+    );
+    serde_json::to_string(&json!({"text": result.text, "errors": diagnostics_json(&result.errors)}))
+        .map_err(|error| format!("failed to serialize canonical response: {error}"))
 }
 
 #[wasm_bindgen(js_name = benchmark_process_aeon)]
@@ -1416,11 +1481,118 @@ fn reference_segments_json(segments: &[ReferenceSegment]) -> Vec<JsonValue> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AeonStreamWasm, benchmark_process_aeon, canonicalize_telex_text,
+        AeonStreamWasm, benchmark_process_aeon, canonicalize_aeon_json, canonicalize_telex_text,
         check_telex_completeness_json, materialize_telex_json, process_aeon_json,
         validate_telex_json,
     };
     use serde_json::Value as JsonValue;
+
+    fn canonical(source: &str, options: &str) -> JsonValue {
+        serde_json::from_str(&canonicalize_aeon_json(source, options).expect("canonical operation"))
+            .expect("canonical JSON")
+    }
+
+    #[test]
+    fn standalone_canonical_opt_in_preserves_historical_process_and_default_bytes() {
+        let source = "z=1\na=~z";
+        let legacy = canonical(source, "{}");
+        let process: JsonValue = serde_json::from_str(
+            &process_aeon_json(source, r#"{"validationMode":"none"}"#).expect("process"),
+        )
+        .expect("JSON");
+        assert_eq!(legacy["text"], process["canonical"]);
+        assert_eq!(legacy, canonical(source, r#"{"ordering":"lexical-v1"}"#));
+        assert!(
+            legacy["text"]
+                .as_str()
+                .expect("text")
+                .ends_with("a = ~z\nz = 1\n")
+        );
+        let result = canonical("d=3\nc=2\nb=~c\na=1", r#"{"ordering":"reference-safe-v1"}"#);
+        assert_eq!(result["errors"], serde_json::json!([]));
+        assert!(
+            result["text"]
+                .as_str()
+                .expect("text")
+                .ends_with("a = 1\nc = 2\nb = ~c\nd = 3\n")
+        );
+    }
+
+    #[test]
+    fn standalone_canonical_validates_options_at_the_raw_boundary() {
+        for options in [
+            r#"{"ordering":"unknown"}"#,
+            r#"{"maxOrderEdges":1}"#,
+            r#"{"maxOrderingEdges":true}"#,
+            r#"{"maxOrderingEdges":null}"#,
+            r#"{"maxOrderingEdges":-1}"#,
+            r#"{"maxOrderingEdges":1.5}"#,
+            r#"{"maxOrderingEdges":4294967296}"#,
+            r#"{"maxAttributeDepth":4294967296}"#,
+            r#"{"ordering":null}"#,
+            "[]",
+            "null",
+            "invalid",
+        ] {
+            assert!(canonicalize_aeon_json("a=1", options).is_err(), "{options}");
+        }
+        assert_eq!(
+            canonical(
+                "a=1",
+                r#"{"ordering":"reference-safe-v1","maxOrderingEdges":4294967295}"#
+            )["errors"],
+            serde_json::json!([])
+        );
+    }
+
+    #[test]
+    fn standalone_canonical_is_core_only_and_fails_closed() {
+        let options = r#"{"ordering":"reference-safe-v1"}"#;
+        for (source, code) in [
+            ("a=~z\nz=1", "FORWARD_REFERENCE"),
+            ("a=~missing", "MISSING_REFERENCE_TARGET"),
+            ("a=~a", "SELF_REFERENCE"),
+        ] {
+            let result = canonical(source, options);
+            assert_eq!(result["text"], "");
+            assert_eq!(result["errors"][0]["code"], code);
+        }
+        let budget = canonical(
+            "z=1\na=~z",
+            r#"{"ordering":"reference-safe-v1","maxOrderingEdges":0}"#,
+        );
+        assert_eq!(budget["text"], "");
+        assert_eq!(
+            budget["errors"][0]["code"],
+            "CANONICAL_ORDERING_LIMIT_EXCEEDED"
+        );
+        let source = "aeon:profile=\"aeon.gp.profile.v1\"\nx:radix[2.0000000000000001]=%1";
+        assert_eq!(canonical(source, options)["errors"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn standalone_canonical_shared_rendering_boundaries_are_fixed_points() {
+        let fixtures: JsonValue = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/canonical-rendering-boundaries.json"
+        ))
+        .expect("fixtures");
+        let options = r#"{"ordering":"reference-safe-v1","maxAttributeDepth":2}"#;
+        for fixture in fixtures.as_array().expect("array") {
+            let result = canonical(fixture["source"].as_str().expect("source"), options);
+            assert_eq!(
+                result["errors"],
+                serde_json::json!([]),
+                "{}: {result}",
+                fixture["id"]
+            );
+            let text = result["text"].as_str().expect("text");
+            assert!(
+                text.contains(fixture["fragment"].as_str().expect("fragment")),
+                "{text}"
+            );
+            assert_eq!(canonical(text, options), result);
+        }
+    }
 
     #[test]
     fn processes_basic_document() {

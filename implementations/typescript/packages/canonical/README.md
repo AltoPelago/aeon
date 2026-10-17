@@ -70,8 +70,10 @@ see the [Rust README](../../../rust/README.md#experimental-reference-safe-canoni
 The pure-Python reference API also has an explicit opt-in; see the
 [Python guide](../../../../docs/implementations/python/README.md).
 The [installed native-Python facade](../../../rust/crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
-also offers an explicit opt-in. CLI, integrity hashing, native-Python defaults,
-and WASM have not switched contracts. Treat opt-in output as experimental; do not mix its
+also offers an explicit opt-in, as does the standalone
+[WASM API](../wasm/README.md#experimental-reference-safe-canonical-ordering).
+CLI, integrity hashing, native-Python defaults, and the WASM process pipeline
+have not switched contracts. Treat opt-in output as experimental; do not mix its
 hashes or signatures with historical canonical output. `emitFromObject` and
 Telex canonicalization are unchanged.
 

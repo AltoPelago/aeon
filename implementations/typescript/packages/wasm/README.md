@@ -62,6 +62,51 @@ plus `datatypePolicy: 'reserved_only' | 'allow_custom'`. Use
 `validationMode: 'declared'` to honor a document's declared mode without a host
 override.
 
+## Experimental reference-safe canonical ordering
+
+Use the dedicated canonical-only API when no profile validation or JSON
+materialization is wanted:
+
+```ts
+import { canonicalize, loadAeonWasm } from '@altopelago/aeon-wasm';
+
+const options = { ordering: 'reference-safe-v1' as const,
+                  maxOrderingEdges: 1_000_000, maxAttributeDepth: 1 };
+const result = await canonicalize('d=3\nc=2\nb=~c\na=1', options);
+// result.text has body order a, c, b, d; result.errors is empty.
+
+// Reuse a loaded runtime for synchronous calls (also in module workers):
+const runtime = await loadAeonWasm();
+const same = runtime.canonicalize('d=3\nc=2\nb=~c\na=1', options);
+```
+
+The explicit opt-in calls the Rust canonical API directly. It validates
+authored Core references, emits the smallest eligible decoded key, preserves
+indexed positions and metadata ownership, then validates the output. It does
+not evaluate references or enforce GP/profile/schema rules. Source or ordering
+failures return empty `text` with structured `errors`; no partial/fallback text
+is returned. Diagnostics retain Rust paths, spans and nullable phase labels.
+
+`maxOrderingEdges` counts distinct projected dependencies (default 1,000,000);
+`maxAttributeDepth` bounds authored/output metadata (default 1). WASM32 requires
+both to be integers from 0 through 4,294,967,295; booleans, fractions and
+out-of-range values are rejected, never rounded or truncated. Invalid option
+shapes/unknown fields throw `TypeError`; invalid ordering/limits throw
+`RangeError`. The raw generated `canonicalize_aeon(source, optionsJson)` export
+independently rejects invalid configuration. Omitted limits use the defaults.
+
+Omitting `ordering` or choosing `lexical-v1` retains historical bytes and
+behavior, including the absence of authored-reference validation. The limits
+are validated but only applied by the experimental contract. `processAeon`,
+streams, Telex, CLI, integrity/hash APIs and all canonical defaults are unchanged.
+Do not mix experimental hashes/signatures with historical canonical bytes.
+No canonical authority snapshot or published conformance claim is promoted.
+
+PR CI checks the actual committed binary against the experimental CTS and
+TypeScript parity corpus. The browser smoke page checks the standalone API on
+the main thread and in a module worker, including Unicode symbols, fixed-point
+bytes and fail-closed reference/budget errors.
+
 ## Progressive streams
 
 `createAeonStream` is the bounded-throughput API. It accepts `Uint8Array`

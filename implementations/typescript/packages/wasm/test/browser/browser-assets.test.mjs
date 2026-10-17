@@ -19,10 +19,13 @@ test('browser smoke entrypoints resolve from the served root', () => {
   const wrapperModule = resolve(dirname(mainModule), '../../dist/index.js');
   assert.equal(existsSync(workerModule), true, 'worker module must exist');
   assert.equal(existsSync(wrapperModule), true, 'built TypeScript wrapper must exist');
+  assert.equal(existsSync(resolve(dirname(mainModule), 'canonical-smoke.mjs')), true, 'shared canonical checks must exist');
 
   const mainSource = readFileSync(mainModule, 'utf8');
   const workerSource = readFileSync(workerModule, 'utf8');
   assert.match(mainSource, /new Worker\(new URL\('\.\/browser-smoke-worker\.mjs'/u);
   assert.match(mainSource, /from '\.\.\/\.\.\/dist\/index\.js'/u);
   assert.match(workerSource, /from '\.\.\/\.\.\/dist\/index\.js'/u);
+  assert.match(mainSource, /checkCanonical\(runtime\)/u);
+  assert.match(workerSource, /checkCanonical\(runtime\)/u);
 });

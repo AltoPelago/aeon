@@ -12,6 +12,7 @@ export const aeonstream_retentionSnapshot: (a: number) => [number, number, numbe
 export const aeonstream_state: (a: number) => [number, number];
 export const aeonstream_takeTerminal: (a: number) => [number, number, number, number];
 export const benchmark_process_aeon: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const canonicalize_aeon: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const canonicalize_telex: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const check_telex_completeness: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const materialize_telex: (a: number, b: number, c: number, d: number) => [number, number, number, number];

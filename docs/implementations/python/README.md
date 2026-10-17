@@ -88,7 +88,9 @@ Omitting `ordering` or selecting `"lexical-v1"` preserves historical Python
 bytes and behavior. The explicit new contract ends successful output with a
 newline to match TypeScript/Rust. The installed native-Python
 [`altopelago.aeon` facade](../../../implementations/rust/crates/aeon-python/README.md#experimental-reference-safe-canonical-ordering)
-also offers an explicit opt-in. CLI, native-Python defaults, WASM,
+also offers an explicit opt-in, as does the standalone
+[WASM API](../../../implementations/typescript/packages/wasm/README.md#experimental-reference-safe-canonical-ordering).
+CLI, native-Python defaults, the WASM process pipeline,
 and integrity/hash APIs have not switched contracts. Treat opt-in hashes and
 signatures as experimental and separate from historical canonical bytes.
 

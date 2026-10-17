@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Explicit API conformance check for the experimental TypeScript/Rust/Python contracts.
+// Explicit API conformance check for the experimental TypeScript/Rust/Python/WASM contracts.
 // Historical CLI/CTS claims and default canonical bytes are not changed.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -21,8 +21,8 @@ assert.equal(manifest.meta.sut_protocol, 'cts.protocol.v1');
 assert.equal(manifest.meta.status, 'experimental');
 const load = packageName => import(pathToFileURL(path.join(root, 'implementations/typescript/packages', packageName, 'dist/index.js')).href);
 const backend = process.argv[2] ?? 'typescript';
-assert.ok(['typescript', 'rust', 'python', 'python-native'].includes(backend), 'backend must be typescript, rust, python, or python-native');
-const backendLabel = backend === 'rust' ? 'Rust' : backend === 'python-native' ? 'Native Python' : 'Python';
+assert.ok(['typescript', 'rust', 'python', 'python-native', 'wasm'].includes(backend), 'backend must be typescript, rust, python, python-native, or wasm');
+const backendLabel = backend === 'rust' ? 'Rust' : backend === 'python-native' ? 'Native Python' : backend === 'wasm' ? 'WASM' : 'Python';
 const rustAdapter = path.join(root, 'implementations/rust/target/debug/examples/reference_ordering');
 if (backend === 'rust') {
   execFileSync('cargo', ['build', '--locked', '-p', 'aeon-canonical', '--example', 'reference_ordering'], {
@@ -33,7 +33,16 @@ const pythonAdapter = path.join(root, backend === 'python-native'
   ? 'scripts/native-python-reference-ordering.py' : 'scripts/python-reference-ordering.py');
 const python = backend === 'python-native' ? (process.env.PYTHON_NATIVE ?? process.env.PYTHON ?? 'python3')
   : (process.env.PYTHON ?? 'python3');
+const wasm = backend === 'wasm' ? await (await load('wasm')).loadAeonWasm(fs.readFileSync(
+  path.join(root, 'implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm'),
+)) : null;
+const referenceCodes = new Set(['FORWARD_REFERENCE', 'MISSING_REFERENCE_TARGET', 'SELF_REFERENCE', 'ATTRIBUTE_DEPTH_EXCEEDED']);
 const canonicalize = backend === 'typescript' ? (await load('canonical')).canonicalize
+  : backend === 'wasm' ? (source, options = {}) => {
+    const result = wasm.canonicalize(source, options);
+    // Match the CTS adapter convention without changing public WASM diagnostics.
+    return { ...result, errors: result.errors.map(error => referenceCodes.has(error.code) ? { ...error, path: null } : error) };
+  }
   : (source, options = {}) => JSON.parse(execFileSync(
     backend === 'rust' ? rustAdapter : python,
     backend === 'rust' ? [] : backend === 'python-native' ? ['-I', pythonAdapter] : [pythonAdapter],

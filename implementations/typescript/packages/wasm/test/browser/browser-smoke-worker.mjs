@@ -1,4 +1,5 @@
 import { loadAeonWasm } from '../../dist/index.js';
+import { checkCanonical } from './canonical-smoke.mjs';
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -18,6 +19,7 @@ self.onmessage = async ({ data }) => {
 
   try {
     const runtime = await loadAeonWasm();
+    const canonical = checkCanonical(runtime);
     const oneShot = runtime.processAeon('worker:string = "ready"\n', {
       validationMode: 'strict',
     });
@@ -59,6 +61,7 @@ self.onmessage = async ({ data }) => {
     self.postMessage({
       ok: true,
       summary: {
+        canonical,
         oneShot: oneShot.finalized.document,
         streamedPaths: events.map((event) => event.path),
         batchSequences: sequences,
