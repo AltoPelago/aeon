@@ -20,8 +20,9 @@ DATATYPE_NAMES = json.loads((ROOT.parents[1] / "test-fixtures/radix-datatype-nam
 
 
 class ExactRadixTests(unittest.TestCase):
-    def test_gp_validates_metadata_occurrences_once_at_their_exact_paths(self):
+    def test_gp_validates_unprojected_occurrences_once_at_their_exact_paths(self):
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
+        fixtures += json.loads((ROOT.parents[1] / "test-fixtures/gp-tag-head-clarifiers.json").read_text())
         for fixture in fixtures:
             with self.subTest(case=fixture["id"]):
                 options = dict(max_attribute_depth=2, max_clarifier_values=2)

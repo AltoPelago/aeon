@@ -10,8 +10,9 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
-    def test_gp_validates_attribute_metadata(self) -> None:
+    def test_gp_validates_unprojected_claims(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
+        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-tag-head-clarifiers.json").read_text())
         for fixture in fixtures:
             with self.subTest(case=fixture["id"]):
                 source = 'aeon:profile="aeon.gp.profile.v1"\n' + fixture["source"]

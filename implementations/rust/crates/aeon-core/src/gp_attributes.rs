@@ -1,4 +1,4 @@
-//! GP metadata claims do not have AssignmentEvents. Walk authored occurrences
+//! GP metadata and node-head claims do not have AssignmentEvents. Walk authored occurrences
 //! before projection can discard metadata, without following references.
 use super::pathing::is_identifier;
 use super::{
@@ -87,7 +87,10 @@ fn push_attributes<'a>(
     }
 }
 
-pub(crate) fn validate_gp_attribute_clarifiers(bindings: &[Binding], errors: &mut Vec<Diagnostic>) {
+pub(crate) fn validate_gp_unprojected_clarifiers(
+    bindings: &[Binding],
+    errors: &mut Vec<Diagnostic>,
+) {
     let mut tasks = Vec::new();
     for binding in bindings.iter().rev().filter(|b| !b.is_header) {
         tasks.push(Task::Binding(
@@ -195,9 +198,9 @@ pub(crate) fn validate_gp_attribute_clarifiers(bindings: &[Binding], errors: &mu
                     ..
                 } => {
                     let head = format!("{path}[0]");
-                    if metadata {
-                        check(datatype.as_deref(), Some(value), &head, *head_span, errors);
-                    }
+                    // Node-head datatypes have no payload AssignmentEvent,
+                    // even when the node itself belongs to the body payload.
+                    check(datatype.as_deref(), Some(value), &head, *head_span, errors);
                     for (index, child) in children.iter().enumerate().rev() {
                         tasks.push(Task::Value(
                             child,

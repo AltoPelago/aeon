@@ -482,25 +482,25 @@ def validate_gp_datatype_clarifiers(document: Document, bindings: list[ResolvedB
             errors,
             value_kind(binding.value),
         )
-    validate_gp_metadata(document.bindings, errors)
+    validate_gp_unprojected_claims(document.bindings, errors)
     return errors
 
 
-def validate_gp_metadata(bindings: list[Binding], errors: list[AeonError]) -> None:
-    # Metadata has no separate AssignmentEvents. Keep traversal iterative and
-    # visit authored nodes, not a projected or reference-materialized copy.
+def validate_gp_unprojected_claims(bindings: list[Binding], errors: list[AeonError]) -> None:
+    # Metadata and node-head claims have no separate AssignmentEvents. Keep
+    # traversal iterative and visit authored nodes, not materialized copies.
     tasks = []
 
     def member(path: str, key: str) -> str:
         return path + (f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else f".[{json.dumps(key, ensure_ascii=False)}]")
 
     def push_binding(binding: Binding, parent: str, metadata: bool) -> None:
-        tasks.append((binding.value, member(parent, binding.key), metadata, binding.datatype, binding.attributes, binding.span))
+        tasks.append((binding.value, member(parent, binding.key), metadata, binding.datatype, binding.attributes, binding.span, False))
 
     def attributes(blocks: list[Attribute], path: str) -> None:
         for block in reversed(blocks):
             for key, entry in reversed(list(block.entries.items())):
-                tasks.append((entry.value, member(path + ".@", key), True, entry.datatype, entry.attributes, entry.span or entry.value.span))
+                tasks.append((entry.value, member(path + ".@", key), True, entry.datatype, entry.attributes, entry.span or entry.value.span, False))
 
     def check(datatype: TypeAnnotation | None, value: Value, path: str, span: Span) -> None:
         if datatype is not None:
@@ -511,13 +511,15 @@ def validate_gp_metadata(bindings: list[Binding], errors: list[AeonError]) -> No
     for binding in reversed(bindings):
         push_binding(binding, "$", False)
     while tasks:
-        value, path, metadata, datatype, attrs, span = tasks.pop()
+        value, path, metadata, datatype, attrs, span, check_only = tasks.pop()
         if metadata:
             check(datatype, value, path, span)
+        if check_only:
+            continue
         if isinstance(value, TypedValue):
             if metadata:
                 check(value.datatype, value.value, path, value.span)
-            tasks.append((value.value, path, metadata, None, [], value.span))
+            tasks.append((value.value, path, metadata, None, [], value.span, False))
             attributes(value.attributes, path)
         elif isinstance(value, ObjectNode):
             for binding in reversed(value.bindings):
@@ -526,16 +528,17 @@ def validate_gp_metadata(bindings: list[Binding], errors: list[AeonError]) -> No
         elif isinstance(value, (ListNode, TupleLiteral)):
             for index in range(len(value.elements) - 1, -1, -1):
                 child = value.elements[index]
-                tasks.append((child, f"{path}[{index}]", metadata, None, [], child.span))
+                tasks.append((child, f"{path}[{index}]", metadata, None, [], child.span, False))
             attributes(value.attributes, path)
         elif isinstance(value, NodeLiteral):
             head = path + "[0]"
-            if metadata:
-                check(value.datatype, value, head, value.span)
             for index in range(len(value.children) - 1, -1, -1):
                 child = value.children[index]
-                tasks.append((child, f"{head}[{index}]", metadata, None, [], child.span))
+                tasks.append((child, f"{head}[{index}]", metadata, None, [], child.span, False))
             attributes(value.attributes, head)
+            # Owning key attributes precede the tag claim; tag attributes and
+            # children follow it. A check-only task avoids revisiting the node.
+            tasks.append((value, head, True, value.datatype, [], value.span, True))
         attributes(attrs, path)
 
 
