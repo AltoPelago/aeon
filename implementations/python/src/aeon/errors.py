@@ -74,6 +74,11 @@ def infer_phase_label_from_code(code: str) -> str | None:
     return None
 
 
+class CanonicalOrderingError(AeonError):
+    def __init__(self, code: str, message: str, span: Span) -> None:
+        super().__init__(message=message, span=span, code=code)
+
+
 class SyntaxError(AeonError):
     def __init__(self, message: str, span: Span, path: str | None = None) -> None:
         super().__init__(message=message, span=span, code="SYNTAX_ERROR", path=path)

@@ -65,6 +65,31 @@ Canonical formatting:
 - module: `aeon.canonical`
 - primary entry point: `canonicalize(source) -> CanonicalResult`
 
+The pure-Python API has an experimental explicit ordering opt-in:
+
+```python
+from aeon.canonical import CanonicalizeOptions, canonicalize
+
+result = canonicalize("d=3\nc=2\nb=~c\na=1", CanonicalizeOptions(
+    ordering="reference-safe-v1", max_ordering_edges=1_000_000,
+))
+# Body order: a, c, b, d; a default header is added when absent.
+```
+
+It validates authored Core references before default-header insertion or
+sorting, emits the smallest eligible decoded Unicode key after every step,
+and revalidates its output. Header/body planes, indexed positions, reference
+forms, and metadata ownership are retained. This is not profile/schema
+approval. Errors return empty text rather than partial or fallback output.
+The edge budget counts distinct projected dependencies; it accepts integers
+from zero through `2**53 - 1` (not booleans).
+
+Omitting `ordering` or selecting `"lexical-v1"` preserves historical Python
+bytes and behavior. The explicit new contract ends successful output with a
+newline to match TypeScript/Rust. CLI, native-Python `altopelago.aeon`, WASM,
+and integrity/hash APIs have not switched contracts. Treat opt-in hashes and
+signatures as experimental and separate from historical canonical bytes.
+
 Numeric datatype clarifiers in the pure-Python AST use `NumberLiteral`
 nodes with exact normalized `value` text, source `raw` text, and a token
 `span`, matching numeric values. Serialized nested ASTs retain that tagged

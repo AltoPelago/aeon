@@ -39,6 +39,28 @@ Pipeline:
 
 `--brief` keeps failure output concise for CI or quick local loops.
 
+## Experimental reference-safe API parity
+
+After building the TypeScript workspace, run the separate opt-in API checks:
+
+```bash
+node scripts/test-canonical-reference-ordering.mjs
+node scripts/test-canonical-reference-ordering.mjs rust
+PYTHON=python3.12 node scripts/test-canonical-reference-ordering.mjs python
+```
+
+They select the experimental reference-ordering manifest with its declared
+exclusions, validate authored/output Core reference legality and semantic
+graph preservation, and check fixed-point bytes. The Rust and Python adapters
+also compare the rendering/collision corpus against TypeScript. The Python
+adapter exercises the real pure-Python opt-in and preserves actual text on
+failure; it normalizes reference-diagnostic paths to the existing TS/Rust
+adapter contract without changing Python's public diagnostics.
+
+These are not released canonical claims or a change to CLI/default/hash
+behavior. Python unit tests independently enumerate the legal orders of all
+four-entry DAGs to check the lexically smallest eligible order.
+
 ## `stress-canonical-corpus.py`
 
 Recursively discovers real `.aeon` documents and requires the TypeScript,

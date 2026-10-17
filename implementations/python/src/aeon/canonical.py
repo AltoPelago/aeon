@@ -37,7 +37,7 @@ from .ast import (
     TypeAnnotation,
     Value,
 )
-from .errors import AeonError
+from .errors import AeonError, CanonicalOrderingError
 from .lexer import tokenize
 from .parser import parse_tokens
 from .spans import Span
@@ -56,6 +56,9 @@ class CanonicalizeOptions:
     max_generic_depth: int = 1
     max_generic_arguments: int = 32
     max_datatype_components: int = 64
+    # Opt-in during rollout; historical default bytes remain unchanged.
+    ordering: str = "lexical-v1"
+    max_ordering_edges: int = 1_000_000
 
 
 def _zero_span() -> Span:
@@ -90,6 +93,14 @@ def canonicalize(source: str, options: CanonicalizeOptions | None = None) -> Can
     )
     if parse_result.errors or parse_result.document is None:
         return CanonicalResult(text="", errors=[error for error in parse_result.errors if isinstance(error, AeonError)])
+    if effective.ordering not in ("lexical-v1", "reference-safe-v1"):
+        return CanonicalResult(text="", errors=[CanonicalOrderingError(
+            "CANONICAL_ORDERING_INVALID_OPTION", "Unknown canonical ordering contract", parse_result.document.span
+        )])
+    if effective.ordering == "reference-safe-v1":
+        from ._canonical_ordering import canonicalize_document
+
+        return canonicalize_document(parse_result.document, effective)
     return CanonicalResult(text=render_document(parse_result.document), errors=[])
 
 
