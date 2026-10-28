@@ -121,7 +121,7 @@ jobs:
 
       - name: Authenticate with crates.io
         id: auth
-        uses: rust-lang/crates-io-auth-action@9c067fc5d5c254b33978fed918cb50c032549d0e # main
+        uses: rust-lang/crates-io-auth-action@22f31735a55cd45813f26e2edc31c7531e1fb4ed # main
 
       - name: Publish crates in dependency order
         env:
