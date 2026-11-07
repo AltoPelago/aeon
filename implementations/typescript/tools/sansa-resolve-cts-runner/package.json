@@ -19,7 +19,7 @@
     "@altopelago/sansa": "0.14.2"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5"
+    "@types/node": "^26.6.6"
   },
   "engines": {
     "node": ">=20"
