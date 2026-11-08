@@ -1,6 +1,8 @@
 # AEON
 
-Core AEON implementation workspace.
+AEON implementations for TypeScript, Rust, and Python, with libraries and
+command-line tools for parsing, validation, canonical formatting, and AES/Telex
+interchange.
 
 License: MIT. See [LICENSE](./LICENSE).
 
@@ -11,7 +13,22 @@ Specification website: [aeonite.org](https://aeonite.org).
 AltoPelago owns this implementation workspace. Aeonite publishes the
 specification and CTS surfaces this implementation follows.
 
-## npm Packages
+## Implementations
+
+| Language / runtime | Package and entry point | Documentation |
+| --- | --- | --- |
+| TypeScript / JavaScript | `@altopelago/aeon-runtime` on npm; lower-level packages for individual pipeline stages | [TypeScript workspace](./implementations/typescript/README.md) |
+| Rust | `altopelago-aeon` crate; import as `altopelago_aeon` | [Rust SDK](./implementations/rust/crates/aeon-sdk/README.md) and [workspace / CLI](./implementations/rust/README.md) |
+| Python (native) | `altopelago-aeon` distribution; import as `altopelago.aeon`; backed by Rust | [Native Python API](./implementations/rust/crates/aeon-python/README.md) |
+| Python (reference) | Dependency-free implementation in `implementations/python/`; source package `aeon-python` | [Pure-Python implementation](./implementations/python/README.md) |
+
+The native Python package and the pure-Python reference implementation are
+separate APIs. The native package does not fall back to the reference implementation.
+Supported features and CLI commands vary by implementation; see each guide for
+its scope. Implementation/package versions are separate from language and CTS
+versions; see [VERSIONING.md](./VERSIONING.md).
+
+### TypeScript / JavaScript
 
 The TypeScript implementation is published on npm as public packages under the
 `@altopelago` scope. Start with the runtime when you want the full AEON pipeline:
@@ -28,12 +45,44 @@ Use lower-level packages when you need a narrower integration surface:
 - `@altopelago/aeon-cli` - command-line tools
 - `@altopelago/aeon-wasm` - WebAssembly package for browser/runtime alignment work
 
-It currently contains:
+### Rust
 
-- `implementations/`
-- `docs/implementations/`
-- `scripts/`
-- `stress-tests/`
+Add the public facade crate to your Rust project:
+
+```bash
+cargo add altopelago-aeon
+```
+
+The SDK combines compilation, AEOS validation, document loading, and portable
+AES/Telex interchange. See the [Rust SDK guide](./implementations/rust/crates/aeon-sdk/README.md)
+for API usage and optional SANSA integration.
+
+### Python
+
+Install the native Rust-backed package for CPython 3.12–3.14:
+
+```bash
+python -m pip install altopelago-aeon
+```
+
+```python
+import altopelago.aeon as aeon
+
+loaded = aeon.load_text('greeting:string = "Hello"').require_ok()
+print(loaded.document)
+```
+
+For the independent dependency-free implementation and its source CLI, see the
+[pure-Python guide](./implementations/python/README.md).
+
+## Repository layout and development
+
+This repository contains:
+
+- `implementations/` - TypeScript, Rust, and pure-Python workspaces; native Python bindings live in the Rust workspace
+- `docs/implementations/` - implementation guides and design notes
+- `scripts/` - shared verification and maintenance tools
+- `stress-tests/` - shared stress and parity fixtures
 
 Script catalog and operational usage notes live in [scripts/README.md](./scripts/README.md).
 Deeper script runbooks live in [docs/scripts/README.md](./docs/scripts/README.md).
@@ -96,7 +145,7 @@ Governance and contribution expectations are tracked in [GOVERNANCE.md](./GOVERN
 Contributor guidance is tracked in [CONTRIBUTING.md](./CONTRIBUTING.md).
 Security reporting guidance is tracked in [SECURITY.md](./SECURITY.md).
 
-Release workflow notes for the TypeScript npm surface are tracked in [RELEASING.md](./RELEASING.md).
+Release workflow notes for npm, Rust crates, and native Python packages are tracked in [RELEASING.md](./RELEASING.md).
 Package changes are tracked in [CHANGELOG.md](./CHANGELOG.md).
 Branching and implementation-specific release strategy are tracked in [docs/release-strategy.md](./docs/release-strategy.md).
 Version separation across spec, CTS, and implementation packages is tracked in [VERSIONING.md](./VERSIONING.md).
