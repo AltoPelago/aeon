@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@altopelago/sansa': file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
+  '@altopelago/sansa': file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
 
 importers:
 
@@ -30,8 +30,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
-        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
+        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
+        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
     devDependencies:
       '@altopelago/aeon-lexer':
         specifier: workspace:*
@@ -152,8 +152,8 @@ importers:
         specifier: workspace:*
         version: link:../lexer
       '@altopelago/sansa':
-        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
-        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
+        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
+        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
 
   packages/profiles:
     dependencies:
@@ -200,8 +200,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
-        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
+        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
+        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
 
   packages/sdk-internal:
     dependencies:
@@ -218,8 +218,8 @@ importers:
         specifier: workspace:*
         version: link:../annotation-stream
       '@altopelago/sansa':
-        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
-        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
+        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
+        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
 
   packages/transport: {}
 
@@ -299,8 +299,8 @@ importers:
   tools/sansa-resolve-cts-runner:
     dependencies:
       '@altopelago/sansa':
-        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
-        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz
+        specifier: file:../../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
+        version: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -308,8 +308,8 @@ importers:
 
 packages:
 
-  '@altopelago/sansa@file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz':
-    resolution: {integrity: sha512-/9sYWDGqc+aGcxZFWe4Zmc32ndyj6cXDQBdp1Z7kCPrH3XGuOtc3kWs1mvW3SMqkRLnIEqr4AIjuvxV1SXE0cw==, tarball: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz}
+  '@altopelago/sansa@file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz':
+    resolution: {integrity: sha512-LwUV3RzM7Lc6QMougFyKhXax2/K9H+SppWkeq9okHVmCwmKIQV1QpCirP6tv/Y4plrz4/v/1V/buKkwNH7xmZQ==, tarball: file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz}
     version: 0.15.0-rc.1
     engines: {node: '>=20.0.0'}
     hasBin: true
@@ -464,7 +464,7 @@ packages:
 
 snapshots:
 
-  '@altopelago/sansa@file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-e21278c.tgz': {}
+  '@altopelago/sansa@file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz': {}
 
   '@types/node@26.6.6':
     dependencies:
