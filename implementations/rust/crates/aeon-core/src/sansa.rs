@@ -2319,10 +2319,14 @@ fn identity_ast_bounded(address: &SansaAddress) -> bool {
                 }
                 identity
             }
-            SansaSelector::Member { name, .. }
-            | SansaSelector::LocalSpace { name }
-            | SansaSelector::SemanticTypeFilter { name }
-            | SansaSelector::RepresentationKindFilter { name } => name,
+            SansaSelector::SemanticTypeFilter { name }
+            | SansaSelector::RepresentationKindFilter { name } => {
+                if !is_identifier(name) {
+                    return false;
+                }
+                name
+            }
+            SansaSelector::Member { name, .. } | SansaSelector::LocalSpace { name } => name,
             SansaSelector::NamePattern { pattern } => pattern,
             _ => continue,
         };
@@ -2352,8 +2356,15 @@ fn identity_ast_bounded(address: &SansaAddress) -> bool {
         if term.arguments.len() > 1024 || term.parameter_groups.len() > 1024 {
             return false;
         }
+        if !is_identifier(&term.name) {
+            return false;
+        }
         bytes = bytes.saturating_add(term.name.len());
         for a in &term.arguments {
+            if matches!(a, QualifierArgument::Number(s) | QualifierArgument::Token(s) if !is_number_literal(s))
+            {
+                return false;
+            }
             bytes = bytes.saturating_add(match a {
                 QualifierArgument::Number(s)
                 | QualifierArgument::Quoted(s)
@@ -2387,5 +2398,33 @@ fn identity_failure(code: &str, message: &str, index: Option<usize>) -> SansaRes
         bindings: Vec::new(),
         errors: vec![resolve_error(code, message, index)],
         diagnostics: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod identity_ast_payload_regressions {
+    use super::*;
+    #[test]
+    fn malformed_filter_and_qualifier_data_cannot_become_selectors() {
+        let namespace = SansaResolveNamespace::new(SansaResolveBinding::default());
+        for selector in [
+            SansaSelector::SemanticTypeFilter { name: "T.*".into() },
+            SansaSelector::RepresentationKindFilter {
+                name: "ObjectLiteral.*".into(),
+            },
+        ] {
+            let mut address = parse_address("$.\\target\\").unwrap();
+            address.selectors.push(selector);
+            let result =
+                resolve_parsed_address(&address, &namespace, &SansaResolveOptions::default());
+            assert_eq!(result.errors[0].code, "SANSA_RESOLVE_INVALID_ADDRESS");
+        }
+        let mut address = parse_address("$.\\target\\:Q[1]").unwrap();
+        address.qualifier_expression.as_mut().unwrap().terms[0].name = "Q|Other".into();
+        assert!(!identity_ast_bounded(&address));
+        address.qualifier_expression.as_mut().unwrap().terms[0].name = "Q".into();
+        address.qualifier_expression.as_mut().unwrap().terms[0].arguments[0] =
+            QualifierArgument::Number("1]|Other[2".into());
+        assert!(!identity_ast_bounded(&address));
     }
 }

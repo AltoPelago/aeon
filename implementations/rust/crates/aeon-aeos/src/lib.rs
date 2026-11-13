@@ -3813,6 +3813,9 @@ impl IdentitySelectorNamespace {
 }
 impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
     type Binding = usize;
+    fn identity_children<'a>(&'a self, b: &'a usize) -> Box<dyn Iterator<Item = usize> + 'a> {
+        Box::new(self.rows[*b].children.iter().copied())
+    }
     fn root(&self) -> Option<usize> {
         Some(0)
     }
