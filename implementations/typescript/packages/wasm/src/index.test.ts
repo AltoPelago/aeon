@@ -26,6 +26,18 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+test('WASM header summaries preserve declared IDs in the selected plane', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const source = 'aeon:header={value\\head\\=1}\n"aeon:value"\\body\\=2';
+  for (const [scope, identities] of [
+    ['header', ['head']], ['payload', ['body']], ['full', ['head', 'body']],
+  ] as const) {
+    const result = runtime.processAeon(source, { validationMode: 'loose', finalizeScope: scope });
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(result.events.map(event => event.structuralId), identities);
+  }
+});
+
 test('committed WASM standalone and process defaults are reference-safe with explicit legacy', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   const source = 'z=1\na=~z';

@@ -55,7 +55,7 @@ export {
 // PUBLIC API
 // =============================================================================
 
-export const VERSION = '0.16.0';
+export const VERSION = '0.17.0-rc.1';
 
 /**
  * Union of all possible AEON errors

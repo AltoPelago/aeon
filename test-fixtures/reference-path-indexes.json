@@ -1,0 +1,66 @@
+{
+  "status": "stage-one structural reference index contract",
+  "spec": "sources/sansa/v1/addressing-v1.aeon section 2 index grammar",
+  "defaultMaxPositionIndex": 999999,
+  "cases": [
+    {
+      "spelling": "[0]",
+      "accept": true
+    },
+    {
+      "spelling": "[1]",
+      "accept": true
+    },
+    {
+      "spelling": "[999999]",
+      "accept": true
+    },
+    {
+      "spelling": "[1.5]",
+      "accept": false
+    },
+    {
+      "spelling": "[1e2]",
+      "accept": false
+    },
+    {
+      "spelling": "[-0]",
+      "accept": false
+    },
+    {
+      "spelling": "[+1]",
+      "accept": false
+    },
+    {
+      "spelling": "[00]",
+      "accept": false
+    },
+    {
+      "spelling": "[01]",
+      "accept": false
+    },
+    {
+      "spelling": "[1_0]",
+      "accept": false
+    },
+    {
+      "spelling": "[0x10]",
+      "accept": false
+    },
+    {
+      "spelling": "[1000000]",
+      "accept": false
+    },
+    {
+      "spelling": "[9007199254740993]",
+      "accept": false
+    }
+  ],
+  "configuredLargerMaximum": {
+    "spelling": "[1000000]",
+    "maxPositionIndex": 1000000,
+    "accept": true,
+    "note": "SANSA permits explicitly supported larger nonportable bounds; this is not a proposed new AEON option"
+  },
+  "fixtureFormat": "aeon.reference-structural-path.v1"
+}

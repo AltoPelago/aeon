@@ -55,6 +55,7 @@ from .errors import (
     UnsafeMaxNestingDepthError,
 )
 from .lexer import Token
+from ._reference_path import ReferenceCursor
 from .sansa import parse_address
 from .spans import Span
 
@@ -739,100 +740,7 @@ class Parser:
         return PointerReference(path=path, span=Span(start=start, end=self.previous().span.end))
 
     def parse_path(self) -> list[ReferencePathSegment]:
-        path: list[ReferencePathSegment] = []
-        saw_root_dot = False
-        saw_explicit_root = False
-        if self.check("DOLLAR"):
-            self.advance()
-            saw_explicit_root = True
-            if self.check("DOT"):
-                self.advance()
-                saw_root_dot = True
-        self.parse_path_initial_segment(
-            path,
-            saw_root_dot=saw_root_dot,
-            saw_explicit_root=saw_explicit_root,
-        )
-        while self.check("DOT") or self.check("LBRACKET"):
-            if self.check("DOT"):
-                self.advance()
-                if self.check("AT"):
-                    self.advance()
-                    self.consume("DOT", "Expected '.' after attribute address-space marker")
-                    path.append(self.parse_attribute_path_segment())
-                elif self.check("LBRACKET"):
-                    path.append(self.parse_quoted_bracket_member_segment())
-                else:
-                    path.append(self.parse_member_segment("Expected member path segment after '.'"))
-                continue
-            path.append(self.parse_bracket_path_segment())
-        return path
-
-    def parse_path_initial_segment(
-        self,
-        path: list[ReferencePathSegment],
-        saw_root_dot: bool = False,
-        saw_explicit_root: bool = False,
-    ) -> None:
-        if self.is_key_token(self.peek()):
-            path.append(self.parse_member_segment("Expected path segment"))
-            return
-        if self.check("LBRACKET"):
-            if saw_explicit_root and not saw_root_dot and self.check_next("STRING"):
-                raise SyntaxError("Expected '.' after '$' before quoted root-member segment", self.peek().span)
-            path.append(self.parse_bracket_path_segment())
-            return
-        raise SyntaxError("Expected path segment", self.peek().span)
-
-    def parse_member_segment(self, message: str) -> str:
-        token = self.consume_key_token(message)
-        if token.kind == "STRING" and token.quote == "`":
-            raise SyntaxError("Backtick-quoted keys are not supported in paths", token.span)
-        return self.assert_non_empty_key(token.value, token.span, "Quoted path keys must not be empty")
-
-    def parse_attribute_path_segment(self) -> AttributePathSegment:
-        if self.check("LBRACKET"):
-            self.advance()
-            token = self.consume("STRING", "Expected quoted attribute key after '@['")
-            if token.quote == "`":
-                raise SyntaxError("Backtick-quoted keys are not supported in attribute segments", token.span)
-            self.consume("RBRACKET", "Expected ']' after quoted attribute key")
-            return AttributePathSegment(
-                key=self.assert_non_empty_key(token.value, token.span, "Quoted attribute keys must not be empty")
-            )
-        token = self.consume_key_token("Expected attribute path segment")
-        if token.kind == "STRING" and token.quote == "`":
-            raise SyntaxError("Backtick-quoted keys are not supported in attribute segments", token.span)
-        return AttributePathSegment(
-            key=self.assert_non_empty_key(token.value, token.span, "Quoted attribute keys must not be empty")
-        )
-
-    def parse_bracket_path_segment(self) -> ReferencePathSegment:
-        self.consume("LBRACKET", "Expected '['")
-        if self.check("STRING"):
-            token = self.advance()
-            if token.quote == "`":
-                raise SyntaxError("Backtick-quoted keys are not supported in paths", token.span)
-            self.consume("RBRACKET", "Expected ']' after quoted path segment")
-            return self.assert_non_empty_key(token.value, token.span, "Quoted path keys must not be empty")
-        token = self.consume("NUMBER", "Expected numeric index or quoted key segment")
-        self.consume("RBRACKET", "Expected ']' after index segment")
-        text = token.value.replace("_", "")
-        try:
-            index = int(text, 10)
-        except ValueError as exc:
-            raise SyntaxError(f"Invalid index segment '{token.value}'", token.span) from exc
-        if index < 0:
-            raise SyntaxError(f"Invalid index segment '{token.value}'", token.span)
-        return index
-
-    def parse_quoted_bracket_member_segment(self) -> str:
-        self.consume("LBRACKET", "Expected '[' after '.'")
-        token = self.consume("STRING", "Expected quoted member path segment after '.['")
-        if token.quote == "`":
-            raise SyntaxError("Backtick-quoted keys are not supported in paths", token.span)
-        self.consume("RBRACKET", "Expected ']' after quoted member path segment")
-        return self.assert_non_empty_key(token.value, token.span, "Quoted path keys must not be empty")
+        return ReferenceCursor(self).read_path()
 
     def parse_literal(self) -> Value:
         token = self.peek()

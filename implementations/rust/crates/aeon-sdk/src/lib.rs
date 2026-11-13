@@ -807,6 +807,7 @@ fn core_attribute_to_aeos(entry: &AttributeValue) -> AeosAttributeEntry {
             .as_ref()
             .map(core_value_to_aeos)
             .unwrap_or(EventValue {
+                structural_id: None,
                 value_type: String::from("ObjectNode"),
                 raw: None,
                 value: None,
@@ -908,6 +909,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             scalar_value("NodeLiteral", raw.clone(), JsonValue::String(raw.clone()))
         }
         Value::ListNode { items } => EventValue {
+            structural_id: None,
             value_type: String::from("ListNode"),
             raw: None,
             value: None,
@@ -916,6 +918,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             bindings: Vec::new(),
         },
         Value::TupleLiteral { items } => EventValue {
+            structural_id: None,
             value_type: String::from("TupleLiteral"),
             raw: None,
             value: None,
@@ -924,6 +927,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
             bindings: Vec::new(),
         },
         Value::ObjectNode { .. } => EventValue {
+            structural_id: None,
             value_type: String::from("ObjectNode"),
             raw: None,
             value: None,
@@ -938,6 +942,7 @@ fn core_value_to_aeos(value: &Value) -> EventValue {
 
 fn scalar_value(value_type: &str, raw: String, value: JsonValue) -> EventValue {
     EventValue {
+        structural_id: None,
         value_type: String::from(value_type),
         raw: Some(raw),
         value: Some(value),
@@ -949,6 +954,7 @@ fn scalar_value(value_type: &str, raw: String, value: JsonValue) -> EventValue {
 
 fn reference_value(value_type: &str, segments: &[ReferenceSegment]) -> EventValue {
     EventValue {
+        structural_id: None,
         value_type: String::from(value_type),
         raw: None,
         value: Some(JsonValue::Array(

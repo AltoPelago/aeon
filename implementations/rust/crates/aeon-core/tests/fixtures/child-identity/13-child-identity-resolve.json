@@ -1,0 +1,1003 @@
+{
+  "meta": {
+    "suite_id": "child-identity-resolve",
+    "lane": "sansa-resolve",
+    "capability": "SANSA.Resolve",
+    "profile": "resolve",
+    "sut_protocol": "cts.protocol.v1",
+    "spec_refs": [
+      "aeonite-specs/sources/sansa/v1/child-identity-selectors-v1.aeon"
+    ]
+  },
+  "id": "child-identity-resolve",
+  "title": "Candidate child identity resolution",
+  "fixtures": {
+    "namespaces": [
+      {
+        "id": "identity-basic",
+        "supportsIdentity": true,
+        "root": {
+          "address": "$",
+          "identity": "scope1",
+          "children": [
+            {
+              "name": "group",
+              "address": "$.group",
+              "identity": "group1",
+              "children": [
+                {
+                  "index": 0,
+                  "address": "$.group[0]",
+                  "identity": "item1",
+                  "children": [
+                    {
+                      "name": "name",
+                      "address": "$.group[0].name",
+                      "identity": "name1",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "index": 1,
+                  "address": "$.group[1]",
+                  "children": []
+                }
+              ],
+              "attributeSpace": {
+                "address": "$.group.@",
+                "children": [
+                  {
+                    "address": "$.group.@.label",
+                    "name": "label",
+                    "identity": "label1",
+                    "children": []
+                  }
+                ]
+              },
+              "localSpaces": {
+                "private": {
+                  "address": "$.group.<\"private\">",
+                  "children": [
+                    {
+                      "address": "$.group.<\"private\">.secret",
+                      "name": "secret",
+                      "identity": "secret1",
+                      "children": []
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "other",
+              "address": "$.other",
+              "identity": "other1",
+              "children": []
+            }
+          ]
+        },
+        "supportsParentTraversal": true,
+        "supportsLocalSpaces": true
+      },
+      {
+        "id": "identity-unsupported",
+        "supportsIdentity": false,
+        "root": {
+          "address": "$",
+          "identity": "scope1",
+          "children": [
+            {
+              "name": "group",
+              "address": "$.group",
+              "identity": "group1",
+              "children": [
+                {
+                  "index": 0,
+                  "address": "$.group[0]",
+                  "identity": "item1",
+                  "children": [
+                    {
+                      "name": "name",
+                      "address": "$.group[0].name",
+                      "identity": "name1",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "index": 1,
+                  "address": "$.group[1]",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "name": "other",
+              "address": "$.other",
+              "identity": "other1",
+              "children": []
+            }
+          ]
+        }
+      },
+      {
+        "id": "identity-duplicate",
+        "supportsIdentity": true,
+        "root": {
+          "address": "$",
+          "children": [
+            {
+              "address": "$.a",
+              "name": "a",
+              "identity": "same"
+            },
+            {
+              "address": "$.b",
+              "name": "b",
+              "identity": "same"
+            }
+          ]
+        }
+      },
+      {
+        "id": "identity-empty",
+        "supportsIdentity": true,
+        "root": {
+          "address": "$",
+          "children": []
+        }
+      },
+      {
+        "id": "identity-invalid",
+        "supportsIdentity": true,
+        "root": {
+          "address": "$",
+          "children": [
+            {
+              "address": "$.a",
+              "name": "a",
+              "identity": 42
+            }
+          ]
+        }
+      },
+      {
+        "id": "identity-branches",
+        "supportsIdentity": true,
+        "root": {
+          "address": "$",
+          "children": [
+            {
+              "name": "a",
+              "address": "$.a",
+              "children": [
+                {
+                  "address": "$.a.value",
+                  "name": "value",
+                  "identity": "shared",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "name": "b",
+              "address": "$.b",
+              "children": [
+                {
+                  "address": "$.b.value",
+                  "name": "value",
+                  "identity": "shared",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "identity-occurrences",
+        "supportsIdentity": true,
+        "root": {
+          "address": "$",
+          "children": [
+            {
+              "name": "list",
+              "address": "$.list",
+              "representationKind": "list",
+              "children": [
+                {
+                  "address": "$.list[0]",
+                  "index": 0,
+                  "identity": "list1",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "name": "tuple",
+              "address": "$.tuple",
+              "representationKind": "tuple",
+              "children": [
+                {
+                  "address": "$.tuple[0]",
+                  "index": 0,
+                  "identity": "tuple1",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "name": "node",
+              "address": "$.node",
+              "representationKind": "node",
+              "children": [
+                {
+                  "address": "$.node[0]",
+                  "index": 0,
+                  "identity": "node1",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "tests": [
+    {
+      "id": "sansa-child-resolve-direct",
+      "description": "direct",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group"
+        ],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-chain",
+      "description": "chain",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\.\\item1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group[0]"
+        ],
+        "identityCalls": 4
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-member-continuation",
+      "description": "member-continuation",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\.\\item1\\.name"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group[0].name"
+        ],
+        "identityCalls": 4
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-position-continuation",
+      "description": "position-continuation",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\[0]"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group[0]"
+        ],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-root-is-not-child",
+      "description": "root-is-not-child",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\scope1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-missing",
+      "description": "missing",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\absent\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-no-key-fallback",
+      "description": "no-key-fallback",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-case-sensitive",
+      "description": "case-sensitive",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\Group1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-scalar",
+      "description": "scalar",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group[0].name.\\x\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 0
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-unsupported",
+      "description": "unsupported",
+      "input": {
+        "namespace": "identity-unsupported",
+        "source": "$.\\group1\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_UNSUPPORTED_IDENTITY",
+        "identityCalls": 0,
+        "selectorIndex": 0,
+        "identity": "group1"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-unsupported-after-miss",
+      "description": "unsupported-after-miss",
+      "input": {
+        "namespace": "identity-unsupported",
+        "source": "$.absent.\\group1\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_UNSUPPORTED_IDENTITY",
+        "identityCalls": 0,
+        "selectorIndex": 1,
+        "identity": "group1"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-supported-after-miss",
+      "description": "supported-after-miss",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.absent.\\group1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 0
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-ambiguity",
+      "description": "ambiguity",
+      "input": {
+        "namespace": "identity-duplicate",
+        "source": "$.\\same\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_AMBIGUOUS_IDENTITY",
+        "identityCalls": 2,
+        "selectorIndex": 0,
+        "identity": "same"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-budget-zero",
+      "description": "budget-zero",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\",
+        "maxIdentityInspections": 0
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+        "identityCalls": 0,
+        "selectorIndex": 0,
+        "limit": 0,
+        "observed": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-budget-exact",
+      "description": "budget-exact",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\",
+        "maxIdentityInspections": 2
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group"
+        ],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-budget-one-over",
+      "description": "budget-one-over",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\",
+        "maxIdentityInspections": 1
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+        "identityCalls": 1,
+        "selectorIndex": 0,
+        "limit": 1,
+        "observed": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-budget-no-early-success",
+      "description": "budget-no-early-success",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\",
+        "maxIdentityInspections": 1
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+        "identityCalls": 1,
+        "selectorIndex": 0,
+        "limit": 1,
+        "observed": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-budget-chain-shared",
+      "description": "budget-chain-shared",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\.\\item1\\",
+        "maxIdentityInspections": 3
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+        "identityCalls": 3,
+        "selectorIndex": 1,
+        "limit": 3,
+        "observed": 4
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-empty-zero",
+      "description": "empty-zero",
+      "input": {
+        "namespace": "identity-empty",
+        "source": "$.\\x\\",
+        "maxIdentityInspections": 0
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 0
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-missing-metadata-counts",
+      "description": "missing-metadata-counts",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group.\\item1\\",
+        "maxIdentityInspections": 1
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+        "identityCalls": 1,
+        "selectorIndex": 1,
+        "limit": 1,
+        "observed": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-invalid-metadata",
+      "description": "invalid-metadata",
+      "input": {
+        "namespace": "identity-invalid",
+        "source": "$.\\x\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_IDENTITY",
+        "identityCalls": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-invalid-limit",
+      "description": "invalid-limit",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\",
+        "maxIdentityInspections": -1
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_IDENTITY_LIMIT",
+        "identityCalls": 0
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-invalid-limit-without-selector",
+      "description": "invalid-limit-without-selector",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group",
+        "maxIdentityInspections": 1.5
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_IDENTITY_LIMIT",
+        "identityCalls": 0
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-binding-zero",
+      "description": "binding-zero",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\group1\\",
+        "maxBindings": 0
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED",
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-attribute-explicit",
+      "description": "attribute-explicit",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group.@.\\label1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group.@.label"
+        ],
+        "identityCalls": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-attribute-not-implicit",
+      "description": "attribute-not-implicit",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group.\\label1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-local-explicit",
+      "description": "local-explicit",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group.<\"private\">.\\secret1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group.<\"private\">.secret"
+        ],
+        "identityCalls": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-local-not-implicit",
+      "description": "local-not-implicit",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group.\\secret1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-contextual-child",
+      "description": "contextual-child",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "?.\\item1\\",
+        "contextualRoot": "$.group"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group[0]"
+        ],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-contextual-root-excluded",
+      "description": "contextual-root-excluded",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "?.\\group1\\",
+        "contextualRoot": "$.group"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-branch-order",
+      "description": "branch-order",
+      "input": {
+        "namespace": "identity-branches",
+        "source": "$.*.\\shared\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.a.value",
+          "$.b.value"
+        ],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-branch-budget",
+      "description": "branch-budget",
+      "input": {
+        "namespace": "identity-branches",
+        "source": "$.*.\\shared\\",
+        "maxIdentityInspections": 1
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+        "identityCalls": 1,
+        "selectorIndex": 1,
+        "limit": 1,
+        "observed": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-chained-miss",
+      "description": "chained-miss",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.\\absent\\.\\item1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 2
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-scalar-identity-not-self",
+      "description": "scalar-identity-not-self",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.group[0].name.\\name1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [],
+        "identityCalls": 0
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-occurrence-list",
+      "description": "Exposed direct list child retains its actual path",
+      "input": {
+        "namespace": "identity-occurrences",
+        "source": "$.list.\\list1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.list[0]"
+        ],
+        "identityCalls": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "occurrence",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-occurrence-tuple",
+      "description": "Exposed direct tuple child retains its actual path",
+      "input": {
+        "namespace": "identity-occurrences",
+        "source": "$.tuple.\\tuple1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.tuple[0]"
+        ],
+        "identityCalls": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "occurrence",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-occurrence-node",
+      "description": "Exposed direct node child retains its actual path",
+      "input": {
+        "namespace": "identity-occurrences",
+        "source": "$.node.\\node1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.node[0]"
+        ],
+        "identityCalls": 1
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "occurrence",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-resolve-repeated-parent",
+      "description": "Repeated branches preserve duplicate results and repeat inspection charges",
+      "input": {
+        "namespace": "identity-basic",
+        "source": "$.*.^.\\group1\\"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group",
+          "$.group"
+        ],
+        "identityCalls": 4
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "branches",
+        "candidate"
+      ]
+    }
+  ]
+}

@@ -457,3 +457,140 @@ test('rejects event streams whose selected scope is not parent-first', () => {
     /has no parent binding/u,
   );
 });
+
+test('child identities resolve to original bindings and current structural paths', () => {
+  const { namespace } = readAeonNamespace("group\\g\\ = { items = [\\a\\=1, \\b\\=2] }");
+  assert.equal(namespace.identity?.(bindingAt(namespace, '$.group')), 'g');
+  const result = resolveAddress("$.\\g\\.items.\\a\\", namespace);
+  assert.equal(result.ok, true);
+  assert.equal(result.bindings[0], bindingAt(namespace, '$.group.items[0]'));
+  assert.equal(result.bindings[0]?.address, '$.group.items[0]');
+  assert.equal(resolveAddress("$.\\a\\", namespace).bindings.length, 0);
+  assert.equal(resolveAddress("$.\\g\\.items.\\missing\\", namespace).bindings.length, 0);
+});
+
+test('child identity selection observes reorders without equating snapshots', () => {
+  const before = readAeonNamespace("items=[\\a\\=1, \\b\\=2]").namespace;
+  const after = readAeonNamespace("items=[\\b\\=2, \\a\\=1]").namespace;
+  const first = resolveAddress("$.items.\\a\\", before).bindings[0]!;
+  const moved = resolveAddress("$.items.\\a\\", after).bindings[0]!;
+  assert.equal(first.address, '$.items[0]');
+  assert.equal(moved.address, '$.items[1]');
+  assert.notEqual(first, moved);
+  assert.equal(first.value, moved.value);
+  const removed = readAeonNamespace("items=[\\b\\=2]").namespace;
+  assert.equal(resolveAddress("$.items.\\a\\", removed).bindings.length, 0);
+});
+
+test('child identities preserve explicit attribute navigation and plane scope', () => {
+  const { namespace } = readAeonNamespace(INVENTORY_SOURCE);
+  const source = resolveAddress("$.\\INVENTORY\\.@.\\SOURCE\\", namespace);
+  assert.equal(source.ok, true);
+  assert.equal(source.bindings[0], bindingAt(namespace, '$.inventory.@.source'));
+  assert.equal(resolveAddress("$.\\SOURCE\\", namespace).bindings.length, 0);
+  const input = "aeon:header={value\\head\\=1}\n\"aeon:value\"\\body\\=2";
+  for (const scope of ['header', 'payload', 'full'] as const) {
+    const scoped = readAeonNamespace(input, { namespace: { scope } }).namespace;
+    if (scope === 'full') {
+      assert.equal(resolveAddress("$.header.\\head\\", scoped).bindings.length, 1);
+      assert.equal(resolveAddress("$.body.\\body\\", scoped).bindings.length, 1);
+      assert.equal(resolveAddress("$.\\head\\", scoped).bindings.length, 0);
+    } else {
+      assert.equal(resolveAddress(scope === 'header' ? "$.\\head\\" : "$.\\body\\", scoped).bindings.length, 1);
+      assert.equal(resolveAddress(scope === 'header' ? "$.\\body\\" : "$.\\head\\", scoped).bindings.length, 0);
+    }
+  }
+});
+
+test('SDK identity accessor preserves logical inspection and binding limits', () => {
+  const original = readAeonNamespace("items=[\\a\\=1, \\b\\=2]").namespace;
+  let calls = 0;
+  const namespace = { ...original, identity: (binding: AeonSansaBinding) => { calls += 1; return original.identity!(binding); } };
+  const address = "$.items.\\a\\";
+  const limited = resolveAddress(address, namespace, { maxIdentityInspections: 1 });
+  assert.equal(limited.ok, false);
+  assert.equal(limited.errors[0]?.code, 'SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED');
+  assert.equal(limited.errors[0]?.limit, 1);
+  assert.equal(limited.errors[0]?.observed, 2);
+  assert.deepEqual(limited.bindings, []);
+  assert.equal(calls, 1);
+  calls = 0;
+  assert.equal(resolveAddress(address, namespace, { maxIdentityInspections: 2 }).ok, true);
+  assert.equal(calls, 2);
+  const zero = resolveAddress(address, namespace, { maxBindings: 0 });
+  assert.equal(zero.ok, false);
+  assert.deepEqual(zero.bindings, []);
+  assert.equal(zero.errors[0]?.code, 'SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED');
+});
+
+test('SDK admits Query identity while activation and mutation remain guarded', () => {
+  const original = readAeonNamespace("items=[\\a\\=1]\nselector:sansa=$.items.\\a\\").namespace;
+  let calls = 0;
+  const namespace = { ...original, identity: (binding: AeonSansaBinding) => { calls += 1; return original.identity!(binding); } };
+  const queries = [
+    ['from $.selector\nselect path(.)', { addressActivation: 'trusted' as const }],
+  ] as const;
+  for (const [query, options] of queries) {
+    const result = evaluateQuery(query, namespace, options);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0]?.code, 'SANSA_RESOLVE_UNSUPPORTED_SELECTOR');
+  }
+  assert.equal(planMutation({ op: 'remove', target: "$.items.\\a\\" }, namespace).ok, false);
+  assert.equal(calls, 0);
+  const selected = evaluateQuery('from $.items.\\a\\\nselect .', namespace);
+  assert.equal(selected.ok, true);
+  assert.equal(selected.results[0]?.binding, bindingAt(namespace, '$.items[0]'));
+  assert.equal(selected.results[0]?.candidateAddress, '$.items[0]');
+  assert.equal(selected.results[0]?.valueAddress, '$.items[0]');
+  assert.equal(calls, 1);
+
+});
+
+test('SDK identity selection fails closed on duplicate and malformed adapter metadata', () => {
+  const namespace = readAeonNamespace('items=[\\a\\=1, \\b\\=2]').namespace;
+  const second = bindingAt(namespace, '$.items[1]');
+  second.identity = 'a';
+  const ambiguous = resolveAddress('$.items.\\a\\', namespace);
+  assert.equal(ambiguous.ok, false);
+  assert.equal(ambiguous.errors[0]?.code, 'SANSA_RESOLVE_AMBIGUOUS_IDENTITY');
+  assert.equal(ambiguous.errors[0]?.identity, 'a');
+  assert.deepEqual(ambiguous.bindings, []);
+  second.identity = 'bad!';
+  const malformed = resolveAddress('$.items.\\a\\', namespace);
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.errors[0]?.code, 'SANSA_RESOLVE_INVALID_IDENTITY');
+  assert.deepEqual(malformed.bindings, []);
+});
+
+test('SDK identities distinguish binding, exposed node head and content occurrences', () => {
+  const namespace = readAeonNamespace(String.raw`value\BINDING\ = <tag\HEAD\:node(\CHILD\ = "hello")>`).namespace;
+  for (const [selector, path] of [
+    ['$.\\BINDING\\', '$.value'],
+    ['$.\\BINDING\\.\\HEAD\\', '$.value[0]'],
+    ['$.\\BINDING\\.\\HEAD\\.\\CHILD\\', '$.value[0][0]'],
+  ]) {
+    const result = resolveAddress(selector!, namespace);
+    assert.equal(result.ok, true);
+    assert.equal(result.bindings[0], bindingAt(namespace, path!));
+  }
+  assert.equal(resolveAddress('$.\\HEAD\\', namespace).bindings.length, 0);
+  const contextual = bindingAt(namespace, '$.value[0]');
+  assert.equal(resolveAddress('?.\\HEAD\\', namespace, { contextualRoot: contextual }).bindings.length, 0);
+  assert.equal(resolveAddress('?.\\CHILD\\', namespace, { contextualRoot: contextual }).bindings[0], bindingAt(namespace, '$.value[0][0]'));
+});
+
+test('SDK constrained identity activation requires a proven parent grant', () => {
+  const original = readAeonNamespace('items=[\\a\\={name\\n\\="hello"}]\nselector:sansa=$.items.\\a\\.\\n\\').namespace;
+  let calls = 0;
+  const namespace = {...original, identity:(b:AeonSansaBinding)=>{calls++;return original.identity!(b);}};
+  const query = 'from $\nselect path($.selector)';
+  const addressActivation = {allowedRoots:['$.items'],allowedSelectors:['member','childIdentity'] as const};
+  const r = evaluateQuery(query,namespace,{addressActivation,resolve:{maxIdentityInspections:2}});
+  assert.equal(r.ok,true);
+  assert.equal(r.results[0]?.value.type,'bindingSet');
+  if(r.results[0]?.value.type==='bindingSet')assert.equal(r.results[0].value.bindings[0],bindingAt(namespace,'$.items[0].name'));
+  assert.equal(calls,2);
+  calls=0;
+  const denied = evaluateQuery(query,namespace,{addressActivation:{...addressActivation,allowedRoots:['$.items[0]']}});
+  assert.equal(denied.ok,false);assert.equal(denied.errors[0]?.code,'SANSA_QUERY_PATH_ACTIVATION_DENIED');assert.equal(calls,0);
+});

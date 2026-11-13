@@ -1,0 +1,364 @@
+{
+  "meta": {
+    "suite_id": "child-identity-parser",
+    "lane": "sansa-address",
+    "capability": "SANSA.Addressing",
+    "profile": "addressing",
+    "sut_protocol": "cts.protocol.v1",
+    "spec_refs": [
+      "aeonite-specs/sources/sansa/v1/child-identity-selectors-v1.aeon"
+    ]
+  },
+  "id": "child-identity-parser",
+  "title": "Candidate child identity parsing",
+  "tests": [
+    {
+      "id": "sansa-child-id-member",
+      "description": "child-id-member",
+      "input": {
+        "source": "$.items.\\item1\\"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.items.\\item1\\",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-chain",
+      "description": "child-id-chain",
+      "input": {
+        "source": "$.\\group1\\.\\child1\\"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.\\group1\\.\\child1\\",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-follow-member",
+      "description": "child-id-follow-member",
+      "input": {
+        "source": "$.items.\\item1\\.name"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.items.\\item1\\.name",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-follow-index",
+      "description": "child-id-follow-index",
+      "input": {
+        "source": "$.\\group1\\[0]"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.\\group1\\[0]",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-contextual",
+      "description": "child-id-contextual",
+      "input": {
+        "source": "?.\\child1\\"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "?.\\child1\\",
+        "exact": false,
+        "root": "contextual"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-attribute",
+      "description": "child-id-attribute",
+      "input": {
+        "source": "$.value.@.\\attribute1\\"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.value.@.\\attribute1\\",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-leading-digit",
+      "description": "child-id-leading-digit",
+      "input": {
+        "source": "$.\\1_a-b\\"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.\\1_a-b\\",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-case-sensitive",
+      "description": "child-id-case-sensitive",
+      "input": {
+        "source": "$.\\A\\.\\a\\"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.\\A\\.\\a\\",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-empty",
+      "description": "child-id-empty",
+      "input": {
+        "source": "$.\\\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_IDENTITY",
+        "index": 3
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-unterminated",
+      "description": "child-id-unterminated",
+      "input": {
+        "source": "$.\\item1"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNTERMINATED_IDENTITY",
+        "index": 8
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-whitespace",
+      "description": "child-id-whitespace",
+      "input": {
+        "source": "$.\\item 1\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_IDENTITY",
+        "index": 7
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-non-ascii",
+      "description": "child-id-non-ascii",
+      "input": {
+        "source": "$.\\\u00e9\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_IDENTITY",
+        "index": 3
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-wildcard",
+      "description": "child-id-wildcard",
+      "input": {
+        "source": "$.\\item*\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_IDENTITY",
+        "index": 7
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-no-dot",
+      "description": "child-id-no-dot",
+      "input": {
+        "source": "$\\item1\\"
+      },
+      "expected": {
+        "ok": false
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-no-chain-dot",
+      "description": "child-id-no-chain-dot",
+      "input": {
+        "source": "$.\\a\\\\b\\"
+      },
+      "expected": {
+        "ok": false
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-child-id-quoted-alternative",
+      "description": "child-id-quoted-alternative",
+      "input": {
+        "source": "$.\\\"a\"\\"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_IDENTITY",
+        "index": 3
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-control-member",
+      "description": "control-member",
+      "input": {
+        "source": "$.items.name"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.items.name",
+        "exact": true,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-control-index",
+      "description": "control-index",
+      "input": {
+        "source": "$.items[0]"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.items[0]",
+        "exact": true,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-control-quoted-marker-key",
+      "description": "control-quoted-marker-key",
+      "input": {
+        "source": "$.[\"\\\\item1\\\\\"]"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.[\"\\\\item1\\\\\"]",
+        "exact": true,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    },
+    {
+      "id": "sansa-control-wildcard",
+      "description": "control-wildcard",
+      "input": {
+        "source": "$.items.*"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.items.*",
+        "exact": false,
+        "root": "absolute"
+      },
+      "tags": [
+        "sansa",
+        "child-identity",
+        "candidate"
+      ]
+    }
+  ]
+}

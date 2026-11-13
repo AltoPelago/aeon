@@ -1338,7 +1338,7 @@ fn process_events(
                 key: format!("aeon:{key}"),
                 datatype: None,
                 value_type: value_type_name(value),
-                structural_id: None,
+                structural_id: header.structural_ids.get(key).cloned(),
             });
         }
     }
@@ -1832,6 +1832,30 @@ mod tests {
 
         assert_eq!(parsed["errors"], serde_json::json!([]));
         assert_eq!(parsed["finalized"]["header"]["mode"], "strict");
+    }
+
+    #[test]
+    fn header_event_summary_retains_declared_identity_without_crossing_scopes() {
+        let source = "aeon:header={value\\head\\=1}\n\"aeon:value\"\\body\\=2";
+        for (scope, identities) in [
+            ("header", vec!["head"]),
+            ("payload", vec!["body"]),
+            ("full", vec!["head", "body"]),
+        ] {
+            let options = serde_json::json!({"validationMode":"loose", "finalizeScope":scope});
+            let output = process_aeon_json(source, &options.to_string()).unwrap();
+            let result: JsonValue = serde_json::from_str(&output).unwrap();
+            assert_eq!(result["errors"], serde_json::json!([]));
+            assert_eq!(
+                result["events"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|e| e["structuralId"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                identities
+            );
+        }
     }
 
     #[test]

@@ -1,0 +1,5216 @@
+{
+  "description": "Local AEOS identity selector fixtures; no stable CTS claim. Explicit AES events/attribute metadata; no schema codec is added to Rust/Python.",
+  "tests": [
+    {
+      "id": "chained-identity",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "canonical-type-diagnostic",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "type_mismatch",
+        "errorPath": "$.items[0].name"
+      }
+    },
+    {
+      "id": "scope-root-is-excluded",
+      "events": [
+        {
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              }
+            ]
+          },
+          "key": "",
+          "structuralId": "root",
+          "value": {
+            "type": "ObjectNode"
+          }
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.\\root\\",
+            "constraints": {
+              "required": false
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "implicit-root-id-not-global",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.\\first\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "missing_required_field",
+        "errorPath": "$.\\first\\"
+      }
+    },
+    {
+      "id": "missing-required",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\absent\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "missing_required_field"
+      }
+    },
+    {
+      "id": "missing-optional",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\absent\\",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "exact-path-rejected",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "path": "$.items.\\first\\.\\label\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "quoted-marker-member",
+      "events": [
+        {
+          "key": "\\first\\",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "\\first\\"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ]
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "path": "$.[\"\\\\first\\\\\"]",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "closed-world-reuses-identity-results",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "world": "closed",
+        "resource_policy": {
+          "max_identity_inspections": 3
+        },
+        "rules": [
+          {
+            "path": "$.items",
+            "constraints": {}
+          },
+          {
+            "path": "$.items[0]",
+            "constraints": {}
+          },
+          {
+            "path": "$.items[1]",
+            "constraints": {}
+          },
+          {
+            "path": "$.items[1].name",
+            "constraints": {}
+          },
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "closed-world-still-rejects-unselected",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "world": "closed",
+        "rules": [
+          {
+            "selector": "$.items.\\first\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "unexpected_binding"
+      }
+    },
+    {
+      "id": "shared-rule-budget",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 4
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\",
+            "constraints": {}
+          },
+          {
+            "selector": "$.items.\\second\\.\\label2\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "shared-rule-budget-exact",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 5
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\",
+            "constraints": {}
+          },
+          {
+            "selector": "$.items.\\second\\.\\label2\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "inspection-limit",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 2
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "zero-nonempty-scan",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 0
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "zero-empty-scan",
+      "events": [],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 0
+        },
+        "rules": [
+          {
+            "selector": "$.\\none\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "duplicate-identity",
+      "events": [
+        {
+          "key": "a",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "a"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "same"
+        },
+        {
+          "key": "b",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "b"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "same"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.\\same\\",
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy",
+        "errorCount": 1
+      }
+    },
+    {
+      "id": "malformed-identity",
+      "events": [
+        {
+          "key": "a",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "a"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "bad!"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.\\none\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "empty-identity",
+      "events": [
+        {
+          "key": "a",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "a"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": ""
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.\\none\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "duplicate-rule-cache",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 3
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {}
+          },
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "schema-source-roundtrip-marker",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "attribute-identity",
+      "events": [
+        {
+          "key": "value",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "value"
+              }
+            ]
+          },
+          "value": {
+            "type": "NumberLiteral",
+            "value": "3",
+            "raw": "\"3\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "annotations": {
+            "unit": {
+              "structuralId": "unitId",
+              "value": {
+                "type": "StringLiteral",
+                "value": "cm",
+                "raw": "\"cm\""
+              },
+              "annotations": {
+                "meta": {
+                  "structuralId": "metaId",
+                  "value": {
+                    "type": "StringLiteral",
+                    "value": "x",
+                    "raw": "\"x\""
+                  }
+                }
+              }
+            }
+          },
+          "structuralId": "reading"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.value.@.\\unitId\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "nested-attribute-identity",
+      "events": [
+        {
+          "key": "value",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "value"
+              }
+            ]
+          },
+          "value": {
+            "type": "NumberLiteral",
+            "value": "3",
+            "raw": "\"3\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "annotations": {
+            "unit": {
+              "structuralId": "unitId",
+              "value": {
+                "type": "StringLiteral",
+                "value": "cm",
+                "raw": "\"cm\""
+              },
+              "annotations": {
+                "meta": {
+                  "structuralId": "metaId",
+                  "value": {
+                    "type": "StringLiteral",
+                    "value": "x",
+                    "raw": "\"x\""
+                  }
+                }
+              }
+            }
+          },
+          "structuralId": "reading"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.value.@.\\unitId\\.@.\\metaId\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "no-implicit-attribute-crossing",
+      "events": [
+        {
+          "key": "value",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "value"
+              }
+            ]
+          },
+          "value": {
+            "type": "NumberLiteral",
+            "value": "3",
+            "raw": "\"3\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "annotations": {
+            "unit": {
+              "structuralId": "unitId",
+              "value": {
+                "type": "StringLiteral",
+                "value": "cm",
+                "raw": "\"cm\""
+              },
+              "annotations": {
+                "meta": {
+                  "structuralId": "metaId",
+                  "value": {
+                    "type": "StringLiteral",
+                    "value": "x",
+                    "raw": "\"x\""
+                  }
+                }
+              }
+            }
+          },
+          "structuralId": "reading"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.value.\\unitId\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "missing_required_field"
+      }
+    },
+    {
+      "id": "node-head-occurrence",
+      "events": [
+        {
+          "key": "node",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "node"
+              }
+            ]
+          },
+          "value": {
+            "type": "NodeLiteral",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "nodeId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "node"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "NodeHead",
+            "value": "tag",
+            "raw": "\"tag\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "headId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "node"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "childId"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.\\nodeId\\.\\headId\\.\\childId\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "identity-with-existing-expansion",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.*.\\label\\",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "expansion-budget",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_selector_expansions": 0
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "option-budget-override",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "options": {
+        "resourcePolicy": {
+          "max_identity_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "option-budget-overrides-schema",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 0
+        },
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {}
+          }
+        ]
+      },
+      "options": {
+        "resourcePolicy": {
+          "max_identity_inspections": 3
+        }
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "invalid-limit--1",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": -1
+        },
+        "rules": []
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "invalid-limit-True",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": true
+        },
+        "rules": []
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "invalid-limit-1.5",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 1.5
+        },
+        "rules": []
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "invalid-limit-9007199254740992",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "resource_policy": {
+          "max_identity_inspections": 9007199254740992
+        },
+        "rules": []
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "local-space-still-unsupported",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.<\"private\">.\\x\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "invalid_schema_policy"
+      }
+    },
+    {
+      "id": "unrelated-reference-targets-unchanged",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        },
+        {
+          "key": "copy",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "copy"
+              }
+            ]
+          },
+          "value": {
+            "type": "CloneReference",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ]
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "reordered-canonical-target",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\",
+            "constraints": {
+              "required": true,
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "error": "type_mismatch",
+        "errorPath": "$.items[1].name"
+      }
+    },
+    {
+      "id": "inline-element-identity",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "elements": [
+              {
+                "type": "StringLiteral",
+                "value": "inline",
+                "structuralId": "inlineId"
+              }
+            ]
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\inlineId\\",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "semantic-filter",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label",
+          "datatype": "string"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\#string",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "representation-filter",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label",
+          "datatype": "string"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\first\\.\\label\\%stringLiteral",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    },
+    {
+      "id": "existing-descendant-composition",
+      "events": [
+        {
+          "key": "items",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              }
+            ]
+          },
+          "value": {
+            "type": "ListNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "itemsId"
+        },
+        {
+          "key": "0",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "first"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 0
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label"
+        },
+        {
+          "key": "1",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              }
+            ]
+          },
+          "value": {
+            "type": "ObjectNode",
+            "value": "",
+            "raw": "\"\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "second"
+        },
+        {
+          "key": "name",
+          "path": {
+            "segments": [
+              {
+                "type": "root"
+              },
+              {
+                "type": "member",
+                "key": "items"
+              },
+              {
+                "type": "index",
+                "index": 1
+              },
+              {
+                "type": "member",
+                "key": "name"
+              }
+            ]
+          },
+          "value": {
+            "type": "StringLiteral",
+            "value": "hello",
+            "raw": "\"hello\""
+          },
+          "span": [
+            10,
+            20
+          ],
+          "structuralId": "label2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.**.\\label\\",
+            "constraints": {
+              "required": true,
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true
+      }
+    }
+  ]
+}

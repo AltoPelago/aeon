@@ -63,6 +63,24 @@ Use `createAeonNamespace(events)` when the source has already been compiled.
 Pass its exact UTF-8 artifact as `sourceBytes` when provenance is required;
 without those bytes, event bindings deliberately omit `origin` and `span`.
 
+The namespace also exposes declared binding identities to standalone SANSA Resolve:
+
+```ts
+import { resolveAddress } from '@altopelago/sansa';
+
+const selected = readAeonNamespace('items=[\\item1\\=1]').namespace;
+const result = resolveAddress('$.items.\\item1\\', selected);
+// result.bindings[0].address is '$.items[0]'.
+```
+
+Identity selection scans direct children in the exposed plane and uses Resolve's
+`maxIdentityInspections` and `maxBindings` limits. The selector is non-exact;
+returned bindings retain their current structural addresses. A new snapshot can
+select a different occurrence with a reused identity, so an identity does not
+establish continuity. Query/address activation, mutation, Instruction and AEOS
+selector admission remain separate; clone/pointer references remain structural
+paths.
+
 #### Semantics and limits
 
 - `candidateAddress` is a locator in the namespace's current structure, not a

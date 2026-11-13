@@ -16,6 +16,12 @@ interface ReferenceFormatter {
     readonly referenceSafe: boolean;
 }
 
+// Immutable stateless formatting policy; no per-operation sessions or handles.
+const referenceSafeFormatter: ReferenceFormatter = Object.freeze({
+    format: (path: Parameters<typeof formatReferencePath>[0]) => formatReferencePath(path, formatString),
+    referenceSafe: true,
+});
+
 export type CanonicalError = LexerError | ParserError | EventEmissionError | PathResolutionError | ReferenceValidationError | CanonicalOrderingError;
 
 export interface CanonicalResult {
@@ -130,14 +136,12 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
     }
     // Core legality only: no reference evaluation, profile/schema approval,
     // or default header insertion before validating the authored document.
-    const authoredErrors = referenceErrors(parsed.document, parserOptions.maxAttributeDepth);
-    if (authoredErrors.length > 0) return { text: '', errors: authoredErrors };
+    const authored = referenceState(parsed.document, parserOptions.maxAttributeDepth);
+    if (authored.errors.length > 0) return { text: '', errors: authored.errors };
     let text: string;
     try {
-        const orders = referenceSafeOrders(parsed.document, maxEdges);
-        text = renderDocument(reorderDocument(parsed.document, orders), {
-            format: path => formatReferencePath(path, formatString), referenceSafe: true,
-        });
+        const orders = referenceSafeOrders(parsed.document, maxEdges, authored.events);
+        text = renderDocument(reorderDocument(parsed.document, orders), referenceSafeFormatter);
     } catch (error) {
         if (!(error instanceof CanonicalOrderingError)) throw error;
         return { text: '', errors: [error] };
@@ -146,15 +150,18 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
     const emittedLex = tokenize(text);
     const emitted = parse(emittedLex.tokens, parserOptions);
     if (emittedLex.errors.length > 0 || emitted.errors.length > 0 || !emitted.document
-        || referenceErrors(emitted.document, parserOptions.maxAttributeDepth).length > 0) {
+        || referenceState(emitted.document, parserOptions.maxAttributeDepth).errors.length > 0) {
         return { text: '', errors: [new CanonicalOrderingError('CANONICAL_ORDERING_CONFLICT', 'Canonical output failed Core reference validation', parsed.document.span)] };
     }
     return { text, errors: [] };
 }
 
-function referenceErrors(document: Document, maxAttributeDepth: number): readonly CanonicalError[] {
+function referenceState(document: Document, maxAttributeDepth: number) {
     const emitted = emitEvents(resolvePaths(document, { indexedPaths: true }));
-    return emitted.errors.length > 0 ? emitted.errors : validateReferences(emitted.events, { maxAttributeDepth }).errors;
+    return {
+        events: emitted.events,
+        errors: emitted.errors.length > 0 ? emitted.errors : validateReferences(emitted.events, { maxAttributeDepth }).errors,
+    };
 }
 
 export function emitFromObject(
@@ -192,7 +199,9 @@ function renderDocument(document: Document, referencePath: ReferenceFormatter = 
     for (const binding of bindings) {
         lines.push(...renderBinding(binding, 0, referencePath));
     }
-    return `${lines.join('\n')}\n`;
+    // Join the terminal newline once, avoiding a second retained string/rope.
+    lines.push('');
+    return lines.length === 1 ? '\n' : lines.join('\n');
 }
 
 function renderHeader(document: Document, referencePath: ReferenceFormatter): string[] {

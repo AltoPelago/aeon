@@ -1,5 +1,8 @@
 export type ReferencePathPart = string | number | { readonly type: 'attr'; readonly key: string };
 
+// No global/sticky flags: one private stateless test serves every path segment.
+const identifierPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 function escapeQuotedPathSegment(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
@@ -15,7 +18,7 @@ export function formatReferencePath(path: readonly ReferencePathPart[], quotedKe
         }
         if (typeof segment === 'object' && segment.type === 'attr') {
             result += '.@';
-            if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(segment.key)) {
+            if (identifierPattern.test(segment.key)) {
                 result += `.${segment.key}`;
             } else {
                 result += quotedKey ? `.[${quotedKey(segment.key)}]` : `.["${escapeQuotedPathSegment(segment.key)}"]`;
@@ -26,7 +29,7 @@ export function formatReferencePath(path: readonly ReferencePathPart[], quotedKe
         if (i > 0) {
             result += '.';
         }
-        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(member)) {
+        if (identifierPattern.test(member)) {
             result += member;
         } else {
             result += quotedKey ? `[${quotedKey(member)}]` : `["${escapeQuotedPathSegment(member)}"]`;

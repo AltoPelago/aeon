@@ -1,0 +1,10 @@
+{
+  "broaderSourceFilesMatchAccepted": 422,
+  "originalProtocolFilesMatch": 19,
+  "parserMeasurementFilesByteIdentical": [
+    "compare.mjs",
+    "measure-memory.mjs"
+  ],
+  "pipelineDelta": "Candidate is narrow; former profile variant explicitly imports retained broader control. Workloads, calibration, iterations, retention, batches and ceilings unchanged.",
+  "compatibilityAdjudication": "Exact 40 deltas: 5 previously accepted anomalous index spellings x 2 markers x 4 host positions. Baseline already lexically rejects 01, so its 8 contexts are unchanged. Parser recovery may retain subsequent bindings; diagnostic rejection is required, not a new null-document rule."
+}

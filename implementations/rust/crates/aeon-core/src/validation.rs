@@ -1142,11 +1142,34 @@ fn resolve_reference_value_light_inner<'a>(
     resolve_reference_value_light_inner(resolved, events, event_lookup, seen)
 }
 
-fn resolve_reference_target_value<'a>(
+/// Borrowed one-hop binding data for the internal Core/Finalize boundary.
+/// Metadata objects have no Value slot, so retain the actual attribute binding.
+/// This view is not an occurrence identity or a serialized reference program.
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub enum AssignmentReferenceTarget<'a> {
+    Value(&'a Value),
+    Attribute(&'a AttributeValue),
+}
+
+impl<'a> AssignmentReferenceTarget<'a> {
+    fn value(self) -> Option<&'a Value> {
+        match self {
+            Self::Value(value) => Some(value),
+            Self::Attribute(attribute) => attribute.value.as_ref(),
+        }
+    }
+}
+
+/// Internal one-hop binding lookup; does not validate or follow references.
+/// The caller supplies an index restricted to its admitted plane and retains
+/// freshness, cycle and materialization-limit responsibilities.
+#[doc(hidden)]
+pub fn resolve_assignment_reference_target<'a>(
     segments: &[ReferenceSegment],
     events: &'a [AssignmentEvent],
     event_lookup: &BTreeMap<String, usize>,
-) -> Option<&'a Value> {
+) -> Option<AssignmentReferenceTarget<'a>> {
     for split in (1..=segments.len()).rev() {
         let prefix = &segments[..split];
         if prefix
@@ -1161,15 +1184,24 @@ fn resolve_reference_target_value<'a>(
             .and_then(|index| events.get(*index))?;
         let remainder = &segments[split..];
         if remainder.is_empty() {
-            return Some(&event.value);
+            return Some(AssignmentReferenceTarget::Value(&event.value));
         }
         if let Some(value) =
-            resolve_reference_remainder(&event.value, Some(&event.annotations), remainder)
+            resolve_reference_remainder_target(&event.value, Some(&event.annotations), remainder)
         {
             return Some(value);
         }
     }
     None
+}
+
+fn resolve_reference_target_value<'a>(
+    segments: &[ReferenceSegment],
+    events: &'a [AssignmentEvent],
+    event_lookup: &BTreeMap<String, usize>,
+) -> Option<&'a Value> {
+    resolve_assignment_reference_target(segments, events, event_lookup)
+        .and_then(AssignmentReferenceTarget::value)
 }
 
 fn resolve_reference_target_value_light<'a>(
@@ -1207,53 +1239,67 @@ fn resolve_reference_remainder<'a>(
     annotations: Option<&'a BTreeMap<String, AttributeValue>>,
     remainder: &[ReferenceSegment],
 ) -> Option<&'a Value> {
+    resolve_reference_remainder_target(value, annotations, remainder)
+        .and_then(AssignmentReferenceTarget::value)
+}
+
+fn resolve_reference_remainder_target<'a>(
+    value: &'a Value,
+    annotations: Option<&'a BTreeMap<String, AttributeValue>>,
+    remainder: &[ReferenceSegment],
+) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
-        return Some(value);
+        return Some(AssignmentReferenceTarget::Value(value));
     }
     match &remainder[0] {
         ReferenceSegment::Attr(key) => {
             let attr = annotations?.get(key)?;
-            resolve_reference_remainder_from_attr(attr, &remainder[1..])
+            resolve_reference_remainder_from_attr_target(attr, &remainder[1..])
         }
         ReferenceSegment::Key(key) => {
             let Value::ObjectNode { bindings } = value else {
                 return None;
             };
             let binding = bindings.iter().find(|candidate| candidate.key == *key)?;
-            resolve_reference_remainder(&binding.value, Some(&binding.attributes), &remainder[1..])
+            resolve_reference_remainder_target(
+                &binding.value,
+                Some(&binding.attributes),
+                &remainder[1..],
+            )
         }
         ReferenceSegment::Index(index) => match value {
             Value::ListNode { items } | Value::TupleLiteral { items } => {
-                resolve_reference_remainder(items.get(*index)?, None, &remainder[1..])
+                resolve_reference_remainder_target(items.get(*index)?, None, &remainder[1..])
             }
             Value::NodeLiteral { children, .. } => {
-                resolve_reference_remainder(children.get(*index)?, None, &remainder[1..])
+                resolve_reference_remainder_target(children.get(*index)?, None, &remainder[1..])
             }
             _ => None,
         },
     }
 }
 
-fn resolve_reference_remainder_from_attr<'a>(
+fn resolve_reference_remainder_from_attr_target<'a>(
     attr: &'a AttributeValue,
     remainder: &[ReferenceSegment],
-) -> Option<&'a Value> {
+) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
-        return attr.value.as_ref();
+        return Some(AssignmentReferenceTarget::Attribute(attr));
     }
     match &remainder[0] {
-        ReferenceSegment::Attr(key) => {
-            resolve_reference_remainder_from_attr(attr.nested_attrs.get(key)?, &remainder[1..])
-        }
+        ReferenceSegment::Attr(key) => resolve_reference_remainder_from_attr_target(
+            attr.nested_attrs.get(key)?,
+            &remainder[1..],
+        ),
         ReferenceSegment::Key(key) => {
             if let Some(member) = attr.object_members.get(key) {
-                resolve_reference_remainder_from_attr(member, &remainder[1..])
+                resolve_reference_remainder_from_attr_target(member, &remainder[1..])
             } else {
-                resolve_reference_remainder(attr.value.as_ref()?, None, remainder)
+                resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder)
             }
         }
         ReferenceSegment::Index(_) => {
-            resolve_reference_remainder(attr.value.as_ref()?, None, remainder)
+            resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder)
         }
     }
 }

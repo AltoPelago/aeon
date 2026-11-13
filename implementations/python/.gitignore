@@ -1,0 +1,3 @@
+# Local setuptools wheel-build outputs; wheels/evidence are retained separately.
+/build/
+/src/*.egg-info/

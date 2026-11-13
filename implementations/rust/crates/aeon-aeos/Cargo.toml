@@ -9,11 +9,12 @@ description = "AEOS schema validation for AltoPelago AEON and AES event streams.
 readme = "README.md"
 keywords = ["aeon", "schema", "validation", "serialization"]
 categories = ["config", "parser-implementations"]
-include = ["src/**", "README.md", "LICENSE"]
+include = ["src/**", "tests/fixtures/**", "README.md", "LICENSE"]
 
 [dependencies]
 aes-telex.workspace = true
 aeon-core.workspace = true
+sansa-runtime.workspace = true
 regex = "1.11.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.150"

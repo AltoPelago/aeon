@@ -1,8 +1,9 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::{BTreeMap, HashSet};
+use std::borrow::Cow;
 
-use aeon_core::{Diagnostic, Position, Span, normalize_number_literal, strip_leading_bom};
+use aeon_core::{Diagnostic, Position, Span, normalize_number_literal};
 
 pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
 
@@ -91,7 +92,7 @@ pub fn canonicalize(source: &str) -> CanonicalResult {
 
 // Preserve the historical source parser/writer only behind explicit LexicalV1.
 fn canonicalize_lexical(source: &str) -> CanonicalResult {
-    let source = strip_preamble(&strip_leading_bom(source));
+    let source = lexical_source(source);
     let mut parser = Parser::new(&source);
     let bindings = match parser.parse_document() {
         Ok(bindings) => bindings,
@@ -1692,6 +1693,17 @@ fn normalize_quoted_reference_segments(raw: &str, needle: &str, replacement: &st
     }
     output.push_str(rest);
     output
+}
+
+// Keep the historical preprocessing bytes exactly. LF-only, preamble-free
+// input already has the required representation except for its last LF.
+fn lexical_source(input: &str) -> Cow<'_, str> {
+    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
+    if !input.starts_with("#!") && !input.contains('\r') {
+        Cow::Borrowed(input.strip_suffix('\n').unwrap_or(input))
+    } else {
+        Cow::Owned(strip_preamble(input))
+    }
 }
 
 fn strip_preamble(input: &str) -> String {
@@ -3821,5 +3833,37 @@ mod tests {
             result,
             "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod lexical_preprocessing_tests {
+    #[test]
+    fn borrowed_fast_path_preserves_every_legacy_preprocessing_byte() {
+        for prefix in [
+            "",
+            "\u{feff}",
+            "#!aeon\n",
+            "#!aeon\r\n",
+            "#!aeon\n//! format: aeon\n",
+            "\n//! format: aeon\n",
+        ] {
+            for body in [
+                "",
+                "\n",
+                "\n\n",
+                "a=1",
+                "a=1\n",
+                "a=1\n\n",
+                "a=1\r\nb=2\r\n",
+                "a=1\rb=2",
+                "a=\"é\"\n",
+                "a=`first\nsecond`\n",
+            ] {
+                let input = format!("{prefix}{body}");
+                let old = super::strip_preamble(&aeon_core::strip_leading_bom(&input));
+                assert_eq!(super::lexical_source(&input).as_ref(), old, "{input:?}");
+            }
+        }
     }
 }

@@ -1,0 +1,518 @@
+{
+  "budgets": {
+    "latency": 1.15,
+    "retainedResultHeap": 1.2,
+    "changed": false
+  },
+  "accepted": true,
+  "gates": {
+    "compatibility": true,
+    "parserLatency": true,
+    "parserHeap": true,
+    "pipelineLatency": true,
+    "pipelineHeap": true
+  },
+  "failures": [],
+  "parser": [
+    {
+      "file": "candidate-b-path-only-emission-reuse-1.results.json",
+      "compatibility": true,
+      "counts": {
+        "parseCases": 396,
+        "identical": 356,
+        "parseDifferences": 40,
+        "documents": 17,
+        "endToEndComparisons": 68,
+        "endToEndDifferences": 0
+      },
+      "order": [
+        "short",
+        "quoted",
+        "attributes",
+        "deep",
+        "invalid",
+        "noReferences",
+        "oneReference"
+      ],
+      "metrics": [
+        {
+          "name": "short",
+          "latency": 1.019287891366224,
+          "lexParse": 1.0083171966087765,
+          "heap": 0.7256820977648459
+        },
+        {
+          "name": "quoted",
+          "latency": 1.023837136906091,
+          "lexParse": 1.004782931654719,
+          "heap": 0.7260636269129407
+        },
+        {
+          "name": "attributes",
+          "latency": 1.1006222483777144,
+          "lexParse": 1.0159910991461156,
+          "heap": 0.7651274949037072
+        },
+        {
+          "name": "deep",
+          "latency": 0.9915870339921475,
+          "lexParse": 1.0024406047937802,
+          "heap": 0.8874337800281891
+        },
+        {
+          "name": "invalid",
+          "latency": 0.41341546597485174,
+          "lexParse": 0.7154974731710049,
+          "heap": 0.9425910320174932
+        },
+        {
+          "name": "noReferences",
+          "latency": 0.7399729023855959,
+          "lexParse": 0.9064800707733771,
+          "heap": 1.000403772870438
+        },
+        {
+          "name": "oneReference",
+          "latency": 0.9526416466773873,
+          "lexParse": 0.9866176880410428,
+          "heap": 0.7147838890288083
+        }
+      ]
+    },
+    {
+      "file": "candidate-b-path-only-emission-reuse-2.results.json",
+      "compatibility": true,
+      "counts": {
+        "parseCases": 396,
+        "identical": 356,
+        "parseDifferences": 40,
+        "documents": 17,
+        "endToEndComparisons": 68,
+        "endToEndDifferences": 0
+      },
+      "order": [
+        "short",
+        "quoted",
+        "attributes",
+        "deep",
+        "invalid",
+        "noReferences",
+        "oneReference"
+      ],
+      "metrics": [
+        {
+          "name": "short",
+          "latency": 1.0126194920631049,
+          "lexParse": 1.0137863388896455,
+          "heap": 0.7255879560261034
+        },
+        {
+          "name": "quoted",
+          "latency": 1.003640646841025,
+          "lexParse": 1.0069237678084075,
+          "heap": 0.7259941320585008
+        },
+        {
+          "name": "attributes",
+          "latency": 1.0836721066018775,
+          "lexParse": 1.015386281619432,
+          "heap": 0.7649883114788888
+        },
+        {
+          "name": "deep",
+          "latency": 0.9848447960490476,
+          "lexParse": 1.0043470406766513,
+          "heap": 0.8876141822408223
+        },
+        {
+          "name": "invalid",
+          "latency": 0.41831749833231546,
+          "lexParse": 0.7076890018187989,
+          "heap": 0.94432051642184
+        },
+        {
+          "name": "noReferences",
+          "latency": 0.7353925955281044,
+          "lexParse": 0.8997803213458961,
+          "heap": 1.0003392616369706
+        },
+        {
+          "name": "oneReference",
+          "latency": 0.9681580277916255,
+          "lexParse": 0.9755540652700303,
+          "heap": 0.7022269133266108
+        }
+      ]
+    },
+    {
+      "file": "candidate-b-path-only-emission-reuse-3.results.json",
+      "compatibility": true,
+      "counts": {
+        "parseCases": 396,
+        "identical": 356,
+        "parseDifferences": 40,
+        "documents": 17,
+        "endToEndComparisons": 68,
+        "endToEndDifferences": 0
+      },
+      "order": [
+        "short",
+        "quoted",
+        "attributes",
+        "deep",
+        "invalid",
+        "noReferences",
+        "oneReference"
+      ],
+      "metrics": [
+        {
+          "name": "short",
+          "latency": 1.0374968120916046,
+          "lexParse": 1.017285986248807,
+          "heap": 0.7258595606385151
+        },
+        {
+          "name": "quoted",
+          "latency": 1.0248584769929778,
+          "lexParse": 1.0073307490397938,
+          "heap": 0.725920745699016
+        },
+        {
+          "name": "attributes",
+          "latency": 1.0889500311909384,
+          "lexParse": 1.01546529785962,
+          "heap": 0.7651274949037072
+        },
+        {
+          "name": "deep",
+          "latency": 0.9959679699445846,
+          "lexParse": 0.9991601423532176,
+          "heap": 0.8884405212274065
+        },
+        {
+          "name": "invalid",
+          "latency": 0.4136024670817813,
+          "lexParse": 0.7129480765051851,
+          "heap": 0.9441607869704831
+        },
+        {
+          "name": "noReferences",
+          "latency": 0.7438184707161877,
+          "lexParse": 0.8995813209527354,
+          "heap": 1.000356695431265
+        },
+        {
+          "name": "oneReference",
+          "latency": 0.910397004066506,
+          "lexParse": 1.002445418248446,
+          "heap": 0.7065603506915578
+        }
+      ]
+    },
+    {
+      "file": "candidate-b-path-only-emission-reuse-4.results.json",
+      "compatibility": true,
+      "counts": {
+        "parseCases": 396,
+        "identical": 356,
+        "parseDifferences": 40,
+        "documents": 17,
+        "endToEndComparisons": 68,
+        "endToEndDifferences": 0
+      },
+      "order": [
+        "oneReference",
+        "noReferences",
+        "invalid",
+        "deep",
+        "attributes",
+        "quoted",
+        "short"
+      ],
+      "metrics": [
+        {
+          "name": "oneReference",
+          "latency": 0.8630472015198026,
+          "lexParse": 0.9859028254098402,
+          "heap": 0.7147561944245336
+        },
+        {
+          "name": "noReferences",
+          "latency": 0.9614263384113722,
+          "lexParse": 0.9909137027993401,
+          "heap": 1.0003587929910887
+        },
+        {
+          "name": "invalid",
+          "latency": 0.42075294510631717,
+          "lexParse": 0.7184659363261657,
+          "heap": 0.9440396129039365
+        },
+        {
+          "name": "deep",
+          "latency": 0.9815410887301704,
+          "lexParse": 1.0016932905058475,
+          "heap": 0.887431790566663
+        },
+        {
+          "name": "attributes",
+          "latency": 1.0678385813199553,
+          "lexParse": 1.0126793089622583,
+          "heap": 0.7651651975843371
+        },
+        {
+          "name": "quoted",
+          "latency": 1.0228468999343687,
+          "lexParse": 1.0098985112116041,
+          "heap": 0.7264543443011596
+        },
+        {
+          "name": "short",
+          "latency": 1.0096645891779505,
+          "lexParse": 1.005344553202182,
+          "heap": 0.7255816574373776
+        }
+      ]
+    }
+  ],
+  "pipeline": [
+    {
+      "file": "path-only-emission-reuse-pipeline-1.results.json",
+      "profileScope": "retained broader artifact, not narrow reference support",
+      "metrics": [
+        {
+          "surface": "compile",
+          "name": "short",
+          "latency": 1.0127400170601362,
+          "heap": 0.8720146436745797,
+          "broaderControlLatency": 0.9421212677004239,
+          "broaderControlHeap": 0.8723827042350931
+        },
+        {
+          "surface": "compile",
+          "name": "quoted",
+          "latency": 0.9910122071088319,
+          "heap": 0.8744908038632663,
+          "broaderControlLatency": 0.9424422024412332,
+          "broaderControlHeap": 0.8747121752590632
+        },
+        {
+          "surface": "compile",
+          "name": "attributes",
+          "latency": 1.0008868316450652,
+          "heap": 0.8879453411815165,
+          "broaderControlLatency": 0.9552335940505009,
+          "broaderControlHeap": 0.8889267641608173
+        },
+        {
+          "surface": "compile",
+          "name": "noReferences",
+          "latency": 0.9824564080395989,
+          "heap": 0.9998014163352184,
+          "broaderControlLatency": 0.8519751245068737,
+          "broaderControlHeap": 0.9997432107782996
+        },
+        {
+          "surface": "compile",
+          "name": "oneReference",
+          "latency": 0.9918927891811689,
+          "heap": 0.9313572858327099,
+          "broaderControlLatency": 0.9406249144422992,
+          "broaderControlHeap": 0.9267474069431246
+        },
+        {
+          "surface": "compile",
+          "name": "invalid",
+          "latency": 0.8625252241093442,
+          "heap": 0.45462518813682284,
+          "broaderControlLatency": 0.9048348833791083,
+          "broaderControlHeap": 0.5384881920457375
+        },
+        {
+          "surface": "compile",
+          "name": "deep",
+          "latency": 1.0031240779946875,
+          "heap": 0.9999624159228414,
+          "broaderControlLatency": 0.5937590731201242,
+          "broaderControlHeap": 0.9997602652299719
+        },
+        {
+          "surface": "canonicalize",
+          "name": "short",
+          "latency": 0.9735865716183773,
+          "heap": 1.145985401459854,
+          "broaderControlLatency": 0.8741955599274644,
+          "broaderControlHeap": 1.1920837678136949
+        },
+        {
+          "surface": "canonicalize",
+          "name": "quoted",
+          "latency": 0.9662845130125703,
+          "heap": 0.9839279459594696,
+          "broaderControlLatency": 0.8886879132153851,
+          "broaderControlHeap": 0.9416062046534901
+        },
+        {
+          "surface": "canonicalize",
+          "name": "attributes",
+          "latency": 0.978135228026166,
+          "heap": 1.0176431638080186,
+          "broaderControlLatency": 0.8929409145381672,
+          "broaderControlHeap": 0.9283700365251938
+        },
+        {
+          "surface": "canonicalize",
+          "name": "noReferences",
+          "latency": 0.9426089584370261,
+          "heap": 0.8653437748871782,
+          "broaderControlLatency": 0.7819148094930713,
+          "broaderControlHeap": 1.1129214228829307
+        },
+        {
+          "surface": "canonicalize",
+          "name": "oneReference",
+          "latency": 0.9790724692392154,
+          "heap": 1.0424369259388444,
+          "broaderControlLatency": 0.7834554383927845,
+          "broaderControlHeap": 1.070340658063016
+        },
+        {
+          "surface": "canonicalize",
+          "name": "invalid",
+          "latency": 0.8813385692329442,
+          "heap": 0.4142486654959471,
+          "broaderControlLatency": 0.9202093709601602,
+          "broaderControlHeap": 0.504204123879191
+        },
+        {
+          "surface": "canonicalize",
+          "name": "deep",
+          "latency": 0.9299021831935009,
+          "heap": 0.8910565119958261,
+          "broaderControlLatency": 0.5372858350578552,
+          "broaderControlHeap": 0.996811157799339
+        }
+      ]
+    },
+    {
+      "file": "path-only-emission-reuse-pipeline-2.results.json",
+      "profileScope": "retained broader artifact, not narrow reference support",
+      "metrics": [
+        {
+          "surface": "compile",
+          "name": "short",
+          "latency": 1.0006343309920107,
+          "heap": 0.8720213103794798,
+          "broaderControlLatency": 0.9415198643645522,
+          "broaderControlHeap": 0.8724039316691448
+        },
+        {
+          "surface": "compile",
+          "name": "quoted",
+          "latency": 1.0077973615055829,
+          "heap": 0.874494836949572,
+          "broaderControlLatency": 0.9222409683327711,
+          "broaderControlHeap": 0.8744910635561047
+        },
+        {
+          "surface": "compile",
+          "name": "attributes",
+          "latency": 1.0032981979441595,
+          "heap": 0.8880551897869126,
+          "broaderControlLatency": 0.9424436184665762,
+          "broaderControlHeap": 0.8890350629755576
+        },
+        {
+          "surface": "compile",
+          "name": "noReferences",
+          "latency": 0.9871112290028169,
+          "heap": 0.9998099743493905,
+          "broaderControlLatency": 0.8560716795866921,
+          "broaderControlHeap": 0.9997751648458253
+        },
+        {
+          "surface": "compile",
+          "name": "oneReference",
+          "latency": 0.9617336585661502,
+          "heap": 0.932096144904684,
+          "broaderControlLatency": 0.9309177168397124,
+          "broaderControlHeap": 0.92500050538743
+        },
+        {
+          "surface": "compile",
+          "name": "invalid",
+          "latency": 0.8429145692010939,
+          "heap": 0.4545838339882441,
+          "broaderControlLatency": 0.8998278829604148,
+          "broaderControlHeap": 0.538206735296983
+        },
+        {
+          "surface": "compile",
+          "name": "deep",
+          "latency": 1.0081038045664008,
+          "heap": 0.9996976626783082,
+          "broaderControlLatency": 0.5931489519818867,
+          "broaderControlHeap": 0.999767781525738
+        },
+        {
+          "surface": "canonicalize",
+          "name": "short",
+          "latency": 0.9731264654792273,
+          "heap": 1.1253395336708751,
+          "broaderControlLatency": 0.8770819800073859,
+          "broaderControlHeap": 1.1836415393641757
+        },
+        {
+          "surface": "canonicalize",
+          "name": "quoted",
+          "latency": 0.9639781104871291,
+          "heap": 0.9216644280782094,
+          "broaderControlLatency": 0.8913777840479561,
+          "broaderControlHeap": 0.9299847655792235
+        },
+        {
+          "surface": "canonicalize",
+          "name": "attributes",
+          "latency": 0.9782368464665774,
+          "heap": 0.8751601879538659,
+          "broaderControlLatency": 0.9084939208670971,
+          "broaderControlHeap": 0.9266018795386587
+        },
+        {
+          "surface": "canonicalize",
+          "name": "noReferences",
+          "latency": 0.9283233511977317,
+          "heap": 0.9634832395725841,
+          "broaderControlLatency": 0.7901630772756598,
+          "broaderControlHeap": 1.1161745614327085
+        },
+        {
+          "surface": "canonicalize",
+          "name": "oneReference",
+          "latency": 0.9692425273775181,
+          "heap": 1.0415964677859757,
+          "broaderControlLatency": 0.8095649567073329,
+          "broaderControlHeap": 1.069714750479289
+        },
+        {
+          "surface": "canonicalize",
+          "name": "invalid",
+          "latency": 0.8974922535387638,
+          "heap": 0.4144693224774644,
+          "broaderControlLatency": 0.9859235504593802,
+          "broaderControlHeap": 0.5042744984006978
+        },
+        {
+          "surface": "canonicalize",
+          "name": "deep",
+          "latency": 0.9332402011318943,
+          "heap": 0.8892448239752275,
+          "broaderControlLatency": 0.5399779815278392,
+          "broaderControlHeap": 0.9971508946055962
+        }
+      ]
+    }
+  ],
+  "aliasScope": "Identity aliases are unsupported by the narrow contract. Original workloads/checks and their accepted source-specific results remain in the isolated broader artifact; they are not a narrow capability or performance pass.",
+  "broaderEvidence": "../../../reference-parser-sharing/experiments/reference-parser-sharing/parser-value-dispatch.results.json"
+}

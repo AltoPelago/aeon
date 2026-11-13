@@ -1461,7 +1461,126 @@ fn index_event_values(events: &[AssignmentEvent]) -> BTreeMap<String, Value> {
         }
         let _ = values.insert(format_path(&event.path), event.value.clone());
     }
+    // Only attribute clone targets need the richer Core lookup. Ordinary
+    // references retain the existing map and allocate no additional index.
+    let mut targets = BTreeMap::new();
+    for event in events {
+        collect_attribute_clone_targets(&event.value, &mut targets);
+        collect_annotation_clone_targets(&event.annotations, &mut targets);
+    }
+    if !targets.is_empty() {
+        let event_lookup = events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| event.source_plane == SourcePlane::Body)
+            .map(|(index, event)| (format_path(&event.path), index))
+            .collect();
+        for (target, segments) in targets {
+            if let Some(value) =
+                aeon_core::resolve_assignment_reference_target(segments, events, &event_lookup)
+            {
+                let value = match value {
+                    aeon_core::AssignmentReferenceTarget::Value(value) => value.clone(),
+                    aeon_core::AssignmentReferenceTarget::Attribute(attribute) => {
+                        attribute_target_value(attribute)
+                    }
+                };
+                values.insert(target, value);
+            }
+        }
+    }
     values
+}
+
+// Attribute objects use the existing materialization model only inside this
+// operation's private target map; authored ASTs and reference syntax are intact.
+fn attribute_target_value(attribute: &AttributeValue) -> Value {
+    if let Some(value) = &attribute.value {
+        return value.clone();
+    }
+    let mut seen = BTreeSet::new();
+    let bindings = attribute
+        .object_member_order
+        .iter()
+        .chain(attribute.object_members.keys())
+        .filter_map(|key| {
+            if !seen.insert(key.as_str()) {
+                return None;
+            }
+            let member = attribute.object_members.get(key)?;
+            Some(aeon_core::Binding {
+                key: key.clone(),
+                is_header: false,
+                structural_id: member.structural_id.clone(),
+                datatype: member.datatype.clone(),
+                attributes: member.nested_attrs.clone(),
+                attribute_order: member.nested_attr_order.clone(),
+                value: attribute_target_value(member),
+                span: member.span.unwrap_or_else(Span::zero),
+            })
+        })
+        .collect();
+    Value::ObjectNode { bindings }
+}
+
+fn collect_annotation_clone_targets<'a>(
+    annotations: &'a BTreeMap<String, AttributeValue>,
+    targets: &mut BTreeMap<String, &'a [ReferenceSegment]>,
+) {
+    for entry in annotations.values() {
+        if let Some(value) = &entry.value {
+            collect_attribute_clone_targets(value, targets);
+        }
+        collect_annotation_clone_targets(&entry.nested_attrs, targets);
+        collect_annotation_clone_targets(&entry.object_members, targets);
+    }
+}
+
+fn collect_attribute_clone_targets<'a>(
+    value: &'a Value,
+    targets: &mut BTreeMap<String, &'a [ReferenceSegment]>,
+) {
+    match value {
+        Value::CloneReference { segments, .. }
+            if segments
+                .iter()
+                .any(|step| matches!(step, ReferenceSegment::Attr(_))) =>
+        {
+            targets
+                .entry(reference_target_path(segments))
+                .or_insert(segments);
+        }
+        Value::TypedValue {
+            value, attributes, ..
+        } => {
+            collect_annotation_clone_targets(attributes, targets);
+            collect_attribute_clone_targets(value, targets);
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                collect_annotation_clone_targets(&binding.attributes, targets);
+                collect_attribute_clone_targets(&binding.value, targets);
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for item in items {
+                collect_attribute_clone_targets(item, targets);
+            }
+        }
+        Value::NodeLiteral {
+            children,
+            attributes,
+            ..
+        } => {
+            for attributes in attributes {
+                collect_annotation_clone_targets(attributes, targets);
+            }
+            for child in children {
+                collect_attribute_clone_targets(child, targets);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn push_map_entry(
@@ -1732,7 +1851,7 @@ fn attribute_value_to_json(
             tracker,
         );
     }
-    JsonValue::Null
+    JsonValue::Object(Map::new())
 }
 
 fn object_attribute_members_to_json(
@@ -2213,6 +2332,203 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "copy": 99, "source": 99 }));
+    }
+
+    #[test]
+    fn materializes_attribute_clones_through_core_target_lookup() {
+        for (source, expected) in [
+            ("a@{unit=\"cm\"}=1\ncopy=~a.@.unit", json!("cm")),
+            ("a@{meta={unit=\"cm\"}}=1\ncopy=~a.@.meta.unit", json!("cm")),
+            (
+                "a@{unit@{label=\"cm\"}=1}=0\ncopy=~a.@.unit.@.label",
+                json!("cm"),
+            ),
+            ("a@{\"u.x\"=[10,20]}=1\ncopy=~a.@.[\"u.x\"][1]", json!(20)),
+            (
+                "a@{unit=\"cm\",alias=~a.@.unit}=1\ncopy=~a.@.alias",
+                json!("cm"),
+            ),
+        ] {
+            let compiled = compile(
+                source,
+                CompileOptions {
+                    max_attribute_depth: 8,
+                    ..CompileOptions::default()
+                },
+            );
+            assert!(
+                compiled.errors.is_empty(),
+                "{source}: {:?}",
+                compiled.errors
+            );
+            let result = finalize_json(&compiled.events, FinalizeOptions::default());
+            assert!(
+                result.meta.errors.is_empty(),
+                "{source}: {:?}",
+                result.meta.errors
+            );
+            assert_eq!(result.document["copy"], expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn materializes_whole_attribute_objects_and_distinguishes_empty_from_null() {
+        for (source, expected) in [
+            (
+                "a@{meta={unit=\"cm\"}}=1\ncopy=~a.@.meta",
+                json!({"unit":"cm"}),
+            ),
+            (
+                "a@{meta={nested={unit=\"cm\"}}}=1\ncopy=~a.@.meta",
+                json!({"nested":{"unit":"cm"}}),
+            ),
+            ("a@{meta={}}=1\ncopy=~a.@.meta", json!({})),
+            (
+                "a@{meta={leaf@{tag=\"x\"}=\"cm\"}}=1\ncopy=~a.@.meta",
+                json!({"leaf":"cm","@":{"leaf":{"tag":"x"}}}),
+            ),
+        ] {
+            let compiled = compile(
+                source,
+                CompileOptions {
+                    max_attribute_depth: 8,
+                    ..CompileOptions::default()
+                },
+            );
+            assert!(
+                compiled.errors.is_empty(),
+                "{source}: {:?}",
+                compiled.errors
+            );
+            let result = finalize_json(&compiled.events, FinalizeOptions::default());
+            assert!(
+                result.meta.errors.is_empty(),
+                "{source}: {:?}",
+                result.meta.errors
+            );
+            assert_eq!(result.document["copy"], expected, "{source}");
+            assert_eq!(result.document["@"]["a"]["meta"], expected, "{source}");
+        }
+        let compiled = compile("a@{empty={},n=!none}=1", CompileOptions::default());
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+        let result = finalize_json(&compiled.events, FinalizeOptions::default());
+        assert!(result.document["@"]["a"]["empty"].is_object());
+        assert!(result.document["@"]["a"]["n"].is_null());
+        let compiled = compile(
+            "a@{meta={x=1,y=2}}=1\ncopy=~a.@.meta",
+            CompileOptions::default(),
+        );
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+        // Existing object weight is the sum of its leaves (two here).
+        let allowed = finalize_json(
+            &compiled.events,
+            FinalizeOptions {
+                max_materialized_weight: Some(2),
+                ..FinalizeOptions::default()
+            },
+        );
+        assert!(allowed.meta.errors.is_empty(), "{:?}", allowed.meta.errors);
+        let result = finalize_json(
+            &compiled.events,
+            FinalizeOptions {
+                max_materialized_weight: Some(1),
+                ..FinalizeOptions::default()
+            },
+        );
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_BUDGET_EXCEEDED")
+        );
+    }
+
+    #[test]
+    fn attribute_clone_lookup_keeps_materialization_limits_and_pointer_policy() {
+        let compiled = compile(
+            "a@{unit=\"cm\"}=1\ncopy=~a.@.unit",
+            CompileOptions::default(),
+        );
+        for (options, code) in [
+            (
+                FinalizeOptions {
+                    max_reference_depth: Some(0),
+                    ..FinalizeOptions::default()
+                },
+                "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+            ),
+            (
+                FinalizeOptions {
+                    max_materialized_weight: Some(0),
+                    ..FinalizeOptions::default()
+                },
+                "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
+            ),
+        ] {
+            let result = finalize_json(&compiled.events, options);
+            assert!(
+                result.meta.errors.iter().any(|error| error.code == code),
+                "{:?}",
+                result.meta.errors
+            );
+        }
+        let pointer = compile(
+            "a@{unit=\"cm\"}=1\ncopy=~>a.@.unit",
+            CompileOptions::default(),
+        );
+        let result = finalize_json(&pointer.events, FinalizeOptions::default());
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE")
+        );
+        assert!(
+            result.document["copy"]
+                .as_str()
+                .expect("symbolic pointer")
+                .starts_with("~>")
+        );
+    }
+
+    #[test]
+    fn attribute_clone_lookup_does_not_invent_missing_targets_or_bypass_cycles() {
+        let mut compiled = compile(
+            "a@{unit=\"cm\"}=1\ncopy=~a.@.unit",
+            CompileOptions::default(),
+        );
+        let span = compiled.events[1].span;
+        compiled.events[0]
+            .annotations
+            .get_mut("unit")
+            .expect("unit")
+            .value = Some(Value::CloneReference {
+            segments: vec![ReferenceSegment::Key(String::from("copy"))],
+            span,
+        });
+        let result = finalize_json(&compiled.events, FinalizeOptions::default());
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_CYCLE"),
+            "{:?}",
+            result.meta.errors
+        );
+        if let Value::CloneReference { segments, .. } = &mut compiled.events[1].value {
+            segments[1] = ReferenceSegment::Attr(String::from("missing"));
+        }
+        let result = finalize_json(&compiled.events, FinalizeOptions::default());
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE")
+        );
     }
 
     #[test]

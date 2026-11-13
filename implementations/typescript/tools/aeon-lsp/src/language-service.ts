@@ -1,5 +1,5 @@
 import { compile, formatPath, type AEONError } from '@altopelago/aeon-core';
-import { tokenize, type Span } from '@altopelago/aeon-lexer';
+import { tokenize, TokenType, type Span } from '@altopelago/aeon-lexer';
 import {
     parse,
     formatClarifierValue,
@@ -106,6 +106,23 @@ export function getHover(text: string, position: Position): Hover | null {
     if (!document) return null;
 
     const offset = offsetAt(text, position);
+    // Describe authored metadata/literals without resolving a namespace or offering
+    // identity spellings as clone/pointer targets. The compiler still validates.
+    const token = tokenize(text, { includeComments: false }).tokens.find((entry) =>
+        entry.span.start.offset <= offset && offset < entry.span.end.offset
+        && (entry.type === TokenType.StructuralIdentity || entry.type === TokenType.SansaAddressLiteral));
+    if (token) {
+        return {
+            contents: {
+                kind: MarkupKind.Markdown,
+                value: token.type === TokenType.StructuralIdentity
+                    ? `**Structural identity** \`\\${token.value}\\\`\nOccurrence metadata. A SANSA child identity selector selects an exposed direct child; resolved paths remain structural. This is not a clone/pointer reference target.`
+                    : '**SANSA address literal**\nParsed and preserved as a value; resolution and selector admission belong to the consuming namespace. Child identity selectors are non-exact and do not enable identity selectors in clone/pointer references.',
+            },
+            range: toRange(token.span),
+        };
+    }
+
     const datatypes = collectDatatypes(document);
     const datatype = findNarrowestSpanMatch(datatypes, offset);
     if (datatype) {
