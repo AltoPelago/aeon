@@ -2450,7 +2450,14 @@ mod tests {
             for marker in ["~", "~>"] {
                 let source = format!("copy={marker}items[{raw}\nnext=2");
                 let expected = parse_with(&source, ParserImplementation::Baseline);
-                assert_eq!(expected.as_ref().unwrap_err().message, message, "{source}");
+                assert_eq!(
+                    expected
+                        .as_ref()
+                        .expect_err("expected regression rejection")
+                        .message,
+                    message,
+                    "{source}"
+                );
                 for engine in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
                     assert_eq!(parse_with(&source, engine), expected, "{source}");
                     for split in 0..=source.len() {

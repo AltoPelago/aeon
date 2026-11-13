@@ -2413,18 +2413,32 @@ mod identity_ast_payload_regressions {
                 name: "ObjectLiteral.*".into(),
             },
         ] {
-            let mut address = parse_address("$.\\target\\").unwrap();
+            let mut address = parse_address("$.\\target\\").expect("valid regression fixture");
             address.selectors.push(selector);
             let result =
                 resolve_parsed_address(&address, &namespace, &SansaResolveOptions::default());
             assert_eq!(result.errors[0].code, "SANSA_RESOLVE_INVALID_ADDRESS");
         }
-        let mut address = parse_address("$.\\target\\:Q[1]").unwrap();
-        address.qualifier_expression.as_mut().unwrap().terms[0].name = "Q|Other".into();
+        let mut address = parse_address("$.\\target\\:Q[1]").expect("valid regression fixture");
+        address
+            .qualifier_expression
+            .as_mut()
+            .expect("valid regression fixture")
+            .terms[0]
+            .name = "Q|Other".into();
         assert!(!identity_ast_bounded(&address));
-        address.qualifier_expression.as_mut().unwrap().terms[0].name = "Q".into();
-        address.qualifier_expression.as_mut().unwrap().terms[0].arguments[0] =
-            QualifierArgument::Number("1]|Other[2".into());
+        address
+            .qualifier_expression
+            .as_mut()
+            .expect("valid regression fixture")
+            .terms[0]
+            .name = "Q".into();
+        address
+            .qualifier_expression
+            .as_mut()
+            .expect("valid regression fixture")
+            .terms[0]
+            .arguments[0] = QualifierArgument::Number("1]|Other[2".into());
         assert!(!identity_ast_bounded(&address));
     }
 }

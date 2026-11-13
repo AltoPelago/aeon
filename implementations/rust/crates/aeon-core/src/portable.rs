@@ -2140,7 +2140,7 @@ mod tests {
     ) {
         let ordinary = compiler("a=1", CompileOptions::default());
         assert_eq!(
-            format!("{:?}", ordinary.header.unwrap()),
+            format!("{:?}", ordinary.header.expect("valid regression fixture")),
             "HeaderFields { fields: {}, order: [], spans: {}, datatypes: {} }"
         );
         for include_header in [false, true] {
@@ -2160,7 +2160,7 @@ mod tests {
                     assert!(result.header.is_none());
                     continue;
                 }
-                let retained = result.header.as_ref().unwrap();
+                let retained = result.header.as_ref().expect("valid regression fixture");
                 assert!(format!("{retained:?}").contains("structural_ids:"));
                 let field = if source.starts_with("aeon:header") {
                     "value"
@@ -2179,13 +2179,13 @@ mod tests {
                         ..PortableAesCompatibilityOptions::default()
                     },
                 )
-                .unwrap();
+                .expect("valid regression fixture");
                 let address = format!("$.[\"aeon:{field}\"]");
                 let event = projected
                     .events
                     .iter()
                     .find(|e| e.header.as_deref() == Some(&address))
-                    .unwrap();
+                    .expect("valid regression fixture");
                 assert_eq!(event.identity.as_deref(), Some("head"));
                 assert_eq!(
                     event.datatype.as_deref(),
@@ -2195,7 +2195,7 @@ mod tests {
                     .events
                     .iter()
                     .find(|e| e.path.as_deref() == Some("$.[\"aeon:value\"]"))
-                    .unwrap();
+                    .expect("valid regression fixture");
                 assert_eq!(body.identity.as_deref(), Some("body"));
                 if field == "value" {
                     assert_eq!(
@@ -2203,7 +2203,7 @@ mod tests {
                             .events
                             .iter()
                             .find(|e| e.header.as_deref() == Some("$.[\"aeon:items\"]"))
-                            .unwrap()
+                            .expect("valid regression fixture")
                             .identity
                             .as_deref(),
                         Some("list")
@@ -2213,7 +2213,7 @@ mod tests {
                             .events
                             .iter()
                             .find(|e| e.header.as_deref() == Some("$.[\"aeon:items\"][0]"))
-                            .unwrap()
+                            .expect("valid regression fixture")
                             .identity
                             .as_deref(),
                         Some("entry")

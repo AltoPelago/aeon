@@ -30,12 +30,18 @@ fn parser_candidate_vectors() {
     let s: J = serde_json::from_str(include_str!(
         "../tests/fixtures/child-identity/12-child-identity-parser.json"
     ))
-    .unwrap();
-    for case in s["tests"].as_array().unwrap() {
-        let got = parse_address(case["input"]["source"].as_str().unwrap());
+    .expect("valid regression fixture");
+    for case in s["tests"].as_array().expect("valid regression fixture") {
+        let got = parse_address(
+            case["input"]["source"]
+                .as_str()
+                .expect("valid regression fixture"),
+        );
         assert_eq!(
             got.is_ok(),
-            case["expected"]["ok"].as_bool().unwrap(),
+            case["expected"]["ok"]
+                .as_bool()
+                .expect("valid regression fixture"),
             "{}: {got:?}",
             case["id"]
         );
@@ -48,9 +54,17 @@ fn parser_candidate_vectors() {
             }
         }
         if let Ok(a) = got {
-            assert_eq!(a.is_exact, case["expected"]["exact"].as_bool().unwrap());
+            assert_eq!(
+                a.is_exact,
+                case["expected"]["exact"]
+                    .as_bool()
+                    .expect("valid regression fixture")
+            );
             assert_eq!(render_address(&a), case["expected"]["canonical"]);
-            assert_eq!(parse_address(&a.canonical).unwrap(), a);
+            assert_eq!(
+                parse_address(&a.canonical).expect("valid regression fixture"),
+                a
+            );
         }
     }
 }
@@ -59,9 +73,9 @@ fn resolve_candidate_vectors() {
     let s: J = serde_json::from_str(include_str!(
         "../tests/fixtures/child-identity/13-child-identity-resolve.json"
     ))
-    .unwrap();
+    .expect("valid regression fixture");
     let mut count = 0;
-    for case in s["tests"].as_array().unwrap() {
+    for case in s["tests"].as_array().expect("valid regression fixture") {
         let i = &case["input"];
         if i.get("maxIdentityInspections")
             .is_some_and(|v| v.as_u64().is_none())
@@ -74,14 +88,16 @@ fn resolve_candidate_vectors() {
         count += 1;
         let f = s["fixtures"]["namespaces"]
             .as_array()
-            .unwrap()
+            .expect("valid regression fixture")
             .iter()
             .find(|f| f["id"] == i["namespace"])
-            .unwrap();
+            .expect("valid regression fixture");
         let mut root = binding(&f["root"]);
         parents(&mut root);
         let mut n = SansaResolveNamespace::new(root);
-        n.supports_structural_identity = f["supportsIdentity"].as_bool().unwrap();
+        n.supports_structural_identity = f["supportsIdentity"]
+            .as_bool()
+            .expect("valid regression fixture");
         n.supports_parent_traversal = true;
         n.supports_local_space = true;
         let mut o = SansaResolveOptions::default();
@@ -92,10 +108,16 @@ fn resolve_candidate_vectors() {
         if i["contextualRoot"].is_string() {
             o.contextual_root = Some(n.root.children[0].clone());
         }
-        let got = resolve_address(i["source"].as_str().unwrap(), &n, &o);
+        let got = resolve_address(
+            i["source"].as_str().expect("valid regression fixture"),
+            &n,
+            &o,
+        );
         assert_eq!(
             got.ok,
-            case["expected"]["ok"].as_bool().unwrap(),
+            case["expected"]["ok"]
+                .as_bool()
+                .expect("valid regression fixture"),
             "{}: {got:?}",
             case["id"]
         );
@@ -104,7 +126,7 @@ fn resolve_candidate_vectors() {
                 json!(
                     got.bindings
                         .iter()
-                        .map(|b| b.address.clone().unwrap())
+                        .map(|b| b.address.clone().expect("valid regression fixture"))
                         .collect::<Vec<_>>()
                 ),
                 case["expected"]["addresses"],
@@ -144,7 +166,7 @@ fn occurrence_identity_is_not_structural_identity() {
             .bindings
             .is_empty()
     );
-    let mut a = parse_address("$.\\x\\").unwrap();
+    let mut a = parse_address("$.\\x\\").expect("valid regression fixture");
     a.is_exact = true;
     a.canonical = "$.other".into();
     assert!(resolve_parsed_address(&a, &n, &SansaResolveOptions::default()).ok);

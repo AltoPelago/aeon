@@ -1602,7 +1602,7 @@ mod child_identity_tests {
             AeonSansaScope::Payload,
             AeonNumericMaterialization::Lossless,
         )
-        .unwrap();
+        .expect("valid regression fixture");
         let got = ns.resolve_address(
             "$.\\g\\.\\c\\",
             &runtime::resolve::ResolveOptions::default(),
@@ -1611,7 +1611,11 @@ mod child_identity_tests {
         assert_eq!(got.bindings.len(), 1);
         assert_eq!(
             got.bindings[0],
-            ns.root().member("group").unwrap().member("child").unwrap()
+            ns.root()
+                .member("group")
+                .expect("valid regression fixture")
+                .member("child")
+                .expect("valid regression fixture")
         );
         assert_eq!(got.bindings[0].address(), "$.group.child");
         let root_match =
@@ -1624,7 +1628,7 @@ mod child_identity_tests {
         assert!(selected.is_ok(), "{:?}", selected.errors);
         assert_eq!(
             selected.results[0].candidate,
-            ns.root().member("group").unwrap()
+            ns.root().member("group").expect("valid regression fixture")
         );
         assert_eq!(selected.results[0].candidate.address(), "$.group");
     }
@@ -1636,8 +1640,8 @@ mod child_identity_tests {
             AeonSansaScope::Payload,
             AeonNumericMaterialization::Lossless,
         )
-        .unwrap();
-        let group = ns.root().member("group").unwrap();
+        .expect("valid regression fixture");
+        let group = ns.root().member("group").expect("valid regression fixture");
         let opts = runtime::resolve::ResolveOptions {
             contextual_root: Some(group.clone()),
             ..runtime::resolve::ResolveOptions::default()
@@ -1645,14 +1649,17 @@ mod child_identity_tests {
         assert!(ns.resolve_address("?.\\g\\", &opts).bindings.is_empty());
         let got = ns.resolve_address("?.\\c\\", &opts);
         assert!(got.is_ok());
-        assert_eq!(got.bindings[0], group.member("child").unwrap());
+        assert_eq!(
+            got.bindings[0],
+            group.member("child").expect("valid regression fixture")
+        );
         let foreign = AeonSansaNamespace::compile(
             "group\\g\\={child\\c\\=1}",
             CompileOptions::default(),
             AeonSansaScope::Payload,
             AeonNumericMaterialization::Lossless,
         )
-        .unwrap();
+        .expect("valid regression fixture");
         let header = AeonSansaNamespace::from_shared(
             ns.document.clone(),
             AeonSansaScope::Header,
@@ -1676,7 +1683,7 @@ mod child_identity_tests {
                 "aeon:header={value\\head\\=1}\n\"aeon:value\"\\body\\=2",
                 CompileOptions::default(),
             )
-            .unwrap(),
+            .expect("valid regression fixture"),
         );
         let header = AeonSansaNamespace::from_shared(
             document.clone(),
@@ -1738,7 +1745,7 @@ mod child_identity_tests {
                 AeonSansaScope::Payload,
                 AeonNumericMaterialization::Lossless,
             )
-            .unwrap();
+            .expect("valid regression fixture");
             let got = ns.resolve_address(path, &runtime::resolve::ResolveOptions::default());
             assert!(got.is_ok(), "{source}: {:?}", got.errors);
             assert_eq!(got.bindings.len(), 1, "{source}");

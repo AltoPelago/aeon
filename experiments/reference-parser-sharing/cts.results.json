@@ -1,6 +1,6 @@
 {
   "date": "2026-10-18",
-  "suite": "/Users/altopelago/Documents/GitHub/aeon-family/aeonite-org/aeonite-cts/cts/core/v1/suites/03-attributes-and-references.json",
+  "suite": "aeonite-org/aeonite-cts/cts/core/v1/suites/03-attributes-and-references.json",
   "ctsCommit": "9e6e06cbac618f86723d9cb6a5707228b3b025b8",
   "method": "Direct Core baseline/candidate error-code parity and expected acceptance checks. Exact expected-code discrepancies are recorded, not hidden; not the full CTS protocol/projection or a complete CTS pass claim.",
   "results": [
