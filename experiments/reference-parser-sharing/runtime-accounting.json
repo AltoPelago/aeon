@@ -1,0 +1,214 @@
+{
+  "reference-parser-sharing": {
+    "aeon": {
+      "files": 15,
+      "added": 724,
+      "removed": 293,
+      "changes": [
+        {
+          "path": "implementations/typescript/packages/aes/src/index.ts",
+          "added": 2,
+          "removed": 0
+        },
+        {
+          "path": "implementations/typescript/packages/aes/src/portable.ts",
+          "added": 12,
+          "removed": 3
+        },
+        {
+          "path": "implementations/typescript/packages/aes/src/reference-order.ts",
+          "added": 33,
+          "removed": 20
+        },
+        {
+          "path": "implementations/typescript/packages/aes/src/references.ts",
+          "added": 44,
+          "removed": 5
+        },
+        {
+          "path": "implementations/typescript/packages/canonical/src/index.ts",
+          "added": 116,
+          "removed": 18
+        },
+        {
+          "path": "implementations/typescript/packages/canonical/src/ordering.ts",
+          "added": 5,
+          "removed": 5
+        },
+        {
+          "path": "implementations/typescript/packages/core/src/index.ts",
+          "added": 9,
+          "removed": 2
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/ast.ts",
+          "added": 3,
+          "removed": 0
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/index.ts",
+          "added": 3,
+          "removed": 1
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/parser.ts",
+          "added": 108,
+          "removed": 239
+        },
+        {
+          "path": "implementations/typescript/packages/aes/src/reference-selection.ts",
+          "added": 92,
+          "removed": 0
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/experimental-reference-profile.ts",
+          "added": 3,
+          "removed": 0
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/experimental-reference-replay.ts",
+          "added": 2,
+          "removed": 0
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/reference-address.ts",
+          "added": 217,
+          "removed": 0
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/reference-selection.ts",
+          "added": 75,
+          "removed": 0
+        }
+      ]
+    },
+    "sansa": {
+      "files": 12,
+      "added": 617,
+      "removed": 81,
+      "changes": [
+        {
+          "path": "src/index.d.ts",
+          "added": 2,
+          "removed": 0
+        },
+        {
+          "path": "src/index.js",
+          "added": 27,
+          "removed": 81
+        },
+        {
+          "path": "src/address-format.js",
+          "added": 39,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-data-platform.js",
+          "added": 4,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-data-platform.node.js",
+          "added": 3,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-normalization.js",
+          "added": 189,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-profile.d.ts",
+          "added": 41,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-profile.js",
+          "added": 149,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-replay.d.ts",
+          "added": 18,
+          "removed": 0
+        },
+        {
+          "path": "src/reference-replay.js",
+          "added": 64,
+          "removed": 0
+        },
+        {
+          "path": "src/selector-cursor.d.ts",
+          "added": 18,
+          "removed": 0
+        },
+        {
+          "path": "src/selector-cursor.js",
+          "added": 63,
+          "removed": 0
+        }
+      ]
+    }
+  },
+  "reference-path-only": {
+    "aeon": {
+      "files": 6,
+      "added": 302,
+      "removed": 248,
+      "changes": [
+        {
+          "path": "implementations/typescript/packages/aes/src/portable.ts",
+          "added": 4,
+          "removed": 2
+        },
+        {
+          "path": "implementations/typescript/packages/aes/src/references.ts",
+          "added": 7,
+          "removed": 1
+        },
+        {
+          "path": "implementations/typescript/packages/canonical/src/index.ts",
+          "added": 10,
+          "removed": 4
+        },
+        {
+          "path": "implementations/typescript/packages/canonical/src/reference-path.ts",
+          "added": 5,
+          "removed": 2
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/parser.ts",
+          "added": 81,
+          "removed": 239
+        },
+        {
+          "path": "implementations/typescript/packages/parser/src/reference-address.ts",
+          "added": 195,
+          "removed": 0
+        }
+      ]
+    },
+    "sansa": {
+      "files": 3,
+      "added": 100,
+      "removed": 62,
+      "changes": [
+        {
+          "path": "src/index.js",
+          "added": 10,
+          "removed": 62
+        },
+        {
+          "path": "src/selector-cursor.d.ts",
+          "added": 17,
+          "removed": 0
+        },
+        {
+          "path": "src/selector-cursor.js",
+          "added": 73,
+          "removed": 0
+        }
+      ]
+    }
+  }
+}

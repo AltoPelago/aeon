@@ -1,0 +1,92 @@
+{
+  "status": "pass",
+  "node": "v24.16.0",
+  "runtime": {
+    "node": "v24.16.0",
+    "status": "pass",
+    "installedRoot": "/private/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/consumer"
+  },
+  "typedConsumer": "pass",
+  "offlineInstall": true,
+  "lifecycleScripts": false,
+  "publication": false,
+  "runRoot": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq",
+  "packages": [
+    {
+      "name": "@altopelago/sansa",
+      "version": "0.15.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-sansa-0.15.0-rc.1.tgz",
+      "integrity": "sha512-6ML0LILt3VP27oc6dVnFiFFREOk5mFuFClEs3yH/gk1xPDFk4O+Wt05dDE2LsXqqvoyeH5esPTTOuOjTG6Orsg==",
+      "dependencies": {}
+    },
+    {
+      "name": "@altopelago/aeon-lexer",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-lexer-0.17.0-rc.1.tgz",
+      "integrity": "sha512-Hw3RXvz17r6RYGzZU+0U/MuX3wBiJWXZAvnKjaTOlVHQliQ+uYQ9odviPiX2918IVmrgQJhLKWT6H2vrNT8Swg==",
+      "dependencies": {}
+    },
+    {
+      "name": "@altopelago/aeon-parser",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-parser-0.17.0-rc.1.tgz",
+      "integrity": "sha512-9S8ZcVz7z/0Uq4zU0TP0AZFrml6JsXbpteSIylgP9t7j0QEwNuykY2kmjGkXpiMLnb4PiGHFjpIC1WwcQMDbxg==",
+      "dependencies": {
+        "@altopelago/sansa": "0.15.0-rc.1",
+        "@altopelago/aeon-lexer": "0.17.0-rc.1"
+      }
+    },
+    {
+      "name": "@altopelago/aeon-aes",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-aes-0.17.0-rc.1.tgz",
+      "integrity": "sha512-3kGKIvgas7up0M6MGOMzdGHmwQq/2tTAgpIDrgVv09XJ9JJGJVuiDtXFfbVeWCxKhLRRcol8VyVxbKoVHpiWyw==",
+      "dependencies": {
+        "@altopelago/aeon-lexer": "0.17.0-rc.1",
+        "@altopelago/aeon-parser": "0.17.0-rc.1"
+      }
+    },
+    {
+      "name": "@altopelago/aeon-annotation-stream",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-annotation-stream-0.17.0-rc.1.tgz",
+      "integrity": "sha512-5V+Vm+TvZxQisj5ct61TM5z2quh5ft1LXN4G7XM2hYvPIr1UIhcavYM+6PIsrC5ZBIzDEPwDRencDhSJV+pXlQ==",
+      "dependencies": {
+        "@altopelago/aeon-aes": "0.17.0-rc.1",
+        "@altopelago/aeon-lexer": "0.17.0-rc.1"
+      }
+    },
+    {
+      "name": "@altopelago/aeon-core",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-core-0.17.0-rc.1.tgz",
+      "integrity": "sha512-1byDweZCO0SJuz3ztAMgqrSNjx6JANvXZpWr6U9zxU2sgPr5vlRyaKbcDeEpvcDXYQuDsPA5o/OQ7Dze8PJQBQ==",
+      "dependencies": {
+        "@altopelago/aeon-lexer": "0.17.0-rc.1",
+        "@altopelago/aeon-parser": "0.17.0-rc.1",
+        "@altopelago/aeon-aes": "0.17.0-rc.1",
+        "@altopelago/aeon-annotation-stream": "0.17.0-rc.1"
+      }
+    },
+    {
+      "name": "@altopelago/aeon-canonical",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-canonical-0.17.0-rc.1.tgz",
+      "integrity": "sha512-JsIbxi8Wp2/uxdaNIvcjbKBvSlZ3YyWnj9KJF27NSgYLDM8Wr/mMYE7Aqhf6ZbG42CNVo9qEbIxY29oo84k3yw==",
+      "dependencies": {
+        "@altopelago/aeon-aes": "0.17.0-rc.1",
+        "@altopelago/aeon-lexer": "0.17.0-rc.1",
+        "@altopelago/aeon-parser": "0.17.0-rc.1"
+      }
+    },
+    {
+      "name": "@altopelago/aeon-finalize",
+      "version": "0.17.0-rc.1",
+      "tarball": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-aeon-finalize-0.17.0-rc.1.tgz",
+      "integrity": "sha512-XUSZkCmdZt0SfZm+TPi6qLaUFdsZ+wugQl0jpRf6b2esdIJ5TfbWNCptBwmuCbU9qwLNOg3FAQPOFhAi36+tgg==",
+      "dependencies": {
+        "@altopelago/aeon-aes": "0.17.0-rc.1"
+      }
+    }
+  ]
+}

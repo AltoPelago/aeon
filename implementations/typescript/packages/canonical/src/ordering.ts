@@ -1,6 +1,6 @@
 import type { Attribute, AttributeValue, Binding, Document, ReferencePathSegment, Value } from '@altopelago/aeon-parser';
 import type { Span } from '@altopelago/aeon-lexer';
-import { emitEvents, resolvePaths } from '@altopelago/aeon-aes';
+import { emitEvents, resolvePaths, type AssignmentEvent } from '@altopelago/aeon-aes';
 
 export class CanonicalOrderingError extends Error {
     constructor(
@@ -49,7 +49,9 @@ function pathKey(path: Path): string {
 }
 
 /** Build dependency orders only after the caller validates authored Core references. */
-export function referenceSafeOrders(document: Document, maxEdges: number): Orders {
+export function referenceSafeOrders(
+    document: Document, maxEdges: number, sourceEvents?: readonly AssignmentEvent[],
+): Orders {
     const scopes: Scope[] = [];
     const targets = new Map<string, Membership | undefined>();
     type Plane = 'header' | 'body';
@@ -59,12 +61,18 @@ export function referenceSafeOrders(document: Document, maxEdges: number): Order
     // Use Core's indexed payload paths, not AST subtree containment. A body
     // payload shadows the same exact header payload, but independently emitted
     // header descendants remain addressable beneath a colliding parent path.
-    const emitted = emitEvents(resolvePaths(document, { indexedPaths: true }));
-    if (emitted.errors.length > 0) {
-        throw new CanonicalOrderingError('CANONICAL_ORDERING_CONFLICT', 'Canonical ordering requires resolved payload paths', document.span);
+    // Canonicalization may reuse this immutable document's validated emission.
+    // Direct callers retain the same path-resolution/emission error checks.
+    let events = sourceEvents;
+    if (events === undefined) {
+        const emitted = emitEvents(resolvePaths(document, { indexedPaths: true }));
+        if (emitted.errors.length > 0) {
+            throw new CanonicalOrderingError('CANONICAL_ORDERING_CONFLICT', 'Canonical ordering requires resolved payload paths', document.span);
+        }
+        events = emitted.events;
     }
     const payloadPlanes = new Map<string, Plane>();
-    for (const event of emitted.events) {
+    for (const event of events) {
         const path = event.path.segments.flatMap<ReferencePathSegment>(segment =>
             segment.type === 'root' ? [] : [segment.type === 'member' ? segment.key : segment.index]);
         const key = pathKey(path);

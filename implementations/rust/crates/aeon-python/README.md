@@ -81,7 +81,12 @@ Dynamic `path(...)` activation is disabled by default. Callers may opt into
 the Rust runtime's constrained policy with `activation_roots`, an explicit
 `activation_selectors` allow-list, and optional activation depth and binding
 ceilings. The unrestricted trusted-activation mode is intentionally not
-exposed to Python.
+exposed to Python. Child identity activation requires the explicit
+`child_identity` selector feature and a permitted canonical structural parent
+root before scanning; an allowed child alone cannot authorise a sibling scan.
+Ordinary and activated identity reads share the existing default 10,000 Query
+inspection budget. This first slice rejects parent traversal and qualifiers in
+identity activation and keeps mutation/precondition admission separate.
 
 Experimental mutation planning uses structured dictionaries:
 

@@ -1,3 +1,4 @@
+import { ReferenceReader } from './reference-address.js';
 import { type Token, TokenType, createSpan, type Span } from '@altopelago/aeon-lexer';
 import {
     parseAddressOrThrow,
@@ -84,8 +85,10 @@ export interface ParseResult {
 /**
  * Recursive-descent parser for AEON documents
  */
+const emptyParserTokens: readonly Token[] = Object.freeze([]);
+
 class Parser {
-    private readonly tokens: readonly Token[];
+    private tokens: readonly Token[];
     private readonly maxAttributeDepth: number;
     private readonly maxClarifierValues: number;
     private readonly maxGenericDepth: number;
@@ -95,7 +98,7 @@ class Parser {
     private currentNestingDepth: number = 0;
     private current: number = 0;
     private readonly errors: ParserError[] = [];
-    private readonly structuralIdentities = new Map<string, Span>();
+    private structuralIdentities: Map<string, Span> | undefined;
 
     constructor(tokens: readonly Token[], options: ParserOptions = {}) {
         this.tokens = tokens;
@@ -113,6 +116,10 @@ class Parser {
     parse(): ParseResult {
         try {
             const document = this.parseDocument();
+            // Error stacks may retain this receiver; operation scratch is done.
+            this.tokens = emptyParserTokens;
+            this.structuralIdentities = undefined;
+            this.referenceReader = undefined;
             return {
                 document,
                 errors: this.errors,
@@ -121,6 +128,10 @@ class Parser {
             if (e instanceof ParserError) {
                 this.errors.push(e);
             }
+            // Error stacks may retain this receiver; operation scratch is done.
+            this.tokens = emptyParserTokens;
+            this.structuralIdentities = undefined;
+            this.referenceReader = undefined;
             return {
                 document: null,
                 errors: this.errors,
@@ -183,7 +194,8 @@ class Parser {
         return {
             type: 'Document',
             header,
-            bindings,
+            // A singleton needs no growth capacity; avoid copying larger documents.
+            bindings: bindings.length === 1 ? [bindings[0]!] : bindings,
             envelope: null,
             span: createSpan(start, end),
         };
@@ -631,30 +643,27 @@ class Parser {
     // ============================================
 
     private parseValue(): Value {
-        const countsTowardNesting =
-            this.check(TokenType.LeftAngle)
-            || this.check(TokenType.LeftBrace)
-            || this.check(TokenType.LeftBracket)
-            || this.check(TokenType.LeftParen);
-        if (countsTowardNesting) {
-            this.currentNestingDepth++;
-            const projectedDepth = this.projectedOpeningContainerDepth();
-            if (projectedDepth !== null) {
-                this.currentNestingDepth--;
-                throw new NestingDepthExceededError(projectedDepth, this.maxValueNestingDepth, this.peek().span);
-            }
-            if (this.currentNestingDepth > this.maxValueNestingDepth) {
-                const observedDepth = this.currentNestingDepth;
-                this.currentNestingDepth--;
-                throw new NestingDepthExceededError(observedDepth, this.maxValueNestingDepth, this.peek().span);
-            }
+        const type = this.peek().type;
+        // Only container openings own nesting state; scalars need no finally.
+        if (type !== TokenType.LeftAngle && type !== TokenType.LeftBrace
+            && type !== TokenType.LeftBracket && type !== TokenType.LeftParen) {
+            return this.doParseValue();
+        }
+        this.currentNestingDepth++;
+        const projectedDepth = this.projectedOpeningContainerDepth();
+        if (projectedDepth !== null) {
+            this.currentNestingDepth--;
+            throw new NestingDepthExceededError(projectedDepth, this.maxValueNestingDepth, this.peek().span);
+        }
+        if (this.currentNestingDepth > this.maxValueNestingDepth) {
+            const observedDepth = this.currentNestingDepth;
+            this.currentNestingDepth--;
+            throw new NestingDepthExceededError(observedDepth, this.maxValueNestingDepth, this.peek().span);
         }
         try {
             return this.doParseValue();
         } finally {
-            if (countsTowardNesting) {
-                this.currentNestingDepth--;
-            }
+            this.currentNestingDepth--;
         }
     }
 
@@ -725,57 +734,35 @@ class Parser {
     }
 
     private doParseValue(): Value {
-        // Node introducer syntax
-        if (this.check(TokenType.LeftAngle)) {
-            return this.parseNode();
+        switch (this.peek().type) {
+            case TokenType.LeftAngle:
+                return this.parseNode();
+            case TokenType.Identifier:
+                // Node values must begin with the '<' introducer.
+                if (this.peekNext()?.type === TokenType.LeftAngle) {
+                    throw new SyntaxError(
+                        "Node values must use the '<tag>' or '<tag(...)>' forms",
+                        this.peek().span, '<tag>', this.peek().value
+                    );
+                }
+                return this.parseLiteral();
+            case TokenType.LeftBrace:
+                return this.parseObject();
+            case TokenType.LeftBracket:
+                return this.parseList();
+            case TokenType.LeftParen:
+                return this.parseTuple();
+            case TokenType.Tilde:
+                return this.parseCloneReference();
+            case TokenType.TildeArrow:
+                return this.parsePointerReference();
+            case TokenType.SansaAddressLiteral:
+            case TokenType.Dollar:
+            case TokenType.Question:
+                return this.parseSansaAddressLiteral();
+            default:
+                return this.parseLiteral();
         }
-
-        // Node values must begin with the '<' introducer.
-        if (this.check(TokenType.Identifier) && this.peekNext()?.type === TokenType.LeftAngle) {
-            throw new SyntaxError(
-                "Node values must use the '<tag>' or '<tag(...)>' forms",
-                this.peek().span,
-                '<tag>',
-                this.peek().value
-            );
-        }
-
-        // Object
-        if (this.check(TokenType.LeftBrace)) {
-            return this.parseObject();
-        }
-
-        // List
-        if (this.check(TokenType.LeftBracket)) {
-            return this.parseList();
-        }
-
-        // Tuple
-        if (this.check(TokenType.LeftParen)) {
-            return this.parseTuple();
-        }
-
-        // Clone reference
-        if (this.check(TokenType.Tilde)) {
-            return this.parseCloneReference();
-        }
-
-        // Pointer reference
-        if (this.check(TokenType.TildeArrow)) {
-            return this.parsePointerReference();
-        }
-
-        // SANSA address literal
-        if (
-            this.check(TokenType.SansaAddressLiteral)
-            || this.check(TokenType.Dollar)
-            || this.check(TokenType.Question)
-        ) {
-            return this.parseSansaAddressLiteral();
-        }
-
-        // Literals
-        return this.parseLiteral();
     }
 
     private parseNode(): NodeLiteral {
@@ -1158,41 +1145,16 @@ class Parser {
         return token.value;
     }
 
+    private referenceReader: ReferenceReader | undefined;
     private parsePath(): ReferencePathSegment[] {
-        const path: ReferencePathSegment[] = [];
-        let sawRootDot = false;
-        let sawExplicitRoot = false;
+        if (this.referenceReader) return this.referenceReader.readPath();
+        return this.readFirstReferencePath();
+    }
 
-        if (this.check(TokenType.Dollar)) {
-            this.advance(); // consume $
-            sawExplicitRoot = true;
-            if (this.check(TokenType.Dot)) {
-                this.advance(); // consume explicit dot after $
-                sawRootDot = true;
-            }
-        }
-
-        this.parsePathInitialSegment(path, sawRootDot, sawExplicitRoot);
-
-        while (this.check(TokenType.Dot) || this.check(TokenType.LeftBracket)) {
-            if (this.check(TokenType.Dot)) {
-                this.advance(); // consume .
-                if (this.check(TokenType.At)) {
-                    this.advance(); // consume @
-                    this.consume(TokenType.Dot, "Expected '.' after attribute address-space marker");
-                    path.push(this.parseAttributePathSegment());
-                } else if (this.check(TokenType.LeftBracket)) {
-                    path.push(this.parseQuotedBracketMemberSegment());
-                } else {
-                    path.push(this.parseMemberSegment("Expected member path segment after '.'"));
-                }
-                continue;
-            }
-
-            path.push(this.parseBracketPathSegment());
-        }
-
-        return path;
+    private readFirstReferencePath(): ReferencePathSegment[] {
+        const reader = new ReferenceReader(this);
+        this.referenceReader = reader;
+        return reader.readPath();
     }
 
     private parseLiteral(): Value {
@@ -1531,11 +1493,13 @@ class Parser {
         return this.peek().type === TokenType.EOF;
     }
 
-    private peek(): Token {
+    peek(): Token {
         return this.tokens[this.current]!;
     }
 
-    private peekNext(): Token | undefined {
+    peekAhead(offset: number): Token | undefined { return this.tokens[this.current + offset]; }
+
+    peekNext(): Token | undefined {
         if (this.current + 1 >= this.tokens.length) return undefined;
         return this.tokens[this.current + 1];
     }
@@ -1544,17 +1508,17 @@ class Parser {
         return this.tokens[this.current - 1] ?? this.tokens[0]!;
     }
 
-    private advance(): Token {
+    advance(): Token {
         if (!this.isAtEnd()) this.current++;
         return this.previous();
     }
 
-    private check(type: TokenType): boolean {
+    check(type: TokenType): boolean {
         if (this.isAtEnd()) return false;
         return this.peek().type === type;
     }
 
-    private consume(type: TokenType, message: string): Token {
+    consume(type: TokenType, message: string): Token {
         if (this.check(type)) return this.advance();
         throw new SyntaxError(message, this.peek().span, type, this.peek().value);
     }
@@ -1566,10 +1530,11 @@ class Parser {
 
         const token = this.advance();
         const structuralId = token.value;
-        if (this.structuralIdentities.has(structuralId)) {
+        const identities = this.structuralIdentities ??= new Map<string, Span>();
+        if (identities.has(structuralId)) {
             this.errors.push(new DuplicateStructuralIdentityError(structuralId, token.span));
         } else {
-            this.structuralIdentities.set(structuralId, token.span);
+            identities.set(structuralId, token.span);
         }
         return structuralId;
     }
@@ -1591,129 +1556,6 @@ class Parser {
             throw new SyntaxError(message, span, 'non-empty key', key);
         }
         return key;
-    }
-
-    private parsePathInitialSegment(
-        path: ReferencePathSegment[],
-        sawRootDot: boolean = false,
-        sawExplicitRoot: boolean = false
-    ): void {
-        if (this.isKeyToken(this.peek())) {
-            path.push(this.parseMemberSegment('Expected path segment'));
-            return;
-        }
-
-        if (this.check(TokenType.LeftBracket)) {
-            if (sawExplicitRoot && !sawRootDot && this.peekNext()?.type === TokenType.String) {
-                throw new SyntaxError(
-                    "Expected '.' after '$' before quoted root-member segment",
-                    this.peek().span,
-                    'reference path',
-                    this.peek().value
-                );
-            }
-            path.push(this.parseBracketPathSegment());
-            return;
-        }
-
-        throw new SyntaxError(
-            "Expected path segment",
-            this.peek().span,
-            'identifier, string key, or bracket segment',
-            this.peek().value
-        );
-    }
-
-    private parseMemberSegment(message: string): string {
-        const token = this.consumeKeyToken(message);
-        if (token.type === TokenType.String && token.quote === '`') {
-            throw new SyntaxError(
-                'Backtick-quoted keys are not supported in paths',
-                token.span,
-                'single or double quoted key',
-                token.value
-            );
-        }
-        return this.assertNonEmptyKey(token.value, token.span, 'Quoted path keys must not be empty');
-    }
-
-    private parseAttributePathSegment(): ReferencePathSegment {
-        if (this.check(TokenType.LeftBracket)) {
-            this.advance(); // consume [
-            const keyToken = this.consume(TokenType.String, "Expected quoted attribute key after '@['");
-            if (keyToken.quote === '`') {
-                throw new SyntaxError(
-                    'Backtick-quoted keys are not supported in attribute segments',
-                    keyToken.span,
-                    'single or double quoted key',
-                    keyToken.value
-                );
-            }
-            this.consume(TokenType.RightBracket, "Expected ']' after quoted attribute key");
-            return { type: 'attr', key: this.assertNonEmptyKey(keyToken.value, keyToken.span, 'Quoted attribute keys must not be empty') };
-        }
-
-        const keyToken = this.consumeKeyToken("Expected attribute path segment");
-        if (keyToken.type === TokenType.String && keyToken.quote === '`') {
-            throw new SyntaxError(
-                'Backtick-quoted keys are not supported in attribute segments',
-                keyToken.span,
-                'single or double quoted key',
-                keyToken.value
-            );
-        }
-        return {
-            type: 'attr',
-            key: this.assertNonEmptyKey(keyToken.value, keyToken.span, 'Quoted attribute keys must not be empty'),
-        };
-    }
-
-    private parseBracketPathSegment(): ReferencePathSegment {
-        this.advance(); // consume [
-
-        if (this.check(TokenType.String)) {
-            const keyToken = this.advance();
-            if (keyToken.quote === '`') {
-                throw new SyntaxError(
-                    'Backtick-quoted keys are not supported in paths',
-                    keyToken.span,
-                    'single or double quoted key',
-                    keyToken.value
-                );
-            }
-            this.consume(TokenType.RightBracket, "Expected ']' after quoted path segment");
-            return this.assertNonEmptyKey(keyToken.value, keyToken.span, 'Quoted path keys must not be empty');
-        }
-
-        const indexToken = this.consume(TokenType.Number, "Expected numeric index or quoted key segment");
-        this.consume(TokenType.RightBracket, "Expected ']' after index segment");
-
-        const numericText = indexToken.value.replace(/_/g, '');
-        const parsedIndex = Number.parseInt(numericText, 10);
-        if (!Number.isInteger(parsedIndex) || parsedIndex < 0) {
-            throw new SyntaxError(
-                `Invalid index segment '${indexToken.value}'`,
-                indexToken.span,
-                'non-negative integer',
-                indexToken.value
-            );
-        }
-        return parsedIndex;
-    }
-
-    private parseQuotedBracketMemberSegment(): string {
-        this.consume(TokenType.LeftBracket, "Expected '[' after '.'");
-        const keyToken = this.consume(TokenType.String, "Expected quoted member path segment after '.['");
-        if (keyToken.quote === '`') {
-            throw new SyntaxError(
-                'Backtick-quoted keys are not supported in paths',
-                keyToken.span,
-                'single or double quoted key',
-                keyToken.value
-            );
-        }
-        this.consume(TokenType.RightBracket, "Expected ']' after quoted member path segment");
-        return this.assertNonEmptyKey(keyToken.value, keyToken.span, 'Quoted path keys must not be empty');
     }
 
     private synchronize(): void {
@@ -1764,7 +1606,7 @@ class Parser {
         }
     }
 
-    private isKeyToken(token: Token): boolean {
+    isKeyToken(token: Token): boolean {
         return this.isBareKeyToken(token) || token.type === TokenType.String;
     }
 

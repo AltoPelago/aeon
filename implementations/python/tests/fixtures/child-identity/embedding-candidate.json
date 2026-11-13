@@ -1,0 +1,70 @@
+{
+  "status": "lexical transport only; parser/semantic and incremental support separately required",
+  "tests": [
+    {
+      "id": "child-embed-chain-eof",
+      "source": "selection=$.\\group1\\.\\item1\\",
+      "addresses": [
+        "$.\\group1\\.\\item1\\"
+      ],
+      "headIdentities": 0
+    },
+    {
+      "id": "child-embed-identified-head",
+      "source": "selection\\owner\\:sansa=$.\\group1\\.\\item1\\",
+      "addresses": [
+        "$.\\group1\\.\\item1\\"
+      ],
+      "headIdentities": 1
+    },
+    {
+      "id": "child-embed-next-binding",
+      "source": "selection=$.\\group1\\.\\item1\\\nnext\\next1\\=1",
+      "addresses": [
+        "$.\\group1\\.\\item1\\"
+      ],
+      "headIdentities": 1
+    },
+    {
+      "id": "child-embed-list",
+      "source": "selections=[$.\\a\\.\\b\\,$.\\c\\]",
+      "addresses": [
+        "$.\\a\\.\\b\\",
+        "$.\\c\\"
+      ],
+      "headIdentities": 0
+    },
+    {
+      "id": "child-embed-member-tail",
+      "source": "selection=$.\\a\\.\\b\\.name",
+      "addresses": [
+        "$.\\a\\.\\b\\.name"
+      ],
+      "headIdentities": 0
+    },
+    {
+      "id": "child-embed-index-tail",
+      "source": "selection=$.\\a\\.\\b\\[0]",
+      "addresses": [
+        "$.\\a\\.\\b\\[0]"
+      ],
+      "headIdentities": 0
+    },
+    {
+      "id": "child-embed-quoted-key",
+      "source": "selection=$.[\"\\\\id\\\\\"]",
+      "addresses": [
+        "$.[\"\\\\id\\\\\"]"
+      ],
+      "headIdentities": 0
+    },
+    {
+      "id": "child-embed-head-id-reuse",
+      "source": "selection\\same\\:sansa=$.\\same\\.\\same\\",
+      "addresses": [
+        "$.\\same\\.\\same\\"
+      ],
+      "headIdentities": 1
+    }
+  ]
+}

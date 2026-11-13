@@ -1,0 +1,104 @@
+{
+  "fixture_format": "aeon.reference-structural-path.v1",
+  "scope": "local implementation vectors, not a new authority CTS claim",
+  "options": {
+    "maxAttributeDepth": 8
+  },
+  "cases": [
+    {
+      "id": "member-pointer",
+      "source": "z={name=\"world\"}\ncopy=~>z.name",
+      "ok": true,
+      "target": [
+        "z",
+        "name"
+      ]
+    },
+    {
+      "id": "list-clone",
+      "source": "z=[\"a\",\"b\"]\ncopy=~z[1]",
+      "ok": true,
+      "target": [
+        "z",
+        1
+      ]
+    },
+    {
+      "id": "attribute-clone",
+      "source": "z@{unit=\"cm\"}=1\ncopy=~z.@.unit",
+      "ok": true,
+      "target": [
+        "z",
+        {
+          "attribute": "unit"
+        }
+      ]
+    },
+    {
+      "id": "node-position",
+      "source": "z=<tag(\"a\",\"b\")>\ncopy=~>z[1]",
+      "ok": true,
+      "target": [
+        "z",
+        1
+      ]
+    },
+    {
+      "id": "quoted-member",
+      "source": "z={\"1.5\"=\"v\"}\ncopy=~z.[\"1.5\"]",
+      "ok": true,
+      "target": [
+        "z",
+        "1.5"
+      ]
+    },
+    {
+      "id": "header-descendant-shadow",
+      "source": "aeon:header={x={leaf=1}}\n\"aeon:x\"=2\ncopy=~>[\"aeon:x\"].leaf",
+      "ok": true,
+      "target": [
+        "aeon:x",
+        "leaf"
+      ]
+    },
+    {
+      "id": "identity-metadata",
+      "source": "group\\G\\={child\\C\\=\"v\"}\ncopy=~group.child",
+      "ok": true,
+      "target": [
+        "group",
+        "child"
+      ]
+    },
+    {
+      "id": "missing",
+      "source": "copy=~missing",
+      "ok": false,
+      "code": "MISSING_REFERENCE_TARGET"
+    },
+    {
+      "id": "self",
+      "source": "copy=~copy",
+      "ok": false,
+      "code": "SELF_REFERENCE"
+    },
+    {
+      "id": "forward",
+      "source": "copy=~later\nlater=1",
+      "ok": false,
+      "code": "FORWARD_REFERENCE"
+    },
+    {
+      "id": "wildcard",
+      "source": "z=[1]\ncopy=~z.*",
+      "ok": false,
+      "code": "SYNTAX_ERROR"
+    },
+    {
+      "id": "identity-step",
+      "source": "z\\Z\\=1\ncopy=~$.\\Z\\",
+      "ok": false,
+      "code": "SYNTAX_ERROR"
+    }
+  ]
+}

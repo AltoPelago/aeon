@@ -273,6 +273,19 @@ class CompileTests(unittest.TestCase):
         with self.assertRaises(aeon.AeonLoadError):
             loaded.require_ok()
 
+    def test_aeos_child_identity_selectors_preserve_source_and_telex_targets(self) -> None:
+        source = 'items=[\\first\\={name\\label\\="hello"}, \\second\\={name="world"}]'
+        selector = '$.items.\\first\\.\\label\\'
+        schema = {"schema_id":"com.example.identity","schema_version":"1","rules":[{"selector":selector,"constraints":{"required":True,"type":"StringLiteral"}}]}
+        text = json.dumps(schema)
+        for load in (lambda: aeon.load_text(source,schema=text),
+                     lambda: aeon.load_telex_text(aeon.compile_to_telex(source).decode(),schema=text)):
+            self.assertTrue(load().ok)
+        schema["rules"][0]["constraints"]["type"] = "NumberLiteral"
+        bad = aeon.load_text(source,schema=json.dumps(schema))
+        self.assertFalse(bad.ok)
+        self.assertTrue(any(e["path"] == "$.items[0].name" and e["code"] == "type_mismatch" for e in bad.validation_errors))
+
     def test_source_and_telex_validation_preserve_attributes(self) -> None:
         source = 'value@{unit:string = "cm"}:number = 3\n'
         schema = json.dumps(

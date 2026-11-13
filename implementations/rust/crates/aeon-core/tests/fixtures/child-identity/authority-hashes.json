@@ -1,0 +1,5 @@
+{
+  "cts/sansa/v1/suites/12-child-identity-parser.json": "7765cf47cd3b6343bc37683a2b27275af7a671899c937c58fad1ff858173ed74",
+  "cts/sansa/v1/suites/13-child-identity-resolve.json": "99de12e729f54e69b0605af76f918f2f80b7f0f856af82c0d9e81d4c5f0ca5a9",
+  "fixtures/sansa-child-identity/v1/ast-candidate.json": "6242742feda4936112a1bb88262e58fda18559d552497a9cd5d3a63d19c47bca"
+}

@@ -16,7 +16,8 @@ from repo_paths import get_aeonite_cts_root
 def main() -> int:
     cts_path = read_arg("--cts")
     if cts_path is None:
-        cts_path = get_aeonite_cts_root() / "sansa" / "v1" / "sansa-resolve-cts.v1.json"
+        name = "sansa-child-identity-resolve-cts.v1.next.json" if "--child-identity" in sys.argv else "sansa-resolve-cts.v1.json"
+        cts_path = get_aeonite_cts_root() / "sansa" / "v1" / name
 
     manifest = read_json(cts_path)
     passed = 0
@@ -87,13 +88,19 @@ def run_test(test: dict[str, object], namespaces: dict[str, dict[str, object]]) 
         options["failOnParentFromEffectiveRoot"] = True
     if isinstance(input_data.get("maxBindings"), int):
         options["maxBindings"] = input_data["maxBindings"]
+    if "maxIdentityInspections" in input_data:
+        options["maxIdentityInspections"] = input_data["maxIdentityInspections"]
 
     namespace = fixture["namespace"]
     if not isinstance(namespace, dict):
         return [f"invalid namespace fixture: {namespace_id}"]
 
     failures: list[str] = []
+    calls = fixture["identity_calls"]
+    calls[0] = 0
     result = resolve_address(source, namespace, options)
+    if isinstance(expected.get("identityCalls"), int) and calls[0] != expected["identityCalls"]:
+        failures.append(f"identityCalls mismatch: expected {expected['identityCalls']}, got {calls[0]}")
     expected_ok = expected.get("ok") is True
 
     if result.get("ok") is not expected_ok:
@@ -110,8 +117,8 @@ def run_test(test: dict[str, object], namespaces: dict[str, dict[str, object]]) 
             actual_selector_index = first.get("selectorIndex") if isinstance(first, dict) else None
             if actual_selector_index != expected["selectorIndex"]:
                 failures.append(f"selectorIndex mismatch: expected {expected['selectorIndex']}, got {actual_selector_index}")
-        for field in ("limit", "observed"):
-            if isinstance(expected.get(field), int) and isinstance(first, dict) and first.get(field) != expected[field]:
+        for field in ("identity", "limit", "observed"):
+            if field in expected and (not isinstance(first, dict) or first.get(field) != expected[field]):
                 failures.append(f"{field} mismatch: expected {expected[field]}, got {first.get(field)}")
         return failures
 
@@ -145,6 +152,12 @@ def build_namespaces(entries: object) -> dict[str, dict[str, object]]:
             "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
             "attributeSpace": lambda binding: binding.get("attributeSpace") if isinstance(binding, dict) else None,
         }
+        identity_calls = [0]
+        if entry.get("supportsIdentity") is True:
+            def identity(binding, calls=identity_calls):
+                calls[0] += 1
+                return binding.get("identity") if isinstance(binding, dict) else None
+            namespace["identity"] = identity
         if entry.get("supportsParentTraversal") is True:
             namespace["parent"] = lambda binding: binding.get("parent") if isinstance(binding, dict) else None
         if entry.get("supportsLocalSpaces") is True:
@@ -152,6 +165,7 @@ def build_namespaces(entries: object) -> dict[str, dict[str, object]]:
         output[entry["id"]] = {
             "by_address": by_address,
             "namespace": namespace,
+            "identity_calls": identity_calls,
         }
 
     return output

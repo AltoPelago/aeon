@@ -508,9 +508,11 @@ function projectValue(
         case 'NodeLiteral':
             return { kind: 'NodeLiteral' };
         case 'CloneReference':
-            return { kind: 'CloneReference', value: translateReferenceTarget(value.path, nodeSourcePaths) };
         case 'PointerReference':
-            return { kind: 'PointerReference', value: translateReferenceTarget(value.path, nodeSourcePaths) };
+            if ((value as unknown as { selection?: unknown }).selection !== undefined) {
+                throw new PortableAesSourceError('AES_UNSUPPORTED_REFERENCE_SELECTION', 'Structural references cannot contain semantic selections.');
+            }
+            return { kind: value.type, value: translateReferenceTarget(value.path, nodeSourcePaths) };
     }
 }
 

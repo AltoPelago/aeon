@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 
+from ._sansa_cursor import MAX_POSITION_INDEX, parse_dot_selector, parse_position_selector, validate_position_index
+
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CHILD_IDENTITY_RE = re.compile(r"[A-Za-z0-9_-]+\Z")
 QUALIFIER_NUMBER_RE = re.compile(r"^[+-]?(?:(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|\.[0-9]+)$")
-MAX_POSITION_INDEX = 999_999
 
 
 class SansaParseError(Exception):
@@ -59,10 +61,36 @@ def resolve_address(
             "errors": [resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Expected parsed SANSA address")],
         }
 
+    selectors = address.get("selectors", [])
+    if not isinstance(input, str) and isinstance(selectors, list) and len(selectors) > 1024:
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Caller AST selector limit exceeded")]}
+    may_have_identity = not isinstance(input, str) or (not address.get("isExact") and ".\\" in input)
+    has_identity = may_have_identity and isinstance(selectors, list) and any(
+        isinstance(selector, dict) and selector.get("type") == "childIdentity" for selector in selectors
+    )
+    if has_identity and not isinstance(input, str):
+        try:
+            address = normalize_identity_address(address)
+        except (ValueError, TypeError, KeyError, RecursionError, UnicodeError):
+            return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Invalid identity address AST")]}
+    identity_limit = opts.get("maxIdentityInspections", 10_000)
+    if "maxIdentityInspections" in opts and (type(identity_limit) is not int or not 0 <= identity_limit <= 9_007_199_254_740_991):
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_IDENTITY_LIMIT", "Identity inspection limit must be a non-negative safe integer")]}
+    if has_identity and "maxBindings" in opts and (type(opts["maxBindings"]) is not int or not 0 <= opts["maxBindings"] <= 9_007_199_254_740_991):
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_BINDING_LIMIT", "Resolve maxBindings must be a non-negative safe integer")]}
+
     root_result = resolve_root(address.get("root"), namespace, opts)
     if not root_result["ok"]:
         return {"ok": False, "bindings": [], "errors": [root_result["error"]]}
 
+    if has_identity and not callable(namespace.get("identity")):
+        index = next(i for i, selector in enumerate(selectors) if isinstance(selector, dict) and selector.get("type") == "childIdentity")
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_UNSUPPORTED_IDENTITY", "Namespace does not expose structural identities", index, identity=selectors[index]["identity"])]}
+    if has_identity:
+        identity_scope = namespace.get("identityScope")
+        if callable(identity_scope) and identity_scope(root_result["binding"]) is not True:
+            return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_IDENTITY_SCOPE_MISMATCH", "Identity root belongs to another namespace scope")]}
+    identity_budget = {"limit": identity_limit, "inspected": 0} if has_identity else None
     current = [root_result["binding"]]
     max_bindings = opts.get("maxBindings")
     if isinstance(max_bindings, bool) or not isinstance(max_bindings, int) or max_bindings < 0:
@@ -71,6 +99,13 @@ def resolve_address(
     if not isinstance(selectors, list):
         selectors = []
 
+    policy = {
+        "effectiveRoot": None if opts.get("allowParentFromEffectiveRoot") is True else root_result["binding"],
+        "parentTraversal": opts.get("parentTraversal"),
+        "failOnParentFromEffectiveRoot": opts.get("failOnParentFromEffectiveRoot") is True,
+    }
+    if has_identity:
+        policy.update(identityBudget=identity_budget, maxBindings=max_bindings)
     for index, selector in enumerate(selectors):
         if not isinstance(selector, dict):
             return {
@@ -83,11 +118,7 @@ def resolve_address(
             current,
             namespace,
             index,
-            {
-                "effectiveRoot": None if opts.get("allowParentFromEffectiveRoot") is True else root_result["binding"],
-                "parentTraversal": opts.get("parentTraversal"),
-                "failOnParentFromEffectiveRoot": opts.get("failOnParentFromEffectiveRoot") is True,
-            },
+            policy,
         )
         if not selected["ok"]:
             return {"ok": False, "bindings": [], "errors": [selected["error"]]}
@@ -130,6 +161,11 @@ def render_address(address: dict[str, object]) -> str:
         if selector_type == "member":
             name = str(selector.get("name", ""))
             output += f".{name}" if IDENTIFIER_RE.fullmatch(name) else f".[{quote_payload(name)}]"
+        elif selector_type == "childIdentity":
+            identity = selector.get("identity")
+            if not isinstance(identity, str) or not CHILD_IDENTITY_RE.fullmatch(identity):
+                raise ValueError("Invalid child identity")
+            output += ".\\" + identity + "\\"
         elif selector_type == "position":
             output += f"[{selector.get('index')}]"
         elif selector_type == "positionRange":
@@ -199,6 +235,8 @@ def apply_resolve_selector(
 ) -> dict[str, object]:
     policy = policy or {}
     selector_type = selector.get("type")
+    if selector_type == "childIdentity":
+        return select_child_identity(namespace, bindings, selector, selector_index, policy)
 
     if selector_type == "member":
         return {"ok": True, "bindings": [child for binding in bindings for child in select_member(namespace, binding, str(selector.get("name", "")))]}
@@ -250,6 +288,135 @@ def apply_resolve_selector(
         "ok": False,
         "error": resolve_error("SANSA_RESOLVE_UNSUPPORTED_SELECTOR", f"Unsupported SANSA selector type: {selector_type}", selector_index),
     }
+
+
+def select_child_identity(namespace, bindings, selector, selector_index, policy):
+    output = []
+    budget = policy["identityBudget"]
+    for binding in bindings:
+        match = None
+        children = namespace.get("children")
+        iterable = children(binding) if callable(children) else binding.get("children", []) if isinstance(binding, dict) else []
+        iterator = iter(iterable if iterable is not None else ())
+        try:
+            for child in iterator:
+                if budget["inspected"] >= budget["limit"]:
+                    error = resolve_error("SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED", "Identity inspection limit exceeded", selector_index)
+                    error.update(limit=budget["limit"], observed=budget["inspected"] + 1)
+                    return {"ok": False, "error": error}
+                budget["inspected"] += 1
+                identity = namespace["identity"](child)
+                if identity is not None and (not isinstance(identity, str) or not CHILD_IDENTITY_RE.fullmatch(identity)):
+                    return {"ok": False, "error": resolve_error("SANSA_RESOLVE_INVALID_IDENTITY", "Adapter returned an invalid structural identity", selector_index)}
+                if identity == selector["identity"]:
+                    if match is not None:
+                        return {"ok": False, "error": resolve_error("SANSA_RESOLVE_AMBIGUOUS_IDENTITY", "Multiple children have the selected identity", selector_index, identity=selector["identity"])}
+                    match = child
+        finally:
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                close()
+        if match is not None:
+            maximum = policy.get("maxBindings")
+            if maximum is not None and len(output) >= maximum:
+                error = resolve_error("SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED", "Binding limit exceeded", selector_index)
+                error.update(limit=maximum, observed=len(output) + 1)
+                return {"ok": False, "error": error}
+            output.append(match)
+    return {"ok": True, "bindings": output}
+
+
+def normalize_identity_address(address):
+    """Bound caller-owned identity ASTs before rendering; ignore derived flags."""
+    root = address.get("root")
+    selectors = address.get("selectors")
+    if address.get("type") != "SansaAddress" or not isinstance(root, dict) or root.get("type") != "root" or root.get("kind") not in {"absolute", "contextual"}:
+        raise ValueError("Invalid root")
+    if not isinstance(selectors, list) or len(selectors) > 1024:
+        raise ValueError("Invalid selectors")
+    # Walk only rendered fields, with finite work even for cyclic caller objects.
+    pending = [(selectors, 0), (address.get("qualifierExpression"), 0)]
+    nodes = payload = 0
+    while pending:
+        value, depth = pending.pop()
+        nodes += 1
+        if nodes > 16384 or depth > 64:
+            raise ValueError("AST work limit exceeded")
+        if isinstance(value, str):
+            if len(value) > 65536:
+                raise ValueError("AST payload limit exceeded")
+            payload += len(value.encode("utf-8"))
+            if payload > 65536:
+                raise ValueError("AST payload limit exceeded")
+        elif isinstance(value, dict):
+            if len(value) > 32:
+                raise ValueError("Invalid AST object")
+            pending.extend((v, depth + 1) for v in value.values())
+        elif isinstance(value, list):
+            if len(value) > 1024:
+                raise ValueError("AST list limit exceeded")
+            pending.extend((v, depth + 1) for v in value)
+        elif value is not None and type(value) not in {int, bool}:
+            raise ValueError("Invalid AST value")
+    marker_types = {"parent", "attributeSpace", "directExpansion", "descendantExpansion"}
+    for selector in selectors:
+        if not isinstance(selector, dict):
+            raise ValueError("Invalid selector")
+        kind = selector.get("type")
+        if kind in {"member", "localSpace", "semanticTypeFilter", "representationKindFilter"}:
+            name = selector.get("name")
+            if not isinstance(name, str) or not name or (kind.endswith("Filter") and not IDENTIFIER_RE.fullmatch(name)):
+                raise ValueError("Invalid selector name")
+        elif kind == "namePattern":
+            if not isinstance(selector.get("pattern"), str):
+                raise ValueError("Invalid pattern")
+        elif kind in {"position", "positionRange"}:
+            values = [selector.get("index")] if kind == "position" else [selector.get("start"), selector.get("end")]
+            if all(v is None for v in values) or any(v is not None and (type(v) is not int or not 0 <= v <= MAX_POSITION_INDEX) for v in values):
+                raise ValueError("Invalid position")
+        elif kind == "childIdentity":
+            identity = selector.get("identity")
+            if not isinstance(identity, str) or not CHILD_IDENTITY_RE.fullmatch(identity):
+                raise ValueError("Invalid identity")
+        elif kind not in marker_types:
+            raise ValueError("Unknown selector")
+    qualifier = address.get("qualifierExpression")
+    if qualifier is not None:
+        if not isinstance(qualifier, dict) or qualifier.get("type") != "QualifierExpression" or not isinstance(qualifier.get("terms"), list) or not qualifier["terms"]:
+            raise ValueError("Invalid qualifier expression")
+        terms = list(qualifier["terms"])
+        work = 0
+        while terms:
+            term = terms.pop()
+            work += 1
+            if work > 1024 or not isinstance(term, dict) or term.get("type") != "QualifierTerm" or not isinstance(term.get("name"), str) or not IDENTIFIER_RE.fullmatch(term["name"]):
+                raise ValueError("Invalid qualifier term")
+            groups = term.get("parameterGroups")
+            if groups is None:
+                parameters = term.get("parameters", [])
+                groups = [parameters] if parameters else []
+            if not isinstance(groups, list):
+                raise ValueError("Invalid qualifier groups")
+            for group in groups:
+                work += 1
+                if not isinstance(group, list) or not group:
+                    raise ValueError("Invalid qualifier group")
+                terms.extend(group)
+            arguments = term.get("arguments", [])
+            if not isinstance(arguments, list):
+                raise ValueError("Invalid qualifier arguments")
+            for argument in arguments:
+                work += 1
+                if not isinstance(argument, dict) or argument.get("kind") not in {"quoted", "number", "token"} or not isinstance(argument.get("value"), str):
+                    raise ValueError("Invalid qualifier argument")
+                if argument["kind"] != "quoted" and not QUALIFIER_NUMBER_RE.fullmatch(argument["value"]):
+                    raise ValueError("Invalid qualifier number")
+            if work > 1024:
+                raise ValueError("Qualifier work limit exceeded")
+    normalized = parse_address(render_address(address))
+    if not normalized["ok"]:
+        raise ValueError("Invalid identity address")
+    return normalized["address"]
 
 
 def select_member(namespace: dict[str, object], binding: object, name: str) -> list[object]:
@@ -436,10 +603,12 @@ def matches_representation_kind(namespace: dict[str, object], binding: object, e
     return isinstance(actual, str) and (actual == expected or lower_first(actual) == expected)
 
 
-def resolve_error(code: str, message: str, selector_index: int | None = None) -> dict[str, object]:
+def resolve_error(code: str, message: str, selector_index: int | None = None, *, identity: str | None = None) -> dict[str, object]:
     error: dict[str, object] = {"code": code, "message": message}
     if selector_index is not None:
         error["selectorIndex"] = selector_index
+    if identity is not None:
+        error["identity"] = identity
     return error
 
 
@@ -532,48 +701,32 @@ class AddressParser:
         return address
 
     def parse_dot_selector(self) -> dict[str, object]:
-        self.consume(".")
-        if self.match("@"):
-            return {"type": "attributeSpace"}
-        if self.match("^"):
-            return {"type": "parent"}
-        if self.match("*"):
-            if self.match("*"):
-                return {"type": "descendantExpansion"}
-            return {"type": "directExpansion"}
-        if self.match("["):
-            name = self.parse_quoted_payload()
-            if len(name) == 0:
-                self.fail("Quoted member names must not be empty", "SANSA_EMPTY_MEMBER_NAME")
-            self.consume("]")
-            return {"type": "member", "name": name, "quoted": True}
-        if self.match("<"):
-            name = self.parse_quoted_payload()
-            if len(name) == 0:
-                self.fail("Local address-space names must not be empty", "SANSA_EMPTY_LOCAL_SPACE_NAME")
-            self.consume(">")
-            return {"type": "localSpace", "name": name}
-        if self.match("("):
-            pattern = self.parse_quoted_payload()
-            self.consume(")")
-            return {"type": "namePattern", "pattern": pattern}
-        return {"type": "member", "name": self.parse_identifier("member selector"), "quoted": False}
+        # Identity syntax belongs only to standalone addresses, never the shared
+        # structural cursor used by AEON clone/pointer references.
+        if self.input.startswith(".\\", self.index):
+            self.index += 2
+            start = self.index
+            while not self.at_end() and self.peek() != "\\":
+                if not self.peek().isascii() or not (self.peek().isalnum() or self.peek() in "_-"):
+                    self.fail("Expected structural identity name", "SANSA_EXPECTED_IDENTITY")
+                self.index += 1
+            if self.at_end():
+                self.fail("Unterminated structural identity selector", "SANSA_UNTERMINATED_IDENTITY")
+            if self.index == start:
+                self.fail("Expected structural identity name", "SANSA_EXPECTED_IDENTITY")
+            identity = self.input[start:self.index]
+            self.index += 1
+            return {"type": "childIdentity", "identity": identity}
+        return parse_dot_selector(self)
 
     def parse_position_selector(self) -> dict[str, object]:
-        self.consume("[")
-        selector_start = self.index
-        start = self.parse_optional_position_index()
-        if self.input.startswith("..", self.index):
-            self.index += 2
-            end = self.parse_optional_position_index()
-            if start is None and end is None:
-                self.fail("Position ranges must include a start or end index", "SANSA_EMPTY_POSITION_RANGE", selector_start)
-            self.consume("]")
-            return {"type": "positionRange", "start": start, "end": end}
-        if start is None:
-            self.fail("Expected positional index", "SANSA_EXPECTED_INDEX")
-        self.consume("]")
-        return {"type": "position", "index": start}
+        return parse_position_selector(self)
+
+    def match_range_separator(self) -> bool:
+        if not self.input.startswith("..", self.index):
+            return False
+        self.index += 2
+        return True
 
     def parse_optional_position_index(self) -> int | None:
         start = self.index
@@ -582,16 +735,7 @@ class AddressParser:
         if self.index == start:
             return None
         raw = self.input[start:self.index]
-        if len(raw) > 1 and raw.startswith("0"):
-            self.fail("Positional indexes must not contain leading zeroes", "SANSA_LEADING_ZERO_INDEX", start)
-        value = int(raw)
-        if value > MAX_POSITION_INDEX:
-            self.fail(
-                f"Position indexes must be less than or equal to {MAX_POSITION_INDEX}",
-                "SANSA_POSITION_INDEX_LIMIT_EXCEEDED",
-                start,
-            )
-        return value
+        return validate_position_index(raw, lambda message, code: self.fail(message, code, start))
 
     def parse_qualifier_expression(self, stop_char: str = "") -> dict[str, object]:
         terms = [self.parse_qualifier_term(stop_char)]

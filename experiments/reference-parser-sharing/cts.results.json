@@ -1,0 +1,277 @@
+{
+  "date": "2026-10-18",
+  "suite": "/Users/altopelago/Documents/GitHub/aeon-family/aeonite-org/aeonite-cts/cts/core/v1/suites/03-attributes-and-references.json",
+  "ctsCommit": "9e6e06cbac618f86723d9cb6a5707228b3b025b8",
+  "method": "Direct Core baseline/candidate error-code parity and expected acceptance checks. Exact expected-code discrepancies are recorded, not hidden; not the full CTS protocol/projection or a complete CTS pass claim.",
+  "results": [
+    {
+      "id": "core-attr-001-clone-reference-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-002-missing-target",
+      "ok": false,
+      "codes": [
+        "MISSING_REFERENCE_TARGET"
+      ],
+      "expectedCodes": [
+        "MISSING_REFERENCE_TARGET"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-003-forward-target",
+      "ok": false,
+      "codes": [
+        "FORWARD_REFERENCE"
+      ],
+      "expectedCodes": [
+        "FORWARD_REFERENCE"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-004-depth-exceeded",
+      "ok": false,
+      "codes": [
+        "ATTRIBUTE_DEPTH_EXCEEDED"
+      ],
+      "expectedCodes": [
+        "ATTRIBUTE_DEPTH_EXCEEDED"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-004a-nested-attribute-head-depth-exceeded",
+      "ok": false,
+      "codes": [
+        "ATTRIBUTE_DEPTH_EXCEEDED",
+        "SYNTAX_ERROR"
+      ],
+      "expectedCodes": [
+        "ATTRIBUTE_DEPTH_EXCEEDED"
+      ],
+      "exactExpectedCodes": false,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-004b-depth-override-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-004c-duplicate-attribute-key-reject",
+      "ok": false,
+      "codes": [
+        "DUPLICATE_KEY"
+      ],
+      "expectedCodes": [
+        "DUPLICATE_KEY"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-004d-repeated-attribute-entry-head-reject",
+      "ok": false,
+      "codes": [
+        "SYNTAX_ERROR",
+        "SYNTAX_ERROR"
+      ],
+      "expectedCodes": [
+        "SYNTAX_ERROR"
+      ],
+      "exactExpectedCodes": false,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-005-mixed-path-after-attribute-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-006-nested-binding-attribute-reference-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-006b-nested-binding-same-object-reference-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-007-postfix-literal-attributes-reject",
+      "ok": false,
+      "codes": [
+        "SYNTAX_ERROR",
+        "SYNTAX_ERROR"
+      ],
+      "expectedCodes": [
+        "SYNTAX_ERROR"
+      ],
+      "exactExpectedCodes": false,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-007a-floating-object-attributes-reject",
+      "ok": false,
+      "codes": [
+        "SYNTAX_ERROR",
+        "SYNTAX_ERROR",
+        "SYNTAX_ERROR"
+      ],
+      "expectedCodes": [
+        "SYNTAX_ERROR"
+      ],
+      "exactExpectedCodes": false,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-008-binding-payload-may-reference-own-attribute-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-009-attribute-payload-self-payload-reject",
+      "ok": false,
+      "codes": [
+        "SELF_REFERENCE"
+      ],
+      "expectedCodes": [
+        "SELF_REFERENCE"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-010-attribute-payload-forward-binding-reject",
+      "ok": false,
+      "codes": [
+        "FORWARD_REFERENCE"
+      ],
+      "expectedCodes": [
+        "FORWARD_REFERENCE"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-011-direct-sequence-item-backward-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-011b-initial-quoted-member-shorthand-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-011a-typed-sequence-item-backward-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-012-direct-sequence-item-forward-reject",
+      "ok": false,
+      "codes": [
+        "FORWARD_REFERENCE"
+      ],
+      "expectedCodes": [
+        "FORWARD_REFERENCE"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-013-escaped-decoded-identity-pointers-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-014-escaped-decoded-identity-rooted-clones-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-015-strict-untyped-attribute-entry-reject",
+      "ok": false,
+      "codes": [
+        "UNTYPED_VALUE_IN_STRICT_MODE"
+      ],
+      "expectedCodes": [
+        "UNTYPED_VALUE_IN_STRICT_MODE"
+      ],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    },
+    {
+      "id": "core-attr-016-strict-typed-attribute-entry-pass",
+      "ok": true,
+      "codes": [],
+      "expectedCodes": [],
+      "exactExpectedCodes": true,
+      "baselineCandidateParity": true,
+      "expectedAcceptance": true
+    }
+  ]
+}

@@ -174,3 +174,11 @@ test('consumer stays checkout-free and read-only with a separate single-run smok
   assert.doesNotMatch(smoke.script, /\b(for|while|until)\b/);
   assert.match(smoke.script, /readAeonChecked/);
 });
+
+
+await test('release candidates use next without treating build metadata as prerelease', async () => {
+  const {npmReleaseTag}=await import('../implementations/typescript/tools/npm-release-tag.mjs');
+  assert.equal(npmReleaseTag('0.17.0-rc.1'),'next');
+  assert.equal(npmReleaseTag('0.17.0'),'latest');
+  assert.equal(npmReleaseTag('0.17.0+build-1'),'latest');
+});

@@ -1,0 +1,144 @@
+{
+  "status": "experimental candidate; string/AST parity and exactness spoofing",
+  "tests": [
+    {
+      "id": "child-ast-empty",
+      "address": {
+        "type": "SansaAddress",
+        "root": {
+          "type": "root",
+          "kind": "absolute"
+        },
+        "selectors": [
+          {
+            "type": "childIdentity",
+            "identity": ""
+          }
+        ],
+        "isExact": true,
+        "canonical": "$.group"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "identityCalls": 0
+      }
+    },
+    {
+      "id": "child-ast-invalid-char",
+      "address": {
+        "type": "SansaAddress",
+        "root": {
+          "type": "root",
+          "kind": "absolute"
+        },
+        "selectors": [
+          {
+            "type": "childIdentity",
+            "identity": "bad.id"
+          }
+        ],
+        "isExact": true,
+        "canonical": "$.group"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "identityCalls": 0
+      }
+    },
+    {
+      "id": "child-ast-non-ascii",
+      "address": {
+        "type": "SansaAddress",
+        "root": {
+          "type": "root",
+          "kind": "absolute"
+        },
+        "selectors": [
+          {
+            "type": "childIdentity",
+            "identity": "é"
+          }
+        ],
+        "isExact": true,
+        "canonical": "$.group"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "identityCalls": 0
+      }
+    },
+    {
+      "id": "child-ast-wrong-type",
+      "address": {
+        "type": "SansaAddress",
+        "root": {
+          "type": "root",
+          "kind": "absolute"
+        },
+        "selectors": [
+          {
+            "type": "childIdentity",
+            "identity": 1
+          }
+        ],
+        "isExact": true,
+        "canonical": "$.group"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "identityCalls": 0
+      }
+    },
+    {
+      "id": "child-ast-missing",
+      "address": {
+        "type": "SansaAddress",
+        "root": {
+          "type": "root",
+          "kind": "absolute"
+        },
+        "selectors": [
+          {
+            "type": "childIdentity"
+          }
+        ],
+        "isExact": true,
+        "canonical": "$.group"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "identityCalls": 0
+      }
+    },
+    {
+      "id": "child-ast-forged-exactness",
+      "address": {
+        "type": "SansaAddress",
+        "root": {
+          "type": "root",
+          "kind": "absolute"
+        },
+        "selectors": [
+          {
+            "type": "childIdentity",
+            "identity": "group1"
+          }
+        ],
+        "isExact": true,
+        "canonical": "$.other"
+      },
+      "expected": {
+        "ok": true,
+        "addresses": [
+          "$.group"
+        ],
+        "identityCalls": 2
+      }
+    }
+  ]
+}

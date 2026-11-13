@@ -93,6 +93,13 @@ type AeosSansaResolveBinding = {
     attributeSpace?: AeosSansaResolveBinding;
 };
 
+type IdentitySelectorState = {
+    limit: number;
+    inspections: number;
+    cache: Map<string, ReadonlySet<string> | null>;
+    namespace?: SansaResolveNamespace<AeosSansaResolveBinding>;
+};
+
 function formatQuotedMemberSegment(key: unknown): string {
     return `.[${JSON.stringify(String(key))}]`;
 }
@@ -137,6 +144,7 @@ const DEFAULT_RESOURCE_POLICY: Required<ResourcePolicyV1> = {
     max_path_length: 4_096,
     max_reference_resolution_steps: 64,
     max_selector_expansions: 100_000,
+    max_identity_inspections: 10_000,
     max_string_length_default: 10_000_000,
     max_container_children_default: 1_000_000,
 };
@@ -158,7 +166,7 @@ function normalizeResourcePolicy(
             continue;
         }
         const value = policy[key];
-        if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0)) {
+        if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || key === 'max_identity_inspections' && !Number.isSafeInteger(value))) {
             emitResourceError(ctx, '$', `${source} resource policy ${String(key)} must be a non-negative integer`);
             continue;
         }
@@ -565,14 +573,15 @@ export function validate(
     if (ctx.errors.length > errorCountBeforeSchemaIndex) {
         return createFailingEnvelope(ctx.errors, ctx.warnings, {});
     }
+    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map()};
     const selectorExpansionBudget = { count: 0 };
-    const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget);
+    const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget, identityState);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
 
     // Phase 4: Presence checks (required fields)
     const boundPaths = new Set(eventsByPath.keys());
     checkPresence(effectiveRuleIndex, boundPaths, ctx);
-    checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, eventsByPath, ctx);
+    checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, eventsByPath, ctx, identityState);
 
     // Phase 5: Type checks (literal kind)
     checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
@@ -700,6 +709,7 @@ function checkWorldPolicy(
     boundPaths: ReadonlySet<string>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
+    identityState: IdentitySelectorState,
 ): void {
     if ((schema.world ?? 'open') !== 'closed') return;
 
@@ -713,7 +723,7 @@ function checkWorldPolicy(
     const selectorMatches = new Map<string, ReadonlySet<string> | null>();
     for (const rule of allowedRules) {
         if (rule.kind !== 'selector' || selectorMatches.has(rule.value)) continue;
-        selectorMatches.set(rule.value, resolveSansaSelectorPathSet(rule.value, eventsByPath, ctx));
+        selectorMatches.set(rule.value, resolveSansaSelectorPathSet(rule.value, eventsByPath, ctx, identityState));
     }
     for (const event of aes) {
         const key = typeof event.key === 'string' ? event.key : '';
@@ -767,12 +777,13 @@ function expandSelectorRules(
     ctx: ReturnType<typeof createDiagContext>,
     resourcePolicy: Required<ResourcePolicyV1>,
     expansionBudget: { count: number },
+    identityState: IdentitySelectorState,
 ): RuleIndex {
     const expanded = new Map(ruleIndex);
     for (const rule of schema.rules) {
         if (typeof rule.selector !== 'string' || rule.selector.length === 0) continue;
         if (typeof rule.path === 'string' && rule.path.length > 0) continue;
-        const resolvedPaths = resolveSansaSelectorPathSet(rule.selector, eventsByPath, ctx);
+        const resolvedPaths = resolveSansaSelectorPathSet(rule.selector, eventsByPath, ctx, identityState);
         if (resolvedPaths === null) continue;
         let matched = false;
         for (const actualPath of resolvedPaths) {
@@ -945,8 +956,16 @@ function resolveSansaSelectorPathSet(
     selector: string,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
+    identityState: IdentitySelectorState,
 ): ReadonlySet<string> | null {
-    const result = resolveAddress(selector, createAeosSansaResolveNamespace(eventsByPath));
+    const parsed = selector.includes('\\') ? parseAddress(selector) : undefined;
+    const hasIdentity = parsed?.ok === true && parsed.address.selectors.some(s => s.type === 'childIdentity');
+    if (hasIdentity && identityState.cache.has(selector)) return identityState.cache.get(selector)!;
+    const namespace = hasIdentity
+        ? (identityState.namespace ??= createAeosSansaResolveNamespace(eventsByPath, identityState))
+        : createAeosSansaResolveNamespace(eventsByPath);
+    const result = resolveAddress(selector, namespace, hasIdentity
+        ? {maxIdentityInspections: Math.max(0, identityState.limit - identityState.inspections)} : undefined);
     if (!result.ok) {
         const first = result.errors[0];
         emitError(ctx, createDiag(
@@ -955,18 +974,23 @@ function resolveSansaSelectorPathSet(
             first ? `Invalid or unsupported SANSA selector: ${first.message}` : `Invalid or unsupported SANSA selector: ${selector}`,
             ErrorCodes.INVALID_SCHEMA_POLICY,
         ));
+        if (hasIdentity) identityState.cache.set(selector, null);
         return null;
     }
 
-    return new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path)));
+    const paths = new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path)));
+    if (hasIdentity) identityState.cache.set(selector, paths);
+    return paths;
 }
 
 function createAeosSansaResolveNamespace(
     eventsByPath: ReadonlyMap<string, EventInfo>,
+    identityState?: IdentitySelectorState,
 ): SansaResolveNamespace<AeosSansaResolveBinding> {
     const root = buildAeosSansaResolveTree(eventsByPath);
     return {
         root,
+        ...(identityState ? {identity: (binding: AeosSansaResolveBinding) => { identityState.inspections += 1; return binding.identity; }} : {}),
         children: (binding) => binding.children,
         member: (binding, name) => binding.children.find((child) => child.name === name),
         position: (binding, index) => binding.children.find((child) => child.index === index),

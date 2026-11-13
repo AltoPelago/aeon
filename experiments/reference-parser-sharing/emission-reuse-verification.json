@@ -1,0 +1,24 @@
+{
+  "beforeAfterSourceBuildMatch": true,
+  "files": 1152,
+  "budgetsUnchanged": {
+    "latency": 1.15,
+    "retainedResultHeap": 1.2,
+    "changed": false
+  },
+  "gates": {
+    "compatibility": true,
+    "parserLatency": true,
+    "parserHeap": true,
+    "pipelineLatency": true,
+    "pipelineHeap": true
+  },
+  "broaderControlBudgetBreaches": [],
+  "scope": "Narrow artifact; original broader identity/profile tests/cost evidence preserved, not counted as narrow support.",
+  "candidateArchive": {
+    "file": ".results/emission-reuse-runtime.tar.gz",
+    "matchingSourceBuildFiles": 540,
+    "sha256": "f6d1662b332dd241fbedd8d708f68c04d71825a47f5cff784cc62ca9698911ce"
+  },
+  "originalControlVerification": "emission-reuse-protocol-verification.json"
+}

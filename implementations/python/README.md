@@ -290,3 +290,97 @@ python3 ./scripts/compare-canonical-implementations.py
 ```
 
 The Rust CLI also supports a future-facing sibling examples override via `AEON_EXAMPLES_ROOT`.
+
+## Structural reference path pilot
+
+This checkout shares SANSA-owned path-step grammar and raw index validation with
+clone/pointer references through native tokens. Reference indexes use unsigned
+ASCII decimal spelling `0..999999`; signs, separators, fractions, exponents and
+leading zeroes are rejected. Quoted numeric member names and ordinary numeric
+values retain their existing meaning. Structural identity metadata remains
+supported; identity reference steps and recursive selectors are deferred.
+
+The implementation retains existing structural AST/event shapes and native
+errors/spans. These internal cursors add no parser session, source reparse or
+external package dependency. See the local
+[pilot evidence](../../experiments/reference-parser-sharing/python-pilot/README.md)
+for passed local native gates and outstanding hosted/release/boundary review. This is
+not a published Python version change.
+
+## Local child identity candidate
+
+Explicit candidate fixture runners (excluded from the default lane set):
+
+```bash
+python3.12 tools/run_cts.py sansa-child-identity-parser sansa-child-identity-resolve
+```
+
+These tools exercise the direct Python API against the mutable experimental
+manifests; they do not add a JSON request protocol or a released conformance
+claim. The 20 parser/38 Resolve cases include selected-identity context on
+unsupported/ambiguous diagnostics and inspection-limit context. Mutable fixtures
+also assert six parser diagnostic code/index pairs. Cross-runtime performance,
+artifact and release qualification is tracked separately; source fixture success
+is not a release certificate. The standalone parser runner also
+supports the stable parser manifest with no candidate flag.
+
+The unpublished standalone `aeon.sansa` parser, renderer and read-only resolver
+accept direct-child identity expressions such as `$.items.\item1\`. These
+expressions have `isExact=False`; resolved bindings retain their structural
+addresses and object identity. Identity chains traverse one child relationship
+per segment and do not match the effective scope root itself.
+
+A namespace opts in by supplying an `identity(binding)` callable returning the
+binding's declared structural identity, or `None` when absent. The resolver does
+not infer this capability from an opaque `identity` field, key or address. It
+scans the namespace's direct `children`, rejects duplicate matches under one
+parent, and shares a default budget of 10,000 logical identity inspections across
+the operation. `maxIdentityInspections` accepts a non-negative safe integer;
+iterator cleanup runs on early failure. Adapter allocation and I/O are outside
+this logical budget. Caller-owned identity ASTs are bounded and normalized before
+resolution; their supplied `canonical` and `isExact` fields are not trusted.
+
+This candidate does not admit identity expressions into clone/pointer references,
+AEOS rule selectors, event paths, Query, activation or mutation. Scoped document projection is described below. Bridge artifacts and the
+combined release checks remain separate work. Package version `0.16.0` is unchanged for local evaluation and is
+not a publication claim.
+
+### Explicit document namespaces
+
+The experimental `aeon.sansa_document` module provides
+`namespace_from_assignment_events(events, header=..., scope="payload")` and
+`namespace_from_portable_records(records, scope="payload", projection=...)`.
+They snapshot one plane of a complete validated portable AES document. Check
+compile errors before passing native assignment events. Header records require
+the existing AEON document projection declaration; `scope="header"` selects
+that plane. A combined `full` scope is not exposed.
+
+```python
+from aeon.core import compile_source
+from aeon.sansa import resolve_address
+from aeon.sansa_document import namespace_from_assignment_events
+
+compiled = compile_source('items=[\\item1\\=2]')
+assert not compiled.errors
+namespace = namespace_from_assignment_events(compiled.events, header=compiled.header)
+result = resolve_address('$.items.\\item1\\', namespace)
+assert result['bindings'][0]['path'] == '$.items[0]'
+```
+
+The projection preserves physical Unicode paths and node-head topology. Synthetic
+roots and attribute spaces are objects with no inherited identity. Numeric
+children are ordered by position; object members retain first represented order.
+References remain reference occurrences and are not followed or materialized.
+Input record changes do not retarget the constructed namespace. Returned binding
+dictionaries belong to this local projection; no mutation/continuity API is
+implied. A namespace-local `identityScope` check rejects foreign contextual roots
+before identity inspection, including after an otherwise missing prefix.
+
+Portable validation keeps document-wide uniqueness and resource limits. SANSA
+still validates an inspected identity's selectable spelling; broader transport
+metadata is retained and produces an explicit resolver error when inspected.
+Positions beyond the portable SANSA bound fail construction with
+`SANSA_RESOLVE_UNSUPPORTED_NAMESPACE_PATH`, rather than disappearing from the
+projection. `SansaNamespaceError` exposes the validation code and diagnostics.
+Construction/validation work is separate from Resolve's logical inspection
+budget. AEOS rule selectors continue to use their default-off namespace.
