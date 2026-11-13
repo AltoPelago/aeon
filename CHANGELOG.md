@@ -678,4 +678,9 @@ the `@altopelago` scope.
 
 ## Unreleased child identity candidate integration
 
-- Keep AEOS path and selector rules closed to SANSA child identity selectors in both schema codecs and direct validation. Quoted member names containing marker text remain valid structural paths. This accompanies an unreleased standalone SANSA read-only candidate; AEON clone/pointer references remain structural paths.
+- Admit SANSA child identity selectors in AEOS `selector` rules, with a private
+  namespace and a shared per-validation identity inspection budget. AEOS `path`
+  fields and AEON clone/pointer references remain structural paths; quoted member
+  names containing marker text remain valid structural keys. See
+  [AEOS child identity selectors](docs/aeos-child-identity-selectors.md) for the
+  unreleased candidate's consumer boundaries and resource-policy contract.

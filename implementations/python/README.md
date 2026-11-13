@@ -340,10 +340,14 @@ iterator cleanup runs on early failure. Adapter allocation and I/O are outside
 this logical budget. Caller-owned identity ASTs are bounded and normalized before
 resolution; their supplied `canonical` and `isExact` fields are not trusted.
 
-This candidate does not admit identity expressions into clone/pointer references,
-AEOS rule selectors, event paths, Query, activation or mutation. Scoped document projection is described below. Bridge artifacts and the
-combined release checks remain separate work. Package version `0.16.0` is unchanged for local evaluation and is
-not a publication claim.
+This pure Python candidate also admits identity expressions in AEOS `selector`
+rules, using a private namespace and a shared per-validation inspection budget.
+AEOS `path` fields, clone/pointer references and event paths remain structural.
+Query, activation and mutation are outside this standalone candidate. Scoped
+document projection is described below; the AEOS contract and consumer boundaries
+are documented in [AEOS child identity selectors](../../docs/aeos-child-identity-selectors.md).
+Bridge artifacts and combined release checks remain separate work. Package
+version `0.16.0` is unchanged for local evaluation and is not a publication claim.
 
 ### Explicit document namespaces
 
@@ -383,4 +387,7 @@ Positions beyond the portable SANSA bound fail construction with
 `SANSA_RESOLVE_UNSUPPORTED_NAMESPACE_PATH`, rather than disappearing from the
 projection. `SansaNamespaceError` exposes the validation code and diagnostics.
 Construction/validation work is separate from Resolve's logical inspection
-budget. AEOS rule selectors continue to use their default-off namespace.
+budget. AEOS validation builds its own private identity namespace and shares the
+default 10,000 logical identity inspections across selector rules in one call.
+Schema resource policies and consumer options can set `max_identity_inspections`;
+this budget is separate from projection construction and other validation limits.
