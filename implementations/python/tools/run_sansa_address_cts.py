@@ -31,7 +31,7 @@ def main() -> int:
                         errors.append(f"{key} mismatch: {actual!r}")
                 if "selectors" in expected and [step["type"] for step in address["selectors"]] != expected["selectors"]:
                     errors.append("selectors mismatch")
-                if "qualifierTerms" in expected and [term["name"] for term in (address.get("qualifierExpression") or {}).get("terms", [])] != expected["qualifierTerms"]:
+                if "qualifier_terms" in expected and [term["name"] for term in (address.get("qualifierExpression") or {}).get("terms", [])] != expected["qualifier_terms"]:
                     errors.append("qualifier terms mismatch")
                 if parse_address(render_address(address)).get("address") != address:
                     errors.append("render/parse replay mismatch")
