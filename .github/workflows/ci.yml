@@ -114,6 +114,7 @@ jobs:
         run: python3 -m pip install setuptools==82.0.0 wheel==0.45.1
 
       - name: Installed pure-Python structural reference package
+        working-directory: .
         run: python3 scripts/test-python-reference-wheel.py
 
       - name: Install native Python wheel build and typing tools
