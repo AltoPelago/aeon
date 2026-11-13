@@ -1,3 +1,7 @@
+use crate::sansa_path::{
+    MemberContext, StructuralCursor, StructuralStep, parse_dot_step, parse_member_step,
+    parse_position_step,
+};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::{BTreeMap, HashSet};
@@ -632,6 +636,70 @@ impl DerefMut for Parser<'_, '_> {
     }
 }
 
+impl StructuralCursor for Parser<'_, '_> {
+    type Error = Diagnostic;
+    fn match_syntax(&mut self, ch: char) -> bool {
+        let kind = match ch {
+            '@' => TokenKind::At,
+            '[' => TokenKind::LeftBracket,
+            _ => unreachable!("structural punctuation"),
+        };
+        self.match_kind(kind)
+    }
+    fn member(&mut self, quoted: bool, context: MemberContext) -> Result<String, Self::Error> {
+        if !quoted {
+            return self.parse_reference_key();
+        }
+        let message = match context {
+            MemberContext::Attribute => "Expected quoted attribute key",
+            _ => "Expected quoted member key",
+        };
+        let token = self.consume(TokenKind::String, message)?;
+        let key = decode_quoted_token(token)?;
+        if key.is_empty() {
+            return Err(Diagnostic::new(
+                "SYNTAX_ERROR",
+                "Empty quoted path segments are not valid",
+            )
+            .at_path("$")
+            .with_span(token.span));
+        }
+        Ok(key)
+    }
+    fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
+        let message = match context {
+            MemberContext::Attribute => "Expected `]` after quoted attribute key",
+            MemberContext::Member => "Expected `]` after quoted member key",
+            MemberContext::Bracket => "Expected `]` after index segment",
+        };
+        self.consume(TokenKind::RightBracket, message)?;
+        Ok(())
+    }
+    fn optional_index(&mut self) -> Result<Option<usize>, Self::Error> {
+        let token = self.consume(TokenKind::Number, "Expected index segment")?;
+        let parsed = crate::sansa_path::parse_position_index(&token.text);
+        // Keep the existing cold-path missing-close precedence.
+        if parsed.is_err()
+            && !self.check(TokenKind::RightBracket)
+            && token.text.parse::<usize>().is_ok()
+        {
+            self.consume(TokenKind::RightBracket, "Expected `]` after index segment")?;
+        }
+        parsed
+            .map(Some)
+            .map_err(|_| self.error_at_current("Invalid index segment"))
+    }
+    fn match_range(&mut self) -> bool {
+        false
+    }
+    fn missing_index(&self) -> Self::Error {
+        self.error_at_current("Invalid index segment")
+    }
+    fn empty_range(&self) -> Self::Error {
+        self.error_at_current("Invalid index segment")
+    }
+}
+
 impl<'tokens, 'state> Parser<'tokens, 'state> {
     fn new(
         tokens: &'tokens [Token],
@@ -1037,38 +1105,23 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
 
         loop {
             if self.match_kind(TokenKind::Dot) {
-                if self.match_kind(TokenKind::At) {
-                    self.consume(
-                        TokenKind::Dot,
-                        "Expected `.` after attribute address-space marker",
-                    )?;
-                    let key = if self.match_kind(TokenKind::LeftBracket) {
-                        let token =
-                            self.consume(TokenKind::String, "Expected quoted attribute key")?;
-                        let key = self.decode_reference_key(token)?;
+                match parse_dot_step(self)? {
+                    StructuralStep::Member { name, .. } => {
+                        segments.push(ReferenceSegment::Key(name))
+                    }
+                    StructuralStep::AttributeSpace => {
                         self.consume(
-                            TokenKind::RightBracket,
-                            "Expected `]` after quoted attribute key",
+                            TokenKind::Dot,
+                            "Expected `.` after attribute address-space marker",
                         )?;
-                        key
-                    } else {
-                        self.parse_reference_key()?
-                    };
-                    segments.push(ReferenceSegment::Attr(key));
-                } else {
-                    let key = if self.match_kind(TokenKind::LeftBracket) {
-                        let token =
-                            self.consume(TokenKind::String, "Expected quoted member key")?;
-                        let key = self.decode_reference_key(token)?;
-                        self.consume(
-                            TokenKind::RightBracket,
-                            "Expected `]` after quoted member key",
-                        )?;
-                        key
-                    } else {
-                        self.parse_reference_key()?
-                    };
-                    segments.push(ReferenceSegment::Key(key));
+                        let StructuralStep::Member { name, .. } =
+                            parse_member_step(self, MemberContext::Attribute)?
+                        else {
+                            unreachable!("member grammar")
+                        };
+                        segments.push(ReferenceSegment::Attr(name));
+                    }
+                    _ => unreachable!("dot grammar"),
                 }
                 continue;
             }
@@ -1080,12 +1133,9 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
                 } else {
-                    let token = self.consume(TokenKind::Number, "Expected index segment")?;
-                    let index = token
-                        .text
-                        .parse::<usize>()
-                        .map_err(|_| self.error_at_current("Invalid index segment"))?;
-                    self.consume(TokenKind::RightBracket, "Expected `]` after index segment")?;
+                    let StructuralStep::Position { index } = parse_position_step(self)? else {
+                        unreachable!("native positions cannot be ranges")
+                    };
                     segments.push(ReferenceSegment::Index(index));
                 }
                 continue;

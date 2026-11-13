@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { npmReleaseTag } from './npm-release-tag.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -121,7 +122,7 @@ try {
       continue;
     }
 
-    const publishArgs = ['publish', tarball, '--access', 'public'];
+    const publishArgs = ['publish', tarball, '--access', 'public', '--tag', npmReleaseTag(manifest.version)];
     if (provenance) {
       publishArgs.push('--provenance');
     }

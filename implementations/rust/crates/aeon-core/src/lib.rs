@@ -13,6 +13,7 @@ mod progressive;
 mod radix;
 mod resource_limits;
 mod sansa;
+mod sansa_path;
 mod temporal;
 mod token_parser;
 mod utf8_decoder;
@@ -52,6 +53,8 @@ pub use sansa::{
     parse_address as parse_sansa_address, resolve_address as resolve_sansa_address,
     resolve_parsed_address as resolve_parsed_sansa_address,
 };
+#[doc(hidden)]
+pub use validation::{AssignmentReferenceTarget, resolve_assignment_reference_target};
 use validation::{
     build_validation_event_lookup, build_validation_indexes, validate_compact_reference_steps,
     validate_datatypes, validate_datatypes_light, validate_duplicate_canonical_paths,
@@ -664,12 +667,30 @@ impl AsRef<str> for BindingProjection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HeaderFields {
     pub fields: BTreeMap<String, Value>,
     pub order: Vec<String>,
     pub spans: BTreeMap<String, Span>,
     pub datatypes: BTreeMap<String, String>,
+    /// Declared field occurrence identities, keyed like `fields` without `aeon:`.
+    pub structural_ids: BTreeMap<String, String>,
+}
+
+impl fmt::Debug for HeaderFields {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut fields = formatter.debug_struct("HeaderFields");
+        fields
+            .field("fields", &self.fields)
+            .field("order", &self.order)
+            .field("spans", &self.spans)
+            .field("datatypes", &self.datatypes);
+        // Keep ordinary documents' existing diagnostic/debug observations stable.
+        if !self.structural_ids.is_empty() {
+            fields.field("structural_ids", &self.structural_ids);
+        }
+        fields.finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5228,3 +5249,6 @@ z = 7"###,
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 }
+
+#[cfg(test)]
+mod child_identity_tests;

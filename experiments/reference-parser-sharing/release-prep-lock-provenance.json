@@ -1,0 +1,7 @@
+{
+  "version": "0.15.0-rc.1",
+  "integrity": "sha512-6ML0LILt3VP27oc6dVnFiFFREOk5mFuFClEs3yH/gk1xPDFk4O+Wt05dDE2LsXqqvoyeH5esPTTOuOjTG6Orsg==",
+  "artifact": "/var/folders/h7/6zx03x7n7y95sp07gxhx2f6h0000gp/T/aeon-installed-reference-paths-qIepxq/artifacts/altopelago-sansa-0.15.0-rc.1.tgz",
+  "source": "exact local npm pack artifact, not registry verification",
+  "gate": "Publish SANSA RC first; verify registry tarball integrity and regenerate/confirm lock before AEON release. Do not remove/relax integrity on mismatch."
+}

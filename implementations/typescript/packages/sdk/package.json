@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-sdk",
-  "version": "0.16.0",
+  "version": "0.17.0-rc.1",
   "description": "Public TypeScript SDK facade for AEON document workflows.",
   "license": "MIT",
   "type": "module",
@@ -56,6 +56,6 @@
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
     "@altopelago/aeon-canonical": "workspace:*",
-    "@altopelago/sansa": "0.14.2"
+    "@altopelago/sansa": "0.15.0-rc.1"
   }
 }

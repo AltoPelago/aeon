@@ -1,0 +1,13 @@
+import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+const here=fileURLToPath(new URL('.',import.meta.url));
+const variant=process.argv[2];
+const packages=variant==='baseline'?resolve(here,'.baseline/packages'):resolve(here,'../../implementations/typescript/packages');
+const {parse}=await import(resolve(packages,'parser/dist/index.js'));
+const {tokenize}=await import(resolve(packages,'lexer/dist/index.js'));
+const tokens=tokenize(process.env.SPIKE_MEMORY_SOURCE).tokens;
+for(let i=0;i<100;i++)parse(tokens);
+global.gc();const before=process.memoryUsage().heapUsed;
+globalThis.retained=Array.from({length:1000},()=>parse(tokens));
+global.gc();const delta=process.memoryUsage().heapUsed-before;
+console.log(JSON.stringify({variant,delta,retainedResults:globalThis.retained.length}));

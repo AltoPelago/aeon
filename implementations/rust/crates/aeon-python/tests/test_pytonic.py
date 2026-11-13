@@ -72,6 +72,22 @@ class PytonicTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             values.address = "$.changed"
 
+    def test_header_field_identity_survives_projection_and_canonical_replay(self) -> None:
+        source = 'aeon:header={value\\head\\=1}\n"aeon:value"\\body\\=2'
+        for text in (source, aeon.canonicalize(source)):
+            document = pytonic.loads(text)
+            header = document.at('$.["aeon:value"]', scope="header")
+            body = document.at('$.["aeon:value"]')
+            self.assertEqual(header.identity, "head")
+            self.assertEqual(body.identity, "body")
+            self.assertNotEqual(header, body)
+            self.assertEqual(document.by_identity("head", scope="header"), (header,))
+            self.assertEqual(document.by_identity("head"), ())
+            self.assertEqual(document.by_identity("body", scope="header"), ())
+        with self.assertRaises(aeon.CompileError) as raised:
+            pytonic.loads('aeon:header={value\\same\\=1}\nbody\\same\\=2')
+        self.assertEqual(raised.exception.diagnostics[0].code, "DUPLICATE_STRUCTURAL_IDENTITY")
+
     def test_invalid_source_raises_public_compile_error(self) -> None:
         with self.assertRaises(aeon.CompileError) as raised:
             pytonic.loads('name = "unterminated')
@@ -175,6 +191,53 @@ select { sku = .sku stage = .stage }
         self.assertEqual(
             tuple(field.name for field in record.value.fields), ("sku", "stage")
         )
+
+    def test_query_child_identities_preserve_occurrences_and_structural_paths(self) -> None:
+        document = pytonic.loads('items=[\\a\\={name\\n1\\="B"}, \\b\\={name\\n2\\="A"}]')
+        for _ in range(2):
+            result = document.query('from $.items.\\a\\\nselect .\\n1\\')
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(result.results[0].candidate, document["items"][0])
+            self.assertEqual(result.results[0].value[0], document["items"][0]["name"])
+            self.assertEqual(result.results[0].value[0].address, "$.items[0].name")
+        ordered = document.query('from $.items.*\nwhere .name >= "A"\norder by .name asc\nselect $.items.\\a\\.\\n1\\')
+        self.assertTrue(ordered.ok, ordered.errors)
+        self.assertEqual(tuple(r.candidate.address for r in ordered.results),
+                         ("$.items[1]", "$.items[0]"))
+        self.assertEqual(ordered.results[0].value[0], ordered.results[1].value[0])
+
+    def test_query_child_identity_default_budget_discards_all_results(self) -> None:
+        document = pytonic.loads("items=[" + ",".join("1" for _ in range(10001)) + "]")
+        result = document.query('from $.items.\\missing\\\nselect .')
+        self.assertFalse(result.ok)
+        self.assertEqual(result.results, ())
+        self.assertEqual(result.errors[0].code, "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED")
+        self.assertEqual(result.errors[0].limit, 10000)
+        self.assertEqual(result.errors[0].observed, 10001)
+
+    def test_query_child_identity_does_not_admit_activation_or_mutation(self) -> None:
+        document = pytonic.loads('items=[\\a\\=1]\nselector:sansa=$.items.\\a\\')
+        result = document.query('from $.selector\nselect path(.)',
+                                activation_roots=("$.items",), activation_selectors=("member",))
+        self.assertFalse(result.ok)
+        self.assertEqual(result.errors[0].code, "SANSA_RESOLVE_UNSUPPORTED_SELECTOR")
+        self.assertFalse(document.plan_mutation({"op": "remove", "target": '$.items.\\a\\'}).ok)
+
+    def test_constrained_child_identity_activation_is_explicit_and_scoped(self) -> None:
+        document = pytonic.loads('items=[\\a\\={name\\n\\="hello"}]\nselector:sansa=$.items.\\a\\.\\n\\')
+        query = "from $\nselect path($.selector)"
+        result = document.query(query, activation_roots=("$.items",),
+                                activation_selectors=("member", "child_identity"))
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.results[0].value[0], document["items"][0]["name"])
+        denied = document.query(query, activation_roots=("$.items[0]",),
+                                activation_selectors=("member", "child_identity"))
+        self.assertFalse(denied.ok)
+        self.assertEqual(denied.results, ())
+        self.assertEqual(denied.errors[0].code, "SANSA_QUERY_PATH_ACTIVATION_DENIED")
+        denied_feature = document.query(query, activation_roots=("$.items",), activation_selectors=("member",))
+        self.assertFalse(denied_feature.ok)
+        self.assertEqual(denied_feature.errors[0].code, "SANSA_RESOLVE_UNSUPPORTED_SELECTOR")
 
     def test_query_exposes_typed_scalars_without_json_materialisation(self) -> None:
         document = pytonic.loads("item = { stage = |approved| }\n")

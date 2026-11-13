@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
@@ -207,6 +208,7 @@ struct ResourcePolicy {
     max_path_length: usize,
     max_reference_resolution_steps: usize,
     max_selector_expansions: usize,
+    max_identity_inspections: usize,
     max_string_length_default: usize,
     max_container_children_default: usize,
 }
@@ -221,6 +223,7 @@ impl Default for ResourcePolicy {
             max_path_length: 4_096,
             max_reference_resolution_steps: 64,
             max_selector_expansions: 100_000,
+            max_identity_inspections: 10_000,
             max_string_length_default: 10_000_000,
             max_container_children_default: 1_000_000,
         }
@@ -266,6 +269,15 @@ fn normalize_resource_policy(
             );
             continue;
         };
+        if key == "max_identity_inspections" && number > 9_007_199_254_740_991 {
+            emit_resource_error(
+                ctx,
+                "$",
+                "max_identity_inspections exceeds the portable safe integer range".into(),
+                None,
+            );
+            continue;
+        }
         let Ok(number) = usize::try_from(number) else {
             emit_resource_error(
                 ctx,
@@ -283,6 +295,7 @@ fn normalize_resource_policy(
             "max_path_length" => policy.max_path_length = number,
             "max_reference_resolution_steps" => policy.max_reference_resolution_steps = number,
             "max_selector_expansions" => policy.max_selector_expansions = number,
+            "max_identity_inspections" => policy.max_identity_inspections = number,
             "max_string_length_default" => policy.max_string_length_default = number,
             "max_container_children_default" => policy.max_container_children_default = number,
             _ => emit_resource_error(
@@ -598,6 +611,8 @@ pub struct PathSegmentInput {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EventValue {
+    #[serde(default, rename = "structuralId")]
+    pub structural_id: Option<String>,
     #[serde(rename = "type")]
     pub value_type: String,
     #[serde(default)]
@@ -920,6 +935,7 @@ fn portable_event_value(record: &TelexRecord) -> EventValue {
         .then(|| raw.as_deref().and_then(portable_reference_path))
         .flatten();
     EventValue {
+        structural_id: None,
         value_type,
         raw,
         value,
@@ -1320,6 +1336,7 @@ fn validate_inner(
     if ctx.errors.len() > error_count_before_schema_index {
         return finalize_result(ctx, &bound_paths, &events_by_path);
     }
+    let mut identity_state = IdentitySelectorState::new(resource_policy.max_identity_inspections);
     let mut expansion_budget = 0usize;
     let expanded_rule_index = expand_selector_rules(
         &rule_index,
@@ -1328,6 +1345,7 @@ fn validate_inner(
         &mut ctx,
         &resource_policy,
         &mut expansion_budget,
+        &mut identity_state,
     );
     let effective_rule_index = merge_datatype_rules(
         &expanded_rule_index,
@@ -1361,7 +1379,14 @@ fn validate_inner(
         &schema.datatype_rules,
         &mut ctx,
     );
-    check_world_policy(schema, aes, &bound_paths, &events_by_path, &mut ctx);
+    check_world_policy(
+        schema,
+        aes,
+        &bound_paths,
+        &events_by_path,
+        &mut ctx,
+        &mut identity_state,
+    );
 
     finalize_result(ctx, &bound_paths, &events_by_path)
 }
@@ -1482,6 +1507,25 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
             continue;
         }
 
+        if let Some(path) = path
+            && path.contains('\\')
+            && parse_sansa_address(path).is_ok_and(|a| {
+                a.selectors
+                    .iter()
+                    .any(|s| matches!(s, SansaSelector::ChildIdentity { .. }))
+            })
+        {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(path.clone()),
+                    code: "invalid_schema_policy".into(),
+                    phase: "schema_validation".into(),
+                    span: None,
+                },
+            );
+            continue;
+        }
         if path.is_none() {
             let constraints = match &rule.constraints {
                 JsonValue::Object(map) => JsonValue::Object(map.clone()),
@@ -3239,6 +3283,7 @@ fn check_world_policy(
     bound_paths: &BTreeSet<String>,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    identity_state: &mut IdentitySelectorState,
 ) {
     if schema.world != "closed" {
         return;
@@ -3265,7 +3310,7 @@ fn check_world_policy(
         if *kind == "selector" && !selector_matches.contains_key(*selector) {
             selector_matches.insert(
                 (*selector).to_string(),
-                resolve_sansa_selector_path_set(selector, events_by_path, ctx),
+                resolve_sansa_selector_path_set(selector, events_by_path, ctx, identity_state),
             );
         }
     }
@@ -3350,7 +3395,7 @@ fn hydrate_indexed_fallback(
         events_by_path
             .entry(child_path)
             .or_insert_with(|| EventInfo {
-                identity: None,
+                identity: element.structural_id.clone(),
                 value_type: element.value_type.clone(),
                 datatype: None,
                 raw: element.raw.clone().unwrap_or_default(),
@@ -3457,6 +3502,7 @@ fn resolve_reference_form_events(
     resolved
 }
 
+#[allow(clippy::too_many_arguments)]
 fn expand_selector_rules(
     rule_index: &BTreeMap<String, JsonValue>,
     schema: &Schema,
@@ -3464,6 +3510,7 @@ fn expand_selector_rules(
     ctx: &mut DiagContext,
     resource_policy: &ResourcePolicy,
     expansion_budget: &mut usize,
+    identity_state: &mut IdentitySelectorState,
 ) -> BTreeMap<String, JsonValue> {
     let mut expanded = rule_index.clone();
     for rule in &schema.rules {
@@ -3477,7 +3524,8 @@ fn expand_selector_rules(
         if rule.path.as_ref().is_some_and(|path| !path.is_empty()) {
             continue;
         }
-        let Some(resolved_paths) = resolve_sansa_selector_path_set(selector, events_by_path, ctx)
+        let Some(resolved_paths) =
+            resolve_sansa_selector_path_set(selector, events_by_path, ctx, identity_state)
         else {
             continue;
         };
@@ -3698,11 +3746,163 @@ fn matches_allowed_path(actual_path: &str, allowed_path: &str) -> bool {
     actual_path == allowed_path
 }
 
+// Per-validation snapshot and cache; no public Core session/counter API is needed.
+struct IdentitySelectorState {
+    limit: usize,
+    namespace: Option<IdentitySelectorNamespace>,
+    cache: BTreeMap<String, Option<BTreeSet<String>>>,
+}
+impl IdentitySelectorState {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            namespace: None,
+            cache: BTreeMap::new(),
+        }
+    }
+}
+#[derive(Default)]
+struct IdentitySelectorRow {
+    address: Option<String>,
+    name: Option<String>,
+    index: Option<usize>,
+    structural_identity: Option<String>,
+    datatype: Option<String>,
+    kind: Option<String>,
+    children: Vec<usize>,
+    attribute_space: Option<usize>,
+}
+struct IdentitySelectorNamespace {
+    rows: Vec<IdentitySelectorRow>,
+    inspections: Cell<usize>,
+}
+impl IdentitySelectorNamespace {
+    fn new(root: SansaResolveBinding) -> Self {
+        let mut rows = vec![IdentitySelectorRow::default()];
+        let mut pending = vec![(0, root)];
+        while let Some((index, node)) = pending.pop() {
+            let mut children = Vec::new();
+            for child in node.children {
+                let i = rows.len();
+                rows.push(IdentitySelectorRow::default());
+                children.push(i);
+                pending.push((i, child));
+            }
+            let attribute_space = node.attribute_space.map(|attr| {
+                let i = rows.len();
+                rows.push(IdentitySelectorRow::default());
+                pending.push((i, *attr));
+                i
+            });
+            rows[index] = IdentitySelectorRow {
+                address: node.address,
+                name: node.name,
+                index: node.index,
+                structural_identity: node.structural_identity,
+                datatype: node.datatype,
+                kind: node.kind,
+                children,
+                attribute_space,
+            };
+        }
+        Self {
+            rows,
+            inspections: Cell::new(0),
+        }
+    }
+}
+impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
+    type Binding = usize;
+    fn identity_children<'a>(&'a self, b: &'a usize) -> Box<dyn Iterator<Item = usize> + 'a> {
+        Box::new(self.rows[*b].children.iter().copied())
+    }
+    fn root(&self) -> Option<usize> {
+        Some(0)
+    }
+    fn children(&self, b: &usize) -> Vec<usize> {
+        self.rows[*b].children.clone()
+    }
+    fn name(&self, b: &usize) -> Option<String> {
+        self.rows[*b].name.clone()
+    }
+    fn position(&self, b: &usize) -> Option<usize> {
+        self.rows[*b].index
+    }
+    fn supports_structural_identity(&self) -> bool {
+        true
+    }
+    fn structural_identity(&self, b: &usize) -> Option<String> {
+        self.inspections.set(self.inspections.get() + 1);
+        self.rows[*b].structural_identity.clone()
+    }
+    fn attribute_space(&self, b: &usize) -> sansa_runtime::resolve::Navigation<usize> {
+        self.rows[*b].attribute_space.map_or(
+            sansa_runtime::resolve::Navigation::Missing,
+            sansa_runtime::resolve::Navigation::Binding,
+        )
+    }
+    fn semantic_type(&self, b: &usize) -> Option<String> {
+        self.rows[*b].datatype.clone()
+    }
+    fn representation_kind(&self, b: &usize) -> Option<String> {
+        self.rows[*b].kind.clone()
+    }
+    fn binding_address(&self, b: &usize) -> Option<String> {
+        self.rows[*b].address.clone()
+    }
+}
+
 fn resolve_sansa_selector_path_set(
     selector: &str,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    identity_state: &mut IdentitySelectorState,
 ) -> Option<BTreeSet<String>> {
+    if selector.contains('\\')
+        && parse_sansa_address(selector).is_ok_and(|a| {
+            a.selectors
+                .iter()
+                .any(|s| matches!(s, SansaSelector::ChildIdentity { .. }))
+        })
+    {
+        if let Some(paths) = identity_state.cache.get(selector) {
+            return paths.clone();
+        }
+        let ns = identity_state.namespace.get_or_insert_with(|| {
+            IdentitySelectorNamespace::new(build_aeos_sansa_resolve_tree(events_by_path))
+        });
+        let result = sansa_runtime::resolve::resolve_address(
+            selector,
+            ns,
+            &sansa_runtime::resolve::ResolveOptions {
+                max_identity_inspections: identity_state.limit.saturating_sub(ns.inspections.get()),
+                ..sansa_runtime::resolve::ResolveOptions::default()
+            },
+        );
+        let paths = if result.is_ok() {
+            Some(
+                result
+                    .bindings
+                    .iter()
+                    .filter_map(|b| ns.rows[*b].address.clone())
+                    .filter(|p| events_by_path.contains_key(p))
+                    .collect(),
+            )
+        } else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.into()),
+                    code: "invalid_schema_policy".into(),
+                    phase: "schema_validation".into(),
+                    span: None,
+                },
+            );
+            None
+        };
+        identity_state.cache.insert(selector.into(), paths.clone());
+        return paths;
+    }
     let namespace = create_aeos_sansa_resolve_namespace(events_by_path);
     let result = resolve_sansa_address(selector, &namespace, &SansaResolveOptions::default());
     if !result.ok {
@@ -3788,6 +3988,7 @@ fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, in
         }
     }
     current.identity = info.identity.clone();
+    current.structural_identity = info.identity.clone();
     current.semantic_type = info.datatype.clone();
     current.datatype = info.datatype.clone();
     current.representation_kind = Some(info.value_type.clone());
@@ -5069,6 +5270,7 @@ mod tests {
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("CloneReference"),
                     raw: None,
                     value: None,
@@ -5118,6 +5320,7 @@ mod tests {
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("PointerReference"),
                     raw: None,
                     value: None,
@@ -5248,6 +5451,7 @@ mod tests {
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("CloneReference"),
                     raw: None,
                     value: None,
@@ -5304,6 +5508,7 @@ mod tests {
                     datatype: None,
                     annotations: BTreeMap::new(),
                     value: EventValue {
+                        structural_id: None,
                         value_type: String::from("NumberLiteral"),
                         raw: Some(String::from("2000")),
                         value: Some(JsonValue::String(String::from("2000"))),
@@ -5334,6 +5539,7 @@ mod tests {
                     datatype: None,
                     annotations: BTreeMap::new(),
                     value: EventValue {
+                        structural_id: None,
                         value_type: String::from("CloneReference"),
                         raw: None,
                         value: None,
@@ -5387,6 +5593,7 @@ mod tests {
                 datatype: None,
                 annotations: BTreeMap::new(),
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("CloneReference"),
                     raw: None,
                     value: None,
@@ -5440,6 +5647,7 @@ mod tests {
                     datatype: None,
                     annotations: BTreeMap::new(),
                     value: EventValue {
+                        structural_id: None,
                         value_type: String::from("NodeLiteral"),
                         raw: None,
                         value: None,
@@ -5475,6 +5683,7 @@ mod tests {
                     datatype: Some(String::from("int32")),
                     annotations: BTreeMap::new(),
                     value: EventValue {
+                        structural_id: None,
                         value_type: String::from("NumberLiteral"),
                         raw: Some(String::from("3")),
                         value: Some(JsonValue::String(String::from("3"))),
@@ -5541,6 +5750,7 @@ mod tests {
                 datatype: Some(String::from("int32")),
                 annotations: BTreeMap::new(),
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("NumberLiteral"),
                     raw: Some(String::from("3")),
                     value: Some(JsonValue::String(String::from("3"))),
@@ -5595,6 +5805,7 @@ mod tests {
                 datatype: Some(String::from("number")),
                 annotations: BTreeMap::new(),
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("NumberLiteral"),
                     raw: Some(String::from("3")),
                     value: Some(JsonValue::String(String::from("3"))),
@@ -5638,6 +5849,7 @@ mod tests {
             AttributeEntry {
                 structural_id: None,
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("StringLiteral"),
                     raw: Some(String::from("\"cm\"")),
                     value: Some(JsonValue::String(String::from("cm"))),
@@ -5654,6 +5866,7 @@ mod tests {
             AttributeEntry {
                 structural_id: None,
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("StringLiteral"),
                     raw: Some(String::from("\"x\"")),
                     value: Some(JsonValue::String(String::from("x"))),
@@ -5688,6 +5901,7 @@ mod tests {
                 datatype: Some(String::from("number")),
                 annotations,
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("NumberLiteral"),
                     raw: Some(String::from("3")),
                     value: Some(JsonValue::String(String::from("3"))),
@@ -5736,6 +5950,7 @@ mod tests {
             AttributeEntry {
                 structural_id: None,
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("NumberLiteral"),
                     raw: Some(String::from("-7")),
                     value: Some(JsonValue::String(String::from("-7"))),
@@ -5776,6 +5991,7 @@ mod tests {
                 datatype: Some(String::from("number")),
                 annotations,
                 value: EventValue {
+                    structural_id: None,
                     value_type: String::from("NumberLiteral"),
                     raw: Some(String::from("3")),
                     value: Some(JsonValue::String(String::from("3"))),
@@ -6182,3 +6398,6 @@ mod tests {
         assert!(parse_exact_decimal("١").is_none());
     }
 }
+
+#[cfg(test)]
+mod child_identity_tests;

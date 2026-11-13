@@ -1,4 +1,8 @@
-pub const SANSA_MAX_POSITION_INDEX: usize = 999_999;
+pub use crate::sansa_path::MAX_POSITION_INDEX as SANSA_MAX_POSITION_INDEX;
+use crate::sansa_path::{
+    MemberContext, PositionIndexError, StructuralCursor, StructuralStep, parse_dot_step,
+    parse_position_index, parse_position_step,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SansaAddress {
@@ -17,6 +21,9 @@ pub enum SansaRoot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SansaSelector {
+    ChildIdentity {
+        identity: String,
+    },
     Member {
         name: String,
         quoted: bool,
@@ -88,6 +95,8 @@ pub struct SansaResolveBinding {
     pub address: Option<String>,
     /// Opaque structural occurrence identity supplied by the host namespace.
     pub identity: Option<String>,
+    /// Structural identity metadata, distinct from opaque occurrence identity.
+    pub structural_identity: Option<String>,
     pub name: Option<String>,
     pub key: Option<String>,
     pub index: Option<usize>,
@@ -108,6 +117,7 @@ pub struct SansaResolveNamespace {
     pub root: SansaResolveBinding,
     pub contextual_root: Option<SansaResolveBinding>,
     pub supports_attribute_space: bool,
+    pub supports_structural_identity: bool,
     pub supports_parent_traversal: bool,
     pub supports_local_space: bool,
 }
@@ -119,23 +129,62 @@ impl SansaResolveNamespace {
             root,
             contextual_root: None,
             supports_attribute_space: true,
+            supports_structural_identity: false,
             supports_parent_traversal: false,
             supports_local_space: false,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SansaResolveOptions {
     pub contextual_root: Option<SansaResolveBinding>,
+    pub max_identity_inspections: usize,
+    pub max_bindings: Option<usize>,
+}
+impl Default for SansaResolveOptions {
+    fn default() -> Self {
+        Self {
+            contextual_root: None,
+            max_identity_inspections: 10_000,
+            max_bindings: None,
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SansaResolveDiagnostic {
+    /// Selected structural identity for unsupported or ambiguous identity selection.
+    pub identity: Option<String>,
+    /// Configured identity inspection ceiling, when exceeded.
+    pub limit: Option<usize>,
+    /// First inspection beyond the identity ceiling (limit + 1).
+    pub observed: Option<usize>,
     pub code: String,
     pub message: String,
     pub index: Option<usize>,
     pub selector_index: Option<usize>,
+}
+
+// Keep ordinary diagnostic Debug observations stable when optional identity context is absent.
+impl std::fmt::Debug for SansaResolveDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut out = f.debug_struct("SansaResolveDiagnostic");
+        out.field("code", &self.code);
+        out.field("message", &self.message);
+        out.field("index", &self.index);
+        out.field("selector_index", &self.selector_index);
+        if self.identity.is_some() {
+            out.field("identity", &self.identity);
+        }
+        if self.limit.is_some() {
+            out.field("limit", &self.limit);
+        }
+        if self.observed.is_some() {
+            out.field("observed", &self.observed);
+        }
+        out.finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -155,6 +204,11 @@ pub fn render_address(address: &SansaAddress) -> String {
 
     for selector in &address.selectors {
         match selector {
+            SansaSelector::ChildIdentity { identity } => {
+                output.push_str(".\\");
+                output.push_str(identity);
+                output.push('\\');
+            }
             SansaSelector::Member { name, .. } if is_identifier(name) => {
                 output.push('.');
                 output.push_str(name);
@@ -272,7 +326,7 @@ pub fn resolve_address(
     options: &SansaResolveOptions,
 ) -> SansaResolveOutput {
     match parse_address(input) {
-        Ok(address) => resolve_parsed_address(&address, namespace, options),
+        Ok(address) => resolve_valid_address(&address, namespace, options),
         Err(error) => SansaResolveOutput {
             ok: false,
             bindings: Vec::new(),
@@ -281,6 +335,9 @@ pub fn resolve_address(
                 message: error.message,
                 index: Some(error.index),
                 selector_index: None,
+                identity: None,
+                limit: None,
+                observed: None,
             }],
             diagnostics: Vec::new(),
         },
@@ -293,6 +350,44 @@ pub fn resolve_parsed_address(
     namespace: &SansaResolveNamespace,
     options: &SansaResolveOptions,
 ) -> SansaResolveOutput {
+    let normalized;
+    let has_identity = address
+        .selectors
+        .iter()
+        .any(|s| matches!(s, SansaSelector::ChildIdentity { .. }));
+    let address = if has_identity {
+        if !identity_ast_bounded(address) {
+            return identity_failure(
+                "SANSA_RESOLVE_INVALID_ADDRESS",
+                "Invalid identity address AST",
+                None,
+            );
+        }
+        normalized = match parse_address(&render_address(address)) {
+            Ok(a) => a,
+            Err(_) => {
+                return identity_failure(
+                    "SANSA_RESOLVE_INVALID_ADDRESS",
+                    "Invalid identity address AST",
+                    None,
+                );
+            }
+        };
+        &normalized
+    } else {
+        address
+    };
+    resolve_valid_address(address, namespace, options)
+}
+fn resolve_valid_address(
+    address: &SansaAddress,
+    namespace: &SansaResolveNamespace,
+    options: &SansaResolveOptions,
+) -> SansaResolveOutput {
+    let has_identity = address
+        .selectors
+        .iter()
+        .any(|s| matches!(s, SansaSelector::ChildIdentity { .. }));
     let Some(root) = resolve_root(&address.root, namespace, options) else {
         return SansaResolveOutput {
             ok: false,
@@ -306,11 +401,57 @@ pub fn resolve_parsed_address(
         };
     };
 
+    if has_identity && !namespace.supports_structural_identity {
+        let (index, identity) = address
+            .selectors
+            .iter()
+            .enumerate()
+            .find_map(|(index, selector)| {
+                if let SansaSelector::ChildIdentity { identity } = selector {
+                    Some((index, identity))
+                } else {
+                    None
+                }
+            })
+            .expect("has_identity guarantees an identity selector");
+        let mut output = identity_failure(
+            "SANSA_RESOLVE_UNSUPPORTED_IDENTITY",
+            "Namespace does not expose structural identity inspection",
+            Some(index),
+        );
+        output.errors[0].identity = Some(identity.clone());
+        return output;
+    }
+    let mut inspected = 0usize;
+    if options.max_bindings == Some(0) && address.selectors.is_empty() {
+        return identity_failure(
+            "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED",
+            "Resolve binding limit exceeded",
+            None,
+        );
+    }
     let mut current = vec![root];
     for (selector_index, selector) in address.selectors.iter().enumerate() {
-        match apply_resolve_selector(selector, &current, namespace, selector_index) {
+        match apply_resolve_selector(
+            selector,
+            &current,
+            namespace,
+            selector_index,
+            options,
+            &mut inspected,
+        ) {
             Ok(selected) => {
                 current = selected;
+                if options
+                    .max_bindings
+                    .is_some_and(|limit| current.len() > limit)
+                {
+                    return identity_failure(
+                        "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED",
+                        "Resolve binding limit exceeded",
+                        Some(selector_index),
+                    );
+                }
                 if current.is_empty() {
                     break;
                 }
@@ -353,8 +494,64 @@ fn apply_resolve_selector(
     bindings: &[SansaResolveBinding],
     namespace: &SansaResolveNamespace,
     selector_index: usize,
+    options: &SansaResolveOptions,
+    inspected: &mut usize,
 ) -> Result<Vec<SansaResolveBinding>, SansaResolveDiagnostic> {
     match selector {
+        SansaSelector::ChildIdentity { identity } => {
+            let mut out = Vec::new();
+            for parent in bindings {
+                let mut selected = None;
+                for child in &parent.children {
+                    if *inspected >= options.max_identity_inspections {
+                        let mut error = resolve_error(
+                            "SANSA_RESOLVE_IDENTITY_LIMIT_EXCEEDED",
+                            "Identity inspection limit exceeded",
+                            Some(selector_index),
+                        );
+                        error.limit = Some(options.max_identity_inspections);
+                        error.observed = Some(inspected.saturating_add(1));
+                        return Err(error);
+                    }
+                    *inspected += 1;
+                    if child
+                        .structural_identity
+                        .as_deref()
+                        .is_some_and(|s| !valid_identity(s))
+                    {
+                        return Err(resolve_error(
+                            "SANSA_RESOLVE_INVALID_IDENTITY",
+                            "Adapter returned an invalid structural identity",
+                            Some(selector_index),
+                        ));
+                    }
+                    if child.structural_identity.as_deref() == Some(identity) {
+                        if selected.is_some() {
+                            let mut error = resolve_error(
+                                "SANSA_RESOLVE_AMBIGUOUS_IDENTITY",
+                                "Multiple children have the selected identity",
+                                Some(selector_index),
+                            );
+                            error.identity = Some(identity.clone());
+                            return Err(error);
+                        }
+                        selected = Some(child.clone());
+                    }
+                }
+                if let Some(child) = selected {
+                    out.push(child);
+                }
+                if options.max_bindings.is_some_and(|limit| out.len() > limit) {
+                    return Err(resolve_error(
+                        "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED",
+                        "Resolve binding limit exceeded",
+                        Some(selector_index),
+                    ));
+                }
+            }
+            Ok(out)
+        }
+
         SansaSelector::Member { name, .. } => Ok(bindings
             .iter()
             .flat_map(|binding| select_member(binding, name))
@@ -560,6 +757,9 @@ fn resolve_error(
         message: message.into(),
         index: None,
         selector_index,
+        identity: None,
+        limit: None,
+        observed: None,
     }
 }
 
@@ -634,6 +834,96 @@ fn glob_matches(pattern: &str, name: &str) -> bool {
 struct AddressParser<'a> {
     input: &'a str,
     index: usize,
+}
+
+fn structural_selector(step: StructuralStep) -> SansaSelector {
+    match step {
+        StructuralStep::Member { name, quoted } => SansaSelector::Member { name, quoted },
+        StructuralStep::AttributeSpace => SansaSelector::AttributeSpace,
+        StructuralStep::Position { index } => SansaSelector::Position { index },
+        StructuralStep::PositionRange { start, end } => SansaSelector::PositionRange { start, end },
+    }
+}
+
+impl StructuralCursor for AddressParser<'_> {
+    type Error = SansaParseError;
+    fn match_syntax(&mut self, ch: char) -> bool {
+        self.match_char(ch)
+    }
+    fn member(&mut self, quoted: bool, _: MemberContext) -> Result<String, Self::Error> {
+        if !quoted {
+            return self.parse_identifier("member selector");
+        }
+        let name = self.parse_quoted_payload()?;
+        if name.is_empty() {
+            return self.fail(
+                "Quoted member names must not be empty",
+                "SANSA_EMPTY_MEMBER_NAME",
+            );
+        }
+        Ok(name)
+    }
+    fn close_bracket(&mut self, _: MemberContext) -> Result<(), Self::Error> {
+        self.consume(']')
+    }
+    fn optional_index(&mut self) -> Result<Option<usize>, Self::Error> {
+        self.parse_optional_position_index()
+    }
+    fn match_range(&mut self) -> bool {
+        if self.input[self.index..].starts_with("..") {
+            self.index += 2;
+            true
+        } else {
+            false
+        }
+    }
+    fn missing_index(&self) -> Self::Error {
+        SansaParseError::new(
+            "Expected positional index",
+            self.index,
+            "SANSA_EXPECTED_INDEX",
+        )
+    }
+    fn empty_range(&self) -> Self::Error {
+        SansaParseError::new(
+            "Position ranges must include a start or end index",
+            self.index,
+            "SANSA_EMPTY_POSITION_RANGE",
+        )
+    }
+}
+
+struct PositionCursor<'p, 'i> {
+    parser: &'p mut AddressParser<'i>,
+    selector_start: usize,
+}
+impl StructuralCursor for PositionCursor<'_, '_> {
+    type Error = SansaParseError;
+    fn match_syntax(&mut self, ch: char) -> bool {
+        self.parser.match_syntax(ch)
+    }
+    fn member(&mut self, quoted: bool, context: MemberContext) -> Result<String, Self::Error> {
+        self.parser.member(quoted, context)
+    }
+    fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
+        self.parser.close_bracket(context)
+    }
+    fn optional_index(&mut self) -> Result<Option<usize>, Self::Error> {
+        self.parser.optional_index()
+    }
+    fn match_range(&mut self) -> bool {
+        self.parser.match_range()
+    }
+    fn missing_index(&self) -> Self::Error {
+        self.parser.missing_index()
+    }
+    fn empty_range(&self) -> Self::Error {
+        SansaParseError::new(
+            "Position ranges must include a start or end index",
+            self.selector_start,
+            "SANSA_EMPTY_POSITION_RANGE",
+        )
+    }
 }
 
 impl<'a> AddressParser<'a> {
@@ -717,8 +1007,8 @@ impl<'a> AddressParser<'a> {
 
     fn parse_dot_selector(&mut self) -> Result<SansaSelector, SansaParseError> {
         self.consume('.')?;
-        if self.match_char('@') {
-            return Ok(SansaSelector::AttributeSpace);
+        if self.match_char('\\') {
+            return self.parse_child_identity();
         }
         if self.match_char('^') {
             return Ok(SansaSelector::Parent);
@@ -728,17 +1018,6 @@ impl<'a> AddressParser<'a> {
                 return Ok(SansaSelector::DescendantExpansion);
             }
             return Ok(SansaSelector::DirectExpansion);
-        }
-        if self.match_char('[') {
-            let name = self.parse_quoted_payload()?;
-            if name.is_empty() {
-                self.fail(
-                    "Quoted member names must not be empty",
-                    "SANSA_EMPTY_MEMBER_NAME",
-                )?;
-            }
-            self.consume(']')?;
-            return Ok(SansaSelector::Member { name, quoted: true });
         }
         if self.match_char('<') {
             let name = self.parse_quoted_payload()?;
@@ -756,35 +1035,49 @@ impl<'a> AddressParser<'a> {
             self.consume(')')?;
             return Ok(SansaSelector::NamePattern { pattern });
         }
-        Ok(SansaSelector::Member {
-            name: self.parse_identifier("member selector")?,
-            quoted: false,
-        })
+        Ok(structural_selector(parse_dot_step(self)?))
+    }
+
+    fn parse_child_identity(&mut self) -> Result<SansaSelector, SansaParseError> {
+        let start = self.index;
+        while let Some(ch) = self.peek() {
+            if ch == '\\' {
+                if self.index == start {
+                    return Err(SansaParseError::new(
+                        "Expected structural identity name",
+                        self.index,
+                        "SANSA_EXPECTED_IDENTITY",
+                    ));
+                }
+                let identity = self.input[start..self.index].to_owned();
+                self.advance();
+                return Ok(SansaSelector::ChildIdentity { identity });
+            }
+            if !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-')) {
+                return Err(SansaParseError::new(
+                    "Expected structural identity name",
+                    self.index,
+                    "SANSA_EXPECTED_IDENTITY",
+                ));
+            }
+            self.advance();
+        }
+        Err(SansaParseError::new(
+            "Unterminated structural identity selector",
+            self.index,
+            "SANSA_UNTERMINATED_IDENTITY",
+        ))
     }
 
     fn parse_position_selector(&mut self) -> Result<SansaSelector, SansaParseError> {
         self.consume('[')?;
         let selector_start = self.index;
-        let start = self.parse_optional_position_index()?;
-        if self.input[self.index..].starts_with("..") {
-            self.index += 2;
-            let end = self.parse_optional_position_index()?;
-            if start.is_none() && end.is_none() {
-                return Err(SansaParseError::new(
-                    "Position ranges must include a start or end index",
-                    selector_start,
-                    "SANSA_EMPTY_POSITION_RANGE",
-                ));
-            }
-            self.consume(']')?;
-            return Ok(SansaSelector::PositionRange { start, end });
-        }
-        let index = match start {
-            Some(index) => index,
-            None => return self.fail("Expected positional index", "SANSA_EXPECTED_INDEX"),
+        // A short-lived cursor records the range diagnostic's original offset.
+        let mut cursor = PositionCursor {
+            parser: self,
+            selector_start,
         };
-        self.consume(']')?;
-        Ok(SansaSelector::Position { index })
+        Ok(structural_selector(parse_position_step(&mut cursor)?))
     }
 
     fn parse_optional_position_index(&mut self) -> Result<Option<usize>, SansaParseError> {
@@ -796,23 +1089,23 @@ impl<'a> AddressParser<'a> {
             return Ok(None);
         }
         let raw = &self.input[start..self.index];
-        if raw.len() > 1 && raw.starts_with('0') {
-            return Err(SansaParseError::new(
+        match parse_position_index(raw) {
+            Ok(index) => Ok(Some(index)),
+            Err(PositionIndexError::LeadingZero) => Err(SansaParseError::new(
                 "Positional indexes must not contain leading zeroes",
                 start,
                 "SANSA_LEADING_ZERO_INDEX",
-            ));
-        }
-        if position_index_exceeds_limit(raw) {
-            return Err(SansaParseError::new(
+            )),
+            Err(PositionIndexError::LimitExceeded) => Err(SansaParseError::new(
                 format!(
                     "Position indexes must be less than or equal to {SANSA_MAX_POSITION_INDEX}"
                 ),
                 start,
                 "SANSA_POSITION_INDEX_LIMIT_EXCEEDED",
-            ));
+            )),
+            // The caller has already scanned a nonempty ASCII digit sequence.
+            Err(PositionIndexError::InvalidSpelling) => unreachable!("digit scanner invariant"),
         }
-        Ok(Some(raw.parse::<usize>().unwrap_or(0)))
     }
 
     fn parse_qualifier_expression(
@@ -1095,11 +1388,6 @@ fn is_exact_selector(selector: &SansaSelector) -> bool {
             | SansaSelector::AttributeSpace
             | SansaSelector::LocalSpace { .. }
     )
-}
-
-fn position_index_exceeds_limit(raw: &str) -> bool {
-    let max = SANSA_MAX_POSITION_INDEX.to_string();
-    raw.len() > max.len() || (raw.len() == max.len() && raw > max.as_str())
 }
 
 fn is_identifier(value: &str) -> bool {
@@ -1598,7 +1886,8 @@ mod tests {
                 "?.sku",
                 &namespace,
                 &SansaResolveOptions {
-                    contextual_root: Some(item0)
+                    contextual_root: Some(item0),
+                    ..SansaResolveOptions::default()
                 }
             )),
             vec!["$.inventory.items[0].sku"]
@@ -1610,7 +1899,8 @@ mod tests {
                 "?.*",
                 &namespace,
                 &SansaResolveOptions {
-                    contextual_root: Some(item1)
+                    contextual_root: Some(item1),
+                    ..SansaResolveOptions::default()
                 }
             )),
             vec![
@@ -2007,5 +2297,148 @@ mod tests {
     ) -> SansaResolveBinding {
         binding.local_spaces.push((name.to_owned(), local_space));
         binding
+    }
+}
+
+fn valid_identity(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+}
+fn identity_ast_bounded(address: &SansaAddress) -> bool {
+    if address.selectors.len() > 1024 {
+        return false;
+    }
+    let mut bytes = 0usize;
+    for selector in &address.selectors {
+        let s = match selector {
+            SansaSelector::ChildIdentity { identity } => {
+                if !valid_identity(identity) {
+                    return false;
+                }
+                identity
+            }
+            SansaSelector::SemanticTypeFilter { name }
+            | SansaSelector::RepresentationKindFilter { name } => {
+                if !is_identifier(name) {
+                    return false;
+                }
+                name
+            }
+            SansaSelector::Member { name, .. } | SansaSelector::LocalSpace { name } => name,
+            SansaSelector::NamePattern { pattern } => pattern,
+            _ => continue,
+        };
+        bytes = bytes.saturating_add(s.len());
+        if bytes > 65536 {
+            return false;
+        }
+    }
+    let mut stack = Vec::new();
+    if let Some(q) = &address.qualifier_expression {
+        if q.terms.len() > 1024 {
+            return false;
+        }
+        for t in &q.terms {
+            stack.push((t, 0));
+        }
+    }
+    let mut count = 0usize;
+    while let Some((term, depth)) = stack.pop() {
+        count = count
+            .saturating_add(1)
+            .saturating_add(term.arguments.len())
+            .saturating_add(term.parameter_groups.len());
+        if count > 1024 || depth > 64 {
+            return false;
+        }
+        if term.arguments.len() > 1024 || term.parameter_groups.len() > 1024 {
+            return false;
+        }
+        if !is_identifier(&term.name) {
+            return false;
+        }
+        bytes = bytes.saturating_add(term.name.len());
+        for a in &term.arguments {
+            if matches!(a, QualifierArgument::Number(s) | QualifierArgument::Token(s) if !is_number_literal(s))
+            {
+                return false;
+            }
+            bytes = bytes.saturating_add(match a {
+                QualifierArgument::Number(s)
+                | QualifierArgument::Quoted(s)
+                | QualifierArgument::Token(s) => s.len(),
+            });
+        }
+        if bytes > 65536 {
+            return false;
+        }
+        if stack.len().saturating_add(term.parameters.len()) > 1024 {
+            return false;
+        }
+        for t in &term.parameters {
+            stack.push((t, depth + 1));
+        }
+        for group in &term.parameter_groups {
+            if stack.len().saturating_add(group.len()) > 1024 {
+                return false;
+            }
+            for t in group {
+                stack.push((t, depth + 1));
+            }
+        }
+    }
+    true
+}
+
+fn identity_failure(code: &str, message: &str, index: Option<usize>) -> SansaResolveOutput {
+    SansaResolveOutput {
+        ok: false,
+        bindings: Vec::new(),
+        errors: vec![resolve_error(code, message, index)],
+        diagnostics: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod identity_ast_payload_regressions {
+    use super::*;
+    #[test]
+    fn malformed_filter_and_qualifier_data_cannot_become_selectors() {
+        let namespace = SansaResolveNamespace::new(SansaResolveBinding::default());
+        for selector in [
+            SansaSelector::SemanticTypeFilter { name: "T.*".into() },
+            SansaSelector::RepresentationKindFilter {
+                name: "ObjectLiteral.*".into(),
+            },
+        ] {
+            let mut address = parse_address("$.\\target\\").expect("valid regression fixture");
+            address.selectors.push(selector);
+            let result =
+                resolve_parsed_address(&address, &namespace, &SansaResolveOptions::default());
+            assert_eq!(result.errors[0].code, "SANSA_RESOLVE_INVALID_ADDRESS");
+        }
+        let mut address = parse_address("$.\\target\\:Q[1]").expect("valid regression fixture");
+        address
+            .qualifier_expression
+            .as_mut()
+            .expect("valid regression fixture")
+            .terms[0]
+            .name = "Q|Other".into();
+        assert!(!identity_ast_bounded(&address));
+        address
+            .qualifier_expression
+            .as_mut()
+            .expect("valid regression fixture")
+            .terms[0]
+            .name = "Q".into();
+        address
+            .qualifier_expression
+            .as_mut()
+            .expect("valid regression fixture")
+            .terms[0]
+            .arguments[0] = QualifierArgument::Number("1]|Other[2".into());
+        assert!(!identity_ast_bounded(&address));
     }
 }

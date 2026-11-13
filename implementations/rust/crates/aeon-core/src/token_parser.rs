@@ -1,6 +1,10 @@
 #![allow(clippy::result_large_err)]
 
 mod sofia;
+use crate::sansa_path::{
+    MemberContext, StructuralCursor, StructuralStep, parse_dot_step, parse_member_step,
+    parse_position_step,
+};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
@@ -475,6 +479,70 @@ struct TokenParser<'a> {
     max_generic_arguments: usize,
     max_datatype_components: usize,
     structural_identities: HashSet<String>,
+}
+
+impl StructuralCursor for TokenParser<'_> {
+    type Error = Diagnostic;
+    fn match_syntax(&mut self, ch: char) -> bool {
+        let kind = match ch {
+            '@' => TokenKind::At,
+            '[' => TokenKind::LeftBracket,
+            _ => unreachable!("structural punctuation"),
+        };
+        self.match_kind(kind)
+    }
+    fn member(&mut self, quoted: bool, context: MemberContext) -> Result<String, Self::Error> {
+        if !quoted {
+            return self.parse_reference_key();
+        }
+        let message = match context {
+            MemberContext::Attribute => "Expected quoted attribute key",
+            _ => "Expected quoted member key",
+        };
+        let token = self.consume(TokenKind::String, message)?;
+        let key = decode_quoted_token(token)?;
+        if key.is_empty() {
+            return Err(Diagnostic::new(
+                "SYNTAX_ERROR",
+                "Empty quoted path segments are not valid",
+            )
+            .at_path("$")
+            .with_span(token.span));
+        }
+        Ok(key)
+    }
+    fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
+        let message = match context {
+            MemberContext::Attribute => "Expected `]` after quoted attribute key",
+            MemberContext::Member => "Expected `]` after quoted member key",
+            MemberContext::Bracket => "Expected `]` after index segment",
+        };
+        self.consume(TokenKind::RightBracket, message)?;
+        Ok(())
+    }
+    fn optional_index(&mut self) -> Result<Option<usize>, Self::Error> {
+        let token = self.consume(TokenKind::Number, "Expected index segment")?;
+        let parsed = crate::sansa_path::parse_position_index(&token.text);
+        // Keep the existing cold-path missing-close precedence.
+        if parsed.is_err()
+            && !self.check(TokenKind::RightBracket)
+            && token.text.parse::<usize>().is_ok()
+        {
+            self.consume(TokenKind::RightBracket, "Expected `]` after index segment")?;
+        }
+        parsed
+            .map(Some)
+            .map_err(|_| self.error_at_current("Invalid index segment"))
+    }
+    fn match_range(&mut self) -> bool {
+        false
+    }
+    fn missing_index(&self) -> Self::Error {
+        self.error_at_current("Invalid index segment")
+    }
+    fn empty_range(&self) -> Self::Error {
+        self.error_at_current("Invalid index segment")
+    }
 }
 
 impl<'a> TokenParser<'a> {
@@ -1292,50 +1360,23 @@ impl<'a> TokenParser<'a> {
 
         loop {
             if self.match_kind(TokenKind::Dot) {
-                if self.match_kind(TokenKind::At) {
-                    self.consume(
-                        TokenKind::Dot,
-                        "Expected `.` after attribute address-space marker",
-                    )?;
-                    if self.match_kind(TokenKind::LeftBracket) {
-                        let key_token =
-                            self.consume(TokenKind::String, "Expected quoted attribute key")?;
-                        let key = decode_quoted_token(key_token)?;
-                        if key.is_empty() {
-                            return Err(Diagnostic::new(
-                                "SYNTAX_ERROR",
-                                "Empty quoted path segments are not valid",
-                            )
-                            .at_path("$")
-                            .with_span(key_token.span));
-                        }
+                match parse_dot_step(self)? {
+                    StructuralStep::Member { name, .. } => {
+                        segments.push(ReferenceSegment::Key(name))
+                    }
+                    StructuralStep::AttributeSpace => {
                         self.consume(
-                            TokenKind::RightBracket,
-                            "Expected `]` after quoted attribute key",
+                            TokenKind::Dot,
+                            "Expected `.` after attribute address-space marker",
                         )?;
-                        segments.push(ReferenceSegment::Attr(key));
-                    } else {
-                        segments.push(ReferenceSegment::Attr(self.parse_reference_key()?));
+                        let StructuralStep::Member { name, .. } =
+                            parse_member_step(self, MemberContext::Attribute)?
+                        else {
+                            unreachable!("member grammar")
+                        };
+                        segments.push(ReferenceSegment::Attr(name));
                     }
-                } else if self.match_kind(TokenKind::LeftBracket) {
-                    let key_token =
-                        self.consume(TokenKind::String, "Expected quoted member key")?;
-                    let key = decode_quoted_token(key_token)?;
-                    if key.is_empty() {
-                        return Err(Diagnostic::new(
-                            "SYNTAX_ERROR",
-                            "Empty quoted path segments are not valid",
-                        )
-                        .at_path("$")
-                        .with_span(key_token.span));
-                    }
-                    self.consume(
-                        TokenKind::RightBracket,
-                        "Expected `]` after quoted member key",
-                    )?;
-                    segments.push(ReferenceSegment::Key(key));
-                } else {
-                    segments.push(ReferenceSegment::Key(self.parse_reference_key()?));
+                    _ => unreachable!("dot grammar"),
                 }
                 continue;
             }
@@ -1354,12 +1395,9 @@ impl<'a> TokenParser<'a> {
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
                 } else {
-                    let index_token = self.consume(TokenKind::Number, "Expected index segment")?;
-                    let index = index_token
-                        .text
-                        .parse::<usize>()
-                        .map_err(|_| self.error_at_current("Invalid index segment"))?;
-                    self.consume(TokenKind::RightBracket, "Expected `]` after index segment")?;
+                    let StructuralStep::Position { index } = parse_position_step(self)? else {
+                        unreachable!("native positions cannot be ranges")
+                    };
                     segments.push(ReferenceSegment::Index(index));
                 }
                 continue;
@@ -2302,6 +2340,136 @@ mod tests {
         errors.extend(result.errors);
         assert!(errors.is_empty(), "incremental lexer errors: {errors:#?}");
         parse_tokenized_document(&tokens, TEST_LIMITS, implementation)
+    }
+
+    #[test]
+    fn structural_reference_cursor_preserves_targets_and_diagnostics_at_each_split() {
+        for path in [
+            "$.a.b",
+            "a[\"b\"]",
+            "a.'b'",
+            "a.`b`",
+            "$.a /*gap*/ . b",
+            "$.[\"é\"].@.[\"unit\"]",
+            "$.a.@.unit.b",
+            "$.a.@.unit.@.note",
+            "$.a[0].b",
+            "$.a.@",
+            "$.a.@.@.unit",
+            "$.a.[\"\"]",
+            "$.a.[\"b\"",
+            "$.a.@.[\"b\"",
+            "$.a[0..1]",
+            "$.a.*",
+            "$.a.\\id\\",
+        ] {
+            for marker in ["~", "~>"] {
+                let source = format!("copy={marker}{path}\nnext=7");
+                let expected = parse_with(&source, ParserImplementation::Baseline);
+                for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia]
+                {
+                    assert_eq!(parse_with(&source, implementation), expected, "{source}");
+                    for split in (0..=source.len()).filter(|split| source.is_char_boundary(*split))
+                    {
+                        assert_eq!(
+                            parse_chunks(&source, split, implementation),
+                            expected,
+                            "{source} split {split}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reference_indexes_use_sansa_spelling_across_engines_and_chunks() {
+        for raw in [
+            "0",
+            "1",
+            "999999",
+            "1000000",
+            "+1",
+            "-0",
+            "01",
+            "1_0",
+            "1.5",
+            "1e2",
+            "0x10",
+            "18446744073709551615",
+            "18446744073709551616",
+        ] {
+            let accepted = crate::parse_sansa_address(&format!("$.items[{raw}]")).is_ok();
+            for marker in ["~", "~>"] {
+                for source in [
+                    format!("copy={marker}items[{raw}]\nnext=2"),
+                    format!("obj={{copy={marker}$.items[{raw}],next=2}}"),
+                    format!("items=[{marker}items[{raw}],2]"),
+                    format!("obj@{{copy={marker}items[{raw}]}}=1"),
+                ] {
+                    let expected = parse_with(&source, ParserImplementation::Baseline);
+                    assert_eq!(expected.is_ok(), accepted, "{source}");
+                    for engine in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                        assert_eq!(parse_with(&source, engine), expected, "{source}");
+                        for split in 0..=source.len() {
+                            assert_eq!(
+                                parse_chunks(&source, split, engine),
+                                expected,
+                                "{source} at {split}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reference_index_missing_close_preserves_native_error_precedence() {
+        for raw in [
+            "0",
+            "1",
+            "999999",
+            "1000000",
+            "+1",
+            "-0",
+            "01",
+            "1_0",
+            "1.5",
+            "1e2",
+            "0x10",
+            "18446744073709551615",
+            "18446744073709551616",
+        ] {
+            // The lexer splits 0x10 into a numeric 0 and a following identifier.
+            let message = if raw.parse::<usize>().is_ok() || raw == "0x10" {
+                "Expected `]` after index segment"
+            } else {
+                "Invalid index segment"
+            };
+            for marker in ["~", "~>"] {
+                let source = format!("copy={marker}items[{raw}\nnext=2");
+                let expected = parse_with(&source, ParserImplementation::Baseline);
+                assert_eq!(
+                    expected
+                        .as_ref()
+                        .expect_err("expected regression rejection")
+                        .message,
+                    message,
+                    "{source}"
+                );
+                for engine in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                    assert_eq!(parse_with(&source, engine), expected, "{source}");
+                    for split in 0..=source.len() {
+                        assert_eq!(
+                            parse_chunks(&source, split, engine),
+                            expected,
+                            "{source} at {split}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn parse_with(

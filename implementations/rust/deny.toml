@@ -20,3 +20,4 @@ wildcards = "deny"
 unknown-registry = "deny"
 unknown-git = "deny"
 required-git-spec = "rev"
+allow-git = ["https://github.com/AltoPelago/sansa"]

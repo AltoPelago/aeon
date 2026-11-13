@@ -322,6 +322,9 @@ function canonicalAddress(value: string, role: 'path' | 'selector'): string {
         const detail = first ? `${first.message} at index ${first.index}` : 'invalid SANSA address';
         throw new SchemaCodecError(`Invalid AEOS ${role} '${value}': ${detail}`);
     }
+    if (role === 'path' && parsed.address.selectors.some(selector => selector.type === 'childIdentity')) {
+        throw new SchemaCodecError(`Child identity selectors are not admitted in AEOS ${role} rules`);
+    }
     if (role === 'path' && !parsed.address.isExact) {
         throw new SchemaCodecError(`AEOS path '${value}' must be an exact SANSA address; use 'selector' for wildcard or filter rules`);
     }

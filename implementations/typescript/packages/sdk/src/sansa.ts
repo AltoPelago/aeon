@@ -12,6 +12,8 @@ import {
   type ReadAeonOptions,
 } from './index.js';
 
+const bindingIdentity = (binding: AeonSansaBinding): string | undefined => binding.identity;
+
 export type AeonAssignmentEvent = CompileResult['events'][number];
 type PortableAeonEvent = ReturnType<typeof adaptTypeScriptAssignmentEventsToPortableAes>['events'][number];
 
@@ -186,6 +188,7 @@ export function createAeonNamespace(
     member: (binding, name) => binding.children.find((child) => child.name === name),
     position: (binding, index) => binding.children.find((child) => child.index === index),
     attributeSpace: (binding) => binding.attributeSpace,
+    identity: bindingIdentity,
     name: (binding) => binding.name,
     index: (binding) => binding.index,
     semanticType: (binding) => binding.semanticType,

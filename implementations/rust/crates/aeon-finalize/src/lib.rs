@@ -499,7 +499,7 @@ pub fn value_to_ast_json(value: &Value) -> JsonValue {
 fn header_to_json(
     header: Option<&HeaderFields>,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     scope: FinalizeScope,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
@@ -549,7 +549,7 @@ fn header_to_json(
 fn payload_to_json(
     events: &[AssignmentEvent],
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -631,7 +631,7 @@ fn value_to_json(
     value: &Value,
     path: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -661,7 +661,7 @@ fn value_to_json_with_active_key(
     path: &str,
     active_key: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -1012,7 +1012,7 @@ fn value_to_json_with_active_key(
                 } else {
                     tracker.active_clone_paths.push(target.clone());
                     let result = value_to_json_with_active_key(
-                        resolved,
+                        resolved.value(),
                         path,
                         &target,
                         projection,
@@ -1082,10 +1082,10 @@ fn push_unresolved_reference_diagnostic(
 
 fn consume_clone_budget(
     target_path: &str,
-    value: &Value,
+    value: &IndexedTarget<'_>,
     path: &str,
     _segments: &[ReferenceSegment],
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     errors: &mut Vec<Diagnostic>,
     tracker: &mut MaterializationTracker,
 ) -> bool {
@@ -1093,7 +1093,7 @@ fn consume_clone_budget(
         return true;
     };
 
-    let weight = measure_materialized_weight(
+    let weight = measure_indexed_target_weight(
         value,
         target_path,
         path_values,
@@ -1118,10 +1118,68 @@ fn consume_clone_budget(
     false
 }
 
+fn measure_indexed_target_weight(
+    target: &IndexedTarget<'_>,
+    path: &str,
+    path_values: &ReferenceTargets<'_>,
+    tracker: &mut MaterializationTracker,
+    stack: &mut BTreeSet<String>,
+) -> usize {
+    match target {
+        IndexedTarget::Owned(value) => {
+            measure_materialized_weight(value, path, path_values, tracker, stack)
+        }
+        IndexedTarget::Borrowed(value) => {
+            measure_materialized_weight(value, path, path_values, tracker, stack)
+        }
+        IndexedTarget::Attribute { attribute, .. } => {
+            measure_attribute_target_weight(attribute, path, path_values, tracker, stack)
+        }
+    }
+}
+
+fn measure_attribute_target_weight(
+    attribute: &AttributeValue,
+    path: &str,
+    path_values: &ReferenceTargets<'_>,
+    tracker: &mut MaterializationTracker,
+    stack: &mut BTreeSet<String>,
+) -> usize {
+    if let Some(value) = &attribute.value {
+        return measure_materialized_weight(value, path, path_values, tracker, stack);
+    }
+    if stack.contains(path) {
+        return 1;
+    }
+    let mut seen = BTreeSet::new();
+    attribute
+        .object_member_order
+        .iter()
+        .chain(attribute.object_members.keys())
+        .filter_map(|key| {
+            if !seen.insert(key.as_str()) {
+                return None;
+            }
+            let member = attribute.object_members.get(key)?;
+            let member_path = format!("{path}.{}", render_member_segment(key));
+            Some(
+                measure_attribute_target_weight(member, &member_path, path_values, tracker, stack)
+                    + measure_attribute_weight(
+                        &member.nested_attrs,
+                        &member_path,
+                        path_values,
+                        tracker,
+                        stack,
+                    ),
+            )
+        })
+        .sum()
+}
+
 fn measure_materialized_weight(
     value: &Value,
     current_path: &str,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     tracker: &mut MaterializationTracker,
     stack: &mut BTreeSet<String>,
 ) -> usize {
@@ -1160,7 +1218,7 @@ fn measure_materialized_weight(
             };
             let mut next_stack = stack.clone();
             next_stack.insert(String::from(current_path));
-            let weight = measure_materialized_weight(
+            let weight = measure_indexed_target_weight(
                 resolved,
                 &target_path,
                 path_values,
@@ -1232,7 +1290,7 @@ fn measure_materialized_weight(
 fn measure_attribute_weight(
     attributes: &BTreeMap<String, AttributeValue>,
     path: &str,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     tracker: &mut MaterializationTracker,
     stack: &mut BTreeSet<String>,
 ) -> usize {
@@ -1248,7 +1306,7 @@ fn measure_attribute_weight(
 fn measure_attribute_value_weight(
     entry: &AttributeValue,
     path: &str,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     tracker: &mut MaterializationTracker,
     stack: &mut BTreeSet<String>,
 ) -> usize {
@@ -1453,15 +1511,166 @@ fn is_reserved_key(key: &str) -> bool {
     )
 }
 
-fn index_event_values(events: &[AssignmentEvent]) -> BTreeMap<String, Value> {
+type ReferenceTargets<'a> = BTreeMap<String, IndexedTarget<'a>>;
+
+enum IndexedTarget<'a> {
+    Owned(Value),
+    Borrowed(&'a Value),
+    Attribute {
+        attribute: &'a AttributeValue,
+        materialized: std::cell::OnceCell<Value>,
+    },
+}
+
+impl IndexedTarget<'_> {
+    fn value(&self) -> &Value {
+        match self {
+            Self::Owned(value) => value,
+            Self::Borrowed(value) => value,
+            Self::Attribute {
+                attribute,
+                materialized,
+            } => materialized.get_or_init(|| attribute_target_value(attribute)),
+        }
+    }
+}
+
+fn index_event_values(events: &[AssignmentEvent]) -> ReferenceTargets<'_> {
     let mut values = BTreeMap::new();
     for event in events {
         if event.source_plane == SourcePlane::Header {
             continue;
         }
-        let _ = values.insert(format_path(&event.path), event.value.clone());
+        let _ = values.insert(
+            format_path(&event.path),
+            IndexedTarget::Owned(event.value.clone()),
+        );
+    }
+    // Only attribute clone targets need the richer Core lookup. Ordinary
+    // references retain the existing map and allocate no additional index.
+    let mut targets = BTreeMap::new();
+    for event in events {
+        collect_attribute_clone_targets(&event.value, &mut targets);
+        collect_annotation_clone_targets(&event.annotations, &mut targets);
+    }
+    if !targets.is_empty() {
+        let event_lookup = events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| event.source_plane == SourcePlane::Body)
+            .map(|(index, event)| (format_path(&event.path), index))
+            .collect();
+        for (target, segments) in targets {
+            if let Some(value) =
+                aeon_core::resolve_assignment_reference_target(segments, events, &event_lookup)
+            {
+                let value = match value {
+                    aeon_core::AssignmentReferenceTarget::Value(value) => {
+                        IndexedTarget::Borrowed(value)
+                    }
+                    aeon_core::AssignmentReferenceTarget::Attribute(attribute) => {
+                        IndexedTarget::Attribute {
+                            attribute,
+                            materialized: std::cell::OnceCell::new(),
+                        }
+                    }
+                };
+                values.insert(target, value);
+            }
+        }
     }
     values
+}
+
+// Attribute objects use the existing materialization model only inside this
+// operation's private target map; authored ASTs and reference syntax are intact.
+fn attribute_target_value(attribute: &AttributeValue) -> Value {
+    if let Some(value) = &attribute.value {
+        return value.clone();
+    }
+    let mut seen = BTreeSet::new();
+    let bindings = attribute
+        .object_member_order
+        .iter()
+        .chain(attribute.object_members.keys())
+        .filter_map(|key| {
+            if !seen.insert(key.as_str()) {
+                return None;
+            }
+            let member = attribute.object_members.get(key)?;
+            Some(aeon_core::Binding {
+                key: key.clone(),
+                is_header: false,
+                structural_id: member.structural_id.clone(),
+                datatype: member.datatype.clone(),
+                attributes: member.nested_attrs.clone(),
+                attribute_order: member.nested_attr_order.clone(),
+                value: attribute_target_value(member),
+                span: member.span.unwrap_or_else(Span::zero),
+            })
+        })
+        .collect();
+    Value::ObjectNode { bindings }
+}
+
+fn collect_annotation_clone_targets<'a>(
+    annotations: &'a BTreeMap<String, AttributeValue>,
+    targets: &mut BTreeMap<String, &'a [ReferenceSegment]>,
+) {
+    for entry in annotations.values() {
+        if let Some(value) = &entry.value {
+            collect_attribute_clone_targets(value, targets);
+        }
+        collect_annotation_clone_targets(&entry.nested_attrs, targets);
+        collect_annotation_clone_targets(&entry.object_members, targets);
+    }
+}
+
+fn collect_attribute_clone_targets<'a>(
+    value: &'a Value,
+    targets: &mut BTreeMap<String, &'a [ReferenceSegment]>,
+) {
+    match value {
+        Value::CloneReference { segments, .. }
+            if segments
+                .iter()
+                .any(|step| matches!(step, ReferenceSegment::Attr(_))) =>
+        {
+            targets
+                .entry(reference_target_path(segments))
+                .or_insert(segments);
+        }
+        Value::TypedValue {
+            value, attributes, ..
+        } => {
+            collect_annotation_clone_targets(attributes, targets);
+            collect_attribute_clone_targets(value, targets);
+        }
+        Value::ObjectNode { bindings } => {
+            for binding in bindings {
+                collect_annotation_clone_targets(&binding.attributes, targets);
+                collect_attribute_clone_targets(&binding.value, targets);
+            }
+        }
+        Value::ListNode { items } | Value::TupleLiteral { items } => {
+            for item in items {
+                collect_attribute_clone_targets(item, targets);
+            }
+        }
+        Value::NodeLiteral {
+            children,
+            attributes,
+            ..
+        } => {
+            for attributes in attributes {
+                collect_annotation_clone_targets(attributes, targets);
+            }
+            for child in children {
+                collect_attribute_clone_targets(child, targets);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn push_map_entry(
@@ -1501,7 +1710,7 @@ fn attributes_to_json(
     attributes: &BTreeMap<String, AttributeValue>,
     path: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -1561,7 +1770,7 @@ fn node_attributes_to_json(
     attributes: &[BTreeMap<String, AttributeValue>],
     path: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -1592,7 +1801,7 @@ fn indexed_child_attributes_to_json(
     value: &Value,
     path: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -1697,7 +1906,7 @@ fn attribute_value_to_json(
     entry: &AttributeValue,
     path: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -1732,14 +1941,14 @@ fn attribute_value_to_json(
             tracker,
         );
     }
-    JsonValue::Null
+    JsonValue::Object(Map::new())
 }
 
 fn object_attribute_members_to_json(
     members: &BTreeMap<String, AttributeValue>,
     path: &str,
     projection: &Projection,
-    path_values: &BTreeMap<String, Value>,
+    path_values: &ReferenceTargets<'_>,
     mode: FinalizeMode,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
@@ -2213,6 +2422,203 @@ mod tests {
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(finalized.document, json!({ "copy": 99, "source": 99 }));
+    }
+
+    #[test]
+    fn materializes_attribute_clones_through_core_target_lookup() {
+        for (source, expected) in [
+            ("a@{unit=\"cm\"}=1\ncopy=~a.@.unit", json!("cm")),
+            ("a@{meta={unit=\"cm\"}}=1\ncopy=~a.@.meta.unit", json!("cm")),
+            (
+                "a@{unit@{label=\"cm\"}=1}=0\ncopy=~a.@.unit.@.label",
+                json!("cm"),
+            ),
+            ("a@{\"u.x\"=[10,20]}=1\ncopy=~a.@.[\"u.x\"][1]", json!(20)),
+            (
+                "a@{unit=\"cm\",alias=~a.@.unit}=1\ncopy=~a.@.alias",
+                json!("cm"),
+            ),
+        ] {
+            let compiled = compile(
+                source,
+                CompileOptions {
+                    max_attribute_depth: 8,
+                    ..CompileOptions::default()
+                },
+            );
+            assert!(
+                compiled.errors.is_empty(),
+                "{source}: {:?}",
+                compiled.errors
+            );
+            let result = finalize_json(&compiled.events, FinalizeOptions::default());
+            assert!(
+                result.meta.errors.is_empty(),
+                "{source}: {:?}",
+                result.meta.errors
+            );
+            assert_eq!(result.document["copy"], expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn materializes_whole_attribute_objects_and_distinguishes_empty_from_null() {
+        for (source, expected) in [
+            (
+                "a@{meta={unit=\"cm\"}}=1\ncopy=~a.@.meta",
+                json!({"unit":"cm"}),
+            ),
+            (
+                "a@{meta={nested={unit=\"cm\"}}}=1\ncopy=~a.@.meta",
+                json!({"nested":{"unit":"cm"}}),
+            ),
+            ("a@{meta={}}=1\ncopy=~a.@.meta", json!({})),
+            (
+                "a@{meta={leaf@{tag=\"x\"}=\"cm\"}}=1\ncopy=~a.@.meta",
+                json!({"leaf":"cm","@":{"leaf":{"tag":"x"}}}),
+            ),
+        ] {
+            let compiled = compile(
+                source,
+                CompileOptions {
+                    max_attribute_depth: 8,
+                    ..CompileOptions::default()
+                },
+            );
+            assert!(
+                compiled.errors.is_empty(),
+                "{source}: {:?}",
+                compiled.errors
+            );
+            let result = finalize_json(&compiled.events, FinalizeOptions::default());
+            assert!(
+                result.meta.errors.is_empty(),
+                "{source}: {:?}",
+                result.meta.errors
+            );
+            assert_eq!(result.document["copy"], expected, "{source}");
+            assert_eq!(result.document["@"]["a"]["meta"], expected, "{source}");
+        }
+        let compiled = compile("a@{empty={},n=!none}=1", CompileOptions::default());
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+        let result = finalize_json(&compiled.events, FinalizeOptions::default());
+        assert!(result.document["@"]["a"]["empty"].is_object());
+        assert!(result.document["@"]["a"]["n"].is_null());
+        let compiled = compile(
+            "a@{meta={x=1,y=2}}=1\ncopy=~a.@.meta",
+            CompileOptions::default(),
+        );
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+        // Existing object weight is the sum of its leaves (two here).
+        let allowed = finalize_json(
+            &compiled.events,
+            FinalizeOptions {
+                max_materialized_weight: Some(2),
+                ..FinalizeOptions::default()
+            },
+        );
+        assert!(allowed.meta.errors.is_empty(), "{:?}", allowed.meta.errors);
+        let result = finalize_json(
+            &compiled.events,
+            FinalizeOptions {
+                max_materialized_weight: Some(1),
+                ..FinalizeOptions::default()
+            },
+        );
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_BUDGET_EXCEEDED")
+        );
+    }
+
+    #[test]
+    fn attribute_clone_lookup_keeps_materialization_limits_and_pointer_policy() {
+        let compiled = compile(
+            "a@{unit=\"cm\"}=1\ncopy=~a.@.unit",
+            CompileOptions::default(),
+        );
+        for (options, code) in [
+            (
+                FinalizeOptions {
+                    max_reference_depth: Some(0),
+                    ..FinalizeOptions::default()
+                },
+                "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
+            ),
+            (
+                FinalizeOptions {
+                    max_materialized_weight: Some(0),
+                    ..FinalizeOptions::default()
+                },
+                "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
+            ),
+        ] {
+            let result = finalize_json(&compiled.events, options);
+            assert!(
+                result.meta.errors.iter().any(|error| error.code == code),
+                "{:?}",
+                result.meta.errors
+            );
+        }
+        let pointer = compile(
+            "a@{unit=\"cm\"}=1\ncopy=~>a.@.unit",
+            CompileOptions::default(),
+        );
+        let result = finalize_json(&pointer.events, FinalizeOptions::default());
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE")
+        );
+        assert!(
+            result.document["copy"]
+                .as_str()
+                .expect("symbolic pointer")
+                .starts_with("~>")
+        );
+    }
+
+    #[test]
+    fn attribute_clone_lookup_does_not_invent_missing_targets_or_bypass_cycles() {
+        let mut compiled = compile(
+            "a@{unit=\"cm\"}=1\ncopy=~a.@.unit",
+            CompileOptions::default(),
+        );
+        let span = compiled.events[1].span;
+        compiled.events[0]
+            .annotations
+            .get_mut("unit")
+            .expect("unit")
+            .value = Some(Value::CloneReference {
+            segments: vec![ReferenceSegment::Key(String::from("copy"))],
+            span,
+        });
+        let result = finalize_json(&compiled.events, FinalizeOptions::default());
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_REFERENCE_CYCLE"),
+            "{:?}",
+            result.meta.errors
+        );
+        if let Value::CloneReference { segments, .. } = &mut compiled.events[1].value {
+            segments[1] = ReferenceSegment::Attr(String::from("missing"));
+        }
+        let result = finalize_json(&compiled.events, FinalizeOptions::default());
+        assert!(
+            result
+                .meta
+                .errors
+                .iter()
+                .any(|error| error.code == "FINALIZE_UNRESOLVED_REFERENCE")
+        );
     }
 
     #[test]
@@ -2833,5 +3239,73 @@ mod tests {
         )
         .expect_err("deserialize failure");
         assert!(matches!(error, MaterializeError::Deserialize(_)));
+    }
+}
+
+#[cfg(test)]
+mod lazy_attribute_target_regressions {
+    use super::*;
+    #[test]
+    fn attribute_projection_is_not_reified_before_reference_admission() {
+        for width in [32, 128] {
+            let members = (0..width)
+                .map(|i| format!("k{i}=\"{}\"", "x".repeat(128)))
+                .collect::<Vec<_>>()
+                .join(",");
+            let compiled = compile(
+                &format!("a@{{meta={{{members}}}}}=1\ncopy=~a.@.meta"),
+                CompileOptions::default(),
+            );
+            assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+            let targets = index_event_values(&compiled.events);
+            let materialized = targets
+                .values()
+                .find_map(|target| match target {
+                    IndexedTarget::Attribute { materialized, .. } => Some(materialized),
+                    _ => None,
+                })
+                .expect("borrowed attribute target");
+            assert!(materialized.get().is_none());
+            let projection = Projection::new(Materialization::Projected, vec!["$.copy".into()]);
+            for (weight, depth, code) in [
+                (None, Some(0), "FINALIZE_REFERENCE_DEPTH_EXCEEDED"),
+                (Some(0), None, "FINALIZE_REFERENCE_BUDGET_EXCEEDED"),
+                (Some(1), Some(1), "FINALIZE_REFERENCE_BUDGET_EXCEEDED"),
+            ] {
+                let mut errors = Vec::new();
+                payload_to_json(
+                    &compiled.events,
+                    &projection,
+                    &targets,
+                    FinalizeMode::Strict,
+                    &mut errors,
+                    &mut Vec::new(),
+                    &mut BTreeSet::new(),
+                    &mut MaterializationTracker::new(weight, depth),
+                );
+                assert_eq!(errors[0].code, code);
+                assert!(
+                    materialized.get().is_none(),
+                    "rejected reference projected its attribute AST"
+                );
+            }
+            let mut errors = Vec::new();
+            let result = payload_to_json(
+                &compiled.events,
+                &projection,
+                &targets,
+                FinalizeMode::Strict,
+                &mut errors,
+                &mut Vec::new(),
+                &mut BTreeSet::new(),
+                &mut MaterializationTracker::new(Some(width), Some(1)),
+            );
+            assert!(errors.is_empty(), "{errors:?}");
+            assert_eq!(
+                result["copy"].as_object().expect("projected object").len(),
+                width
+            );
+            assert!(materialized.get().is_some());
+        }
     }
 }

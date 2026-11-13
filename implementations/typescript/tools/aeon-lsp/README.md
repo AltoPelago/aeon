@@ -27,3 +27,11 @@ node implementations/typescript/tools/aeon-lsp/dist/server.js
 
 - This is an MVP server surface, not a fully documented editor extension package.
 - Validation can read optional `aeon.validation` workspace configuration when the client supports workspace configuration.
+
+The child identity candidate adds descriptive hovers for lexer-recognised
+structural identity annotations and SANSA address literals. It does not resolve
+them, perform global identity completion or admit identity clone/pointer targets.
+Compiler diagnostics and trusted-schema validation retain existing authority;
+reference completion remains structural. Rebuild/bundle against the coordinated
+candidate dependency graph to use these features; a released/stale server does
+not gain support from the editor grammar alone.

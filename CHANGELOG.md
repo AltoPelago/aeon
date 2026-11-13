@@ -8,12 +8,43 @@ repositories.
 
 ## Unreleased
 
+### Added
+
+- Experimental TypeScript SDK namespaces expose declared binding identities through an explicit SANSA identity accessor. Returned paths remain structural. Read-only consumer support is described in the SDK and [AEOS selector contract](docs/aeos-child-identity-selectors.md); mutation and reference admission remain separately constrained.
+
+- Experimental SANSA child-identity diagnostics retain the selected identity on unsupported/ambiguous failures in Python and Rust. Rust shared `Diagnostic` adds optional `identity`; Core `SansaResolveDiagnostic` adds optional `identity`, `limit`, and `observed`. Rust struct-literal callers must initialize these fields; existing shared constructors remain usable. Mutable CTS diagnostic assertions are strengthened; production performance and artifact qualification remain separate gates.
+
+- Experimental Python document namespaces preserve declared identities across native and portable AES, keep header/body planes distinct, and reject foreign identity roots before inspection. Physical Unicode paths and node-head topology are retained. AEOS selector rules use a separate private validation namespace; AEOS path fields remain structural.
+
+- Local experimental native Python standalone SANSA child-identity parser/render/Resolve support, with explicit namespace accessors, cumulative inspection budgets and bounded caller-AST normalization. References remain structural; AEOS selector rules use per-validation identity inspection budgets. Bridge verification and final release gates remain open.
+
+- Local experimental Rust SANSA child-identity parser/Resolve support in Core and the shared runtime, with explicit structural metadata, inspection budgets, ambiguity failures and scoped SDK integration. The SDK pins the `0.15.0-rc.1` runtime source at immutable SANSA Git revision `7fd55c2aecd599e49f9a463c46463a7413e1438d`; coordinated registry/version/lock verification remains release work. AEOS selector support follows its linked contract above; mutation and identity-reference admission remain constrained.
+
 ### Fixed
+
+- Rust retained header fields preserve declared structural identities through portable AES and document projection, including scoped SDK/Pytonic lookups and WASM header event summaries. `HeaderFields` adds a public `structural_ids` map; existing struct-literal callers must initialize it. Reference syntax, uniqueness validation and consumer admission are unchanged.
+
+- Rust lexical canonicalization borrows LF-only, preamble-free input while preserving the historical preprocessing bytes and validation behavior.
+
+- Rust Core standalone SANSA and native token/Sofia references now share structural-step parsing through private host cursors, preserving native aliases, source spans, diagnostics and constrained reference admission.
+
+- Rust SDK direct clone materialization now resolves attribute targets, including nested and empty metadata objects, consistently with portable loading. Empty objects and nulls remain distinct.
+- Rust compiler-backed AES export rejects header-only reference targets with `AES_COMPAT_HEADER_REFERENCE_TARGET`, preserving target identity and encoder limit precedence. Raw partial streams retain external body-reference support.
+
+- Rust Core standalone SANSA and native token/Sofia references share structural index spelling checks. Reference indexes now reject leading zeroes, a leading plus and values above 999999, matching SANSA. Reference ASTs, target semantics and identity-selector admission are unchanged.
 
 - TypeScript runtime clone resolution now uses Core's attribute-aware target
   index, avoiding false `RESOLVE_MISSING_TARGET` diagnostics for valid metadata
   references such as `x@{y=0}=1; z=~x.@.y`. Authored-order checks and header/body
   target precedence remain aligned with Core validation.
+
+## 0.17.0-rc.1 - 2026-10-19
+
+### Changed
+
+- TypeScript clone/pointer references share SANSA structural-path grammar through its supported host cursor. Default indexes are unsigned decimal 0..999999; fractional, exponential, signed, underscore and out-of-bound spellings are rejected without truncation or rounding. Quoted member names and ordinary numeric values keep their semantics.
+- Reference-safe canonical ordering reuses the same operation's validated authored AES emission. Authored and fresh rendered validation and concrete-target constraints remain.
+- Structural identities remain metadata; identity/recursive reference selectors and generic reference engine/session/replay APIs are outside this release.
 
 ## 0.16.0 - 2026-10-17
 
@@ -644,3 +675,12 @@ the `@altopelago` scope.
 - Added GitHub Actions npm publishing workflow for future trusted-publishing
   releases with provenance.
 - Added dry-run handling for already-published package versions.
+
+## Unreleased child identity candidate integration
+
+- Admit SANSA child identity selectors in AEOS `selector` rules, with a private
+  namespace and a shared per-validation identity inspection budget. AEOS `path`
+  fields and AEON clone/pointer references remain structural paths; quoted member
+  names containing marker text remain valid structural keys. See
+  [AEOS child identity selectors](docs/aeos-child-identity-selectors.md) for the
+  unreleased candidate's consumer boundaries and resource-policy contract.

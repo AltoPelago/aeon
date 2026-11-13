@@ -56,6 +56,7 @@ RESOURCE_POLICY_KEYS = {
     "max_path_length",
     "max_reference_resolution_steps",
     "max_selector_expansions",
+    "max_identity_inspections",
     "max_string_length_default",
     "max_container_children_default",
 }
@@ -67,6 +68,7 @@ DEFAULT_RESOURCE_POLICY = {
     "max_path_length": 4_096,
     "max_reference_resolution_steps": 64,
     "max_selector_expansions": 100_000,
+    "max_identity_inspections": 10_000,
     "max_string_length_default": 10_000_000,
     "max_container_children_default": 1_000_000,
 }
@@ -281,6 +283,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
                     "span": to_span_tuple(event.get("span")),
                     "datatype": event.get("datatype") if isinstance(event.get("datatype"), str) else None,
+                    "structuralId": event.get("structuralId"),
                     "reference_path": value.get("path") if isinstance(value.get("path"), list) else None,
                     "attributes": build_attribute_info_map(event.get("annotations")),
                 }
@@ -333,8 +336,9 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     rule_index = build_rule_index(schema, ctx)
     if len(ctx.errors) > error_count_before_schema_index:
         return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
+    identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None}
     expansion_budget = {"count": 0}
-    expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget)
+    expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget, identity_state)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
     check_presence(effective_rule_index, bound_paths, ctx)
     check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
@@ -360,7 +364,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     check_string_form(selected_rule_index, effective_events_by_path, ctx)
     check_patterns(selected_rule_index, effective_events_by_path, ctx)
     check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
-    check_world_policy(schema, aes, bound_paths, events_by_path, ctx)
+    check_world_policy(schema, aes, bound_paths, events_by_path, ctx, identity_state)
 
     if ctx.errors:
         return {
@@ -645,7 +649,7 @@ def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> 
         if key not in RESOURCE_POLICY_KEYS:
             emit_resource_error(ctx, "$", f"Unknown {source} resource policy key: {key}")
             continue
-        if not isinstance(value, int) or value < 0:
+        if not isinstance(value, int) or value < 0 or key == "max_identity_inspections" and (type(value) is not int or value > 9_007_199_254_740_991):
             emit_resource_error(ctx, "$", f"{source} resource policy {key} must be a non-negative integer")
             continue
         normalized[str(key)] = value
@@ -738,6 +742,11 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if has_selector and "[*]" in selector:
             emit_error(ctx, create_diag(selector, None, f"Legacy indexed wildcard selectors are not supported; use SANSA .* instead: {selector}", ERROR_CODES["invalid_schema_policy"]))
             continue
+        if has_path and "\\" in path:
+            parsed_path = parse_sansa_address(path)
+            if parsed_path.get("ok") and any(s.get("type") == "childIdentity" for s in parsed_path["address"]["selectors"]):
+                emit_error(ctx, create_diag(path, None, "Child identity selectors are not admitted in AEOS path rules", ERROR_CODES["invalid_schema_policy"]))
+                continue
         if path in index:
             emit_error(ctx, create_diag(path, None, f"Duplicate rule for path: {path}", ERROR_CODES["duplicate_rule_path"]))
             continue
@@ -1368,6 +1377,7 @@ def check_world_policy(
     bound_paths: set[str],
     events_by_path: dict[str, dict[str, object]],
     ctx: DiagContext,
+    identity_state: dict,
 ) -> None:
     if str(schema.get("world", "open")) != "closed":
         return
@@ -1396,7 +1406,7 @@ def check_world_policy(
     selector_matches: dict[str, set[str] | None] = {}
     for kind, allowed_path in allowed_rules:
         if kind == "selector" and allowed_path not in selector_matches:
-            selector_matches[allowed_path] = resolve_sansa_selector_path_set(allowed_path, events_by_path, ctx)
+            selector_matches[allowed_path] = resolve_sansa_selector_path_set(allowed_path, events_by_path, ctx, identity_state)
 
     for event in aes:
         key = event.get("key")
@@ -1487,6 +1497,7 @@ def expand_selector_rules(
     ctx: DiagContext,
     resource_policy: dict[str, int],
     expansion_budget: dict[str, int],
+    identity_state: dict,
 ) -> dict[str, dict[str, object]]:
     expanded = dict(rule_index)
     rules = schema.get("rules")
@@ -1501,7 +1512,7 @@ def expand_selector_rules(
             continue
         if isinstance(path, str) and path:
             continue
-        resolved_paths = resolve_sansa_selector_path_set(selector, events, ctx)
+        resolved_paths = resolve_sansa_selector_path_set(selector, events, ctx, identity_state)
         if resolved_paths is None:
             continue
         matched = False
@@ -1518,19 +1529,31 @@ def expand_selector_rules(
     return expanded
 
 
-def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext) -> set[str] | None:
-    result = resolve_sansa_address(selector, create_aeos_sansa_resolve_namespace(events))
+def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext, identity_state: dict) -> set[str] | None:
+    parsed = parse_sansa_address(selector) if "\\" in selector else {}
+    has_identity = parsed.get("ok") and any(s.get("type") == "childIdentity" for s in parsed["address"]["selectors"])
+    if has_identity and selector in identity_state["cache"]:
+        return identity_state["cache"][selector]
+    if has_identity:
+        if identity_state["namespace"] is None:
+            identity_state["namespace"] = create_aeos_sansa_resolve_namespace(events, identity_state)
+        namespace = identity_state["namespace"]
+    else:
+        namespace = create_aeos_sansa_resolve_namespace(events)
+    result = resolve_sansa_address(selector, namespace, {"maxIdentityInspections": max(0, identity_state["limit"] - identity_state["counter"]["inspections"])} if has_identity else None)
     if not result.get("ok"):
         errors = result.get("errors")
         first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else None
         message = first.get("message") if isinstance(first, dict) else None
         detail = f"Invalid or unsupported SANSA selector: {message}" if isinstance(message, str) else f"Invalid or unsupported SANSA selector: {selector}"
         emit_error(ctx, create_diag(selector, None, detail, ERROR_CODES["invalid_schema_policy"]))
+        if has_identity:
+            identity_state["cache"][selector] = None
         return None
     bindings = result.get("bindings")
     if not isinstance(bindings, list):
         return set()
-    return {
+    paths = {
         path
         for binding in bindings
         if isinstance(binding, dict)
@@ -1538,9 +1561,19 @@ def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, o
         if isinstance(path, str) and path in events
     }
 
+    if has_identity:
+        identity_state["cache"][selector] = paths
+    return paths
 
-def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]]) -> dict[str, object]:
+
+def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], identity_state: dict | None = None) -> dict[str, object]:
+    counter = identity_state["counter"] if identity_state is not None else None
+    def identity(binding):
+        if counter is not None:
+            counter["inspections"] += 1
+        return binding.get("info", {}).get("structuralId")
     return {
+        **({"identity": identity} if identity_state is not None else {}),
         "root": build_aeos_sansa_resolve_tree(events),
         "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
         "member": lambda binding, name: next(
@@ -2012,6 +2045,7 @@ def hydrate_indexed_fallback(base_path: str, value: dict[str, object], fallback_
             continue
         events_by_path[element_path] = {
             "type": str(element.get("type", "Unknown")),
+            "structuralId": element.get("structuralId"),
             "raw": str(element.get("raw", "")) if isinstance(element.get("raw", ""), str) else "",
             "value": str(element.get("value", "")) if isinstance(element.get("value", ""), str) else "",
             "span": to_span_tuple(element.get("span")) or fallback_span,
@@ -2048,6 +2082,7 @@ def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]]
             "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
             "span": to_span_tuple(value.get("span")),
             "datatype": entry.get("datatype") if isinstance(entry.get("datatype"), str) else None,
+            "structuralId": entry.get("structuralId"),
             "attributes": build_attribute_info_map(entry.get("annotations")),
         }
     return mapped

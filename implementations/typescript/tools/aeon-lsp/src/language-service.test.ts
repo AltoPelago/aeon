@@ -318,3 +318,40 @@ test('diagnostics warn when declared GP signature convention is missing envelope
     ].join('\n'));
     assert.ok(diagnostics.some((diag) => diag.code === 'GP_SIGNATURE_SECTION_MISSING'));
 });
+
+
+test('identity annotations and embedded selectors retain compiler diagnostics and descriptive hover', () => {
+    const text = String.raw`items = [ \item1\ = { name\name1\ = "Widget" } ]
+chosen:sansa = $.items.\item1\.\name1\
+copy = ~items[0].name
+`;
+    assert.deepEqual(getDiagnostics(text), []);
+    const annotation = getHover(text, {line: 0, character: 13});
+    assert.match(hoverTextValue(annotation), /Structural identity/);
+    assert.match(hoverTextValue(annotation), /resolved paths remain structural/);
+    assert.equal(annotation?.range?.start.character, 10);
+    const literal = getHover(text, {line: 1, character: 25});
+    assert.match(hoverTextValue(literal), /SANSA address literal/);
+    assert.match(hoverTextValue(literal), /non-exact/);
+    assert.match(hoverTextValue(getHover(text, {line: 2, character: 12})), /Clone reference/);
+});
+
+test('identity-like text in comments and quoted keys is not occurrence metadata', () => {
+    const text = String.raw`"\\item1\\" = "hello"
+// \comment1\
+`;
+    assert.equal(getHover(text, {line: 0, character: 4}), null);
+    assert.equal(getHover(text, {line: 1, character: 6}), null);
+});
+
+test('identity reference and path errors remain compiler errors; reference completion stays structural', () => {
+    for (const marker of ['~', '~>']) {
+        assert.ok(getDiagnostics(String.raw`items = [ \item1\ = "hello" ]
+bad = ${marker}$.items.\item1\ `.trimEnd()).length > 0);
+    }
+    const text = String.raw`items = [ \item1\ = { name\name1\ = "Widget" } ]
+copy = ~it`;
+    const items = getCompletionItems(text, {line: 1, character: 10});
+    assert.ok(items.some(item => item.label === 'items[0].name'));
+    assert.ok(items.every(item => !item.label.includes('\\')));
+});

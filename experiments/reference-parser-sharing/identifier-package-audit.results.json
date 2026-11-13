@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-19",
+  "status": "pass",
+  "mode": "npm pack --dry-run --ignore-scripts --offline; no tarball/install/publication",
+  "packages": [
+    {
+      "name": "@altopelago/sansa",
+      "version": "0.14.2",
+      "packedFiles": 50,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-sansa-0.14.2.tgz",
+      "bytes": 198162
+    },
+    {
+      "name": "@altopelago/aeon-lexer",
+      "version": "0.16.0",
+      "packedFiles": 19,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-lexer-0.16.0.tgz",
+      "bytes": 22038
+    },
+    {
+      "name": "@altopelago/aeon-parser",
+      "version": "0.16.0",
+      "packedFiles": 35,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-parser-0.16.0.tgz",
+      "bytes": 30537
+    },
+    {
+      "name": "@altopelago/aeon-aes",
+      "version": "0.16.0",
+      "packedFiles": 83,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-aes-0.16.0.tgz",
+      "bytes": 101042
+    },
+    {
+      "name": "@altopelago/aeon-core",
+      "version": "0.16.0",
+      "packedFiles": 15,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-core-0.16.0.tgz",
+      "bytes": 26035
+    },
+    {
+      "name": "@altopelago/aeon-canonical",
+      "version": "0.16.0",
+      "packedFiles": 19,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-canonical-0.16.0.tgz",
+      "bytes": 22475
+    },
+    {
+      "name": "@altopelago/aeon-finalize",
+      "version": "0.16.0",
+      "packedFiles": 47,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-finalize-0.16.0.tgz",
+      "bytes": 34973
+    },
+    {
+      "name": "@altopelago/aeon-annotation-stream",
+      "version": "0.16.0",
+      "packedFiles": 11,
+      "exportTargetsPresent": true,
+      "relativePrivateImportTargetsPresent": true,
+      "filename": "altopelago-aeon-annotation-stream-0.16.0.tgz",
+      "bytes": 13706
+    }
+  ],
+  "privateDependency": "implementations/typescript/node_modules/.pnpm/@altopelago+sansa@0.14.2/node_modules/@altopelago/sansa",
+  "dependencyFiles": {
+    "src/index.d.ts": "002a460f3e08113706f58e60ee84f52ec9d25be7aebed195c3a0b28423ae963e",
+    "src/index.js": "876db2842978fafac61a4b4a2a41ec1d7982790c2824c60f8f329196fef4862b",
+    "src/selector-cursor.d.ts": "01f6a70e37a9c12bcc1ba4d99eb8c1dacb5a6ab566b1f7537974731a13a665a7",
+    "src/selector-cursor.js": "c231f6fcba04968b7f35608762bef6d73b9b30a4c4b09363b2807006862a56fe"
+  },
+  "manifestExportsAndImportsMatch": true,
+  "releaseLimitations": [
+    "private dependency copy is not clean released-package installation proof",
+    "coordinated SANSA version/dependency/release is required before shipping",
+    "only Node 24.16.0 executed; broader Node/browser/native claims require their own evidence"
+  ]
+}

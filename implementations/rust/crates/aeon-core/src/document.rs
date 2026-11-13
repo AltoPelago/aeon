@@ -1,5 +1,6 @@
 //! The authored native document boundary, without compiler semantic approval.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use crate::flatten::flatten_document;
@@ -74,11 +75,17 @@ fn parse_with_implementation(
     }
     // Validate the compiler's normalized header namespace without replacing
     // the authored header node or losing an explicitly empty header.
-    let lowered = lower_header(bindings.clone()).map_err(|error| vec![error])?;
+    let lowered: Cow<'_, [Binding]> = if bindings.iter().any(|binding| binding.is_header) {
+        Cow::Owned(lower_header(bindings.clone()).map_err(|error| vec![error])?)
+    } else {
+        // With no authored header, lower_header only copies the unchanged body.
+        // Borrow it while retaining the same duplicate/path/event-limit checks.
+        Cow::Borrowed(&bindings)
+    };
     let mut errors = Vec::new();
     validate_duplicate_object_member_keys(&bindings, &mut errors);
     let mut seen = HashSet::new();
-    for binding in &lowered {
+    for binding in lowered.iter() {
         if !seen.insert((binding.is_header, binding.key.as_str())) {
             errors.push(
                 Diagnostic::new("DUPLICATE_KEY", format!("Duplicate key: '{}'", binding.key))
@@ -104,6 +111,7 @@ fn parse_with_implementation(
             max_events,
         )]);
     }
+    drop(lowered);
     Ok(bindings)
 }
 

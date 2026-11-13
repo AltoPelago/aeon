@@ -1,0 +1,92 @@
+[
+  {
+    "function": "writeHeapSnapshot",
+    "file": "node:v8",
+    "samples": 65
+  },
+  {
+    "function": "(garbage collector)",
+    "file": "",
+    "samples": 20
+  },
+  {
+    "function": "indexReferenceOrder",
+    "file": "reference-order.js",
+    "samples": 10
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 7
+  },
+  {
+    "function": "indexReferenceOrder",
+    "file": "reference-order.js",
+    "samples": 7
+  },
+  {
+    "function": "read",
+    "file": "",
+    "samples": 6
+  },
+  {
+    "function": "scanToken",
+    "file": "lexer.js",
+    "samples": 6
+  },
+  {
+    "function": "RegExp: ^[a-zA-Z_][a-zA-Z0-9_]*$",
+    "file": "",
+    "samples": 5
+  },
+  {
+    "function": "headed",
+    "file": "reference-order.js",
+    "samples": 5
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 4
+  },
+  {
+    "function": "headed",
+    "file": "reference-order.js",
+    "samples": 4
+  },
+  {
+    "function": "referenceSafeOrders",
+    "file": "ordering.js",
+    "samples": 4
+  },
+  {
+    "function": "(program)",
+    "file": "",
+    "samples": 3
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 3
+  },
+  {
+    "function": "read",
+    "file": "",
+    "samples": 3
+  },
+  {
+    "function": "getPackageScopeConfig",
+    "file": "",
+    "samples": 3
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 3
+  },
+  {
+    "function": "read",
+    "file": "",
+    "samples": 3
+  }
+]

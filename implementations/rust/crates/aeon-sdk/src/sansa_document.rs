@@ -56,6 +56,7 @@ pub struct AeonSansaCapabilities {
     pub namespace_projection: AeonSansaCapabilityState,
     pub exact_address_lookup: AeonSansaCapabilityState,
     pub address_parsing: AeonSansaCapabilityState,
+    pub child_identity_selectors: AeonSansaCapabilityState,
     pub resolve: AeonSansaCapabilityState,
     pub query: AeonSansaCapabilityState,
     pub mutate_plan: AeonSansaCapabilityState,
@@ -70,6 +71,7 @@ impl Default for AeonSansaCapabilities {
             namespace_projection: AeonSansaCapabilityState::Complete,
             exact_address_lookup: AeonSansaCapabilityState::Complete,
             address_parsing: SANSA_RUNTIME_CAPABILITY,
+            child_identity_selectors: SANSA_MUTATE_CAPABILITY,
             resolve: SANSA_RUNTIME_CAPABILITY,
             query: SANSA_RUNTIME_CAPABILITY,
             mutate_plan: SANSA_MUTATE_CAPABILITY,
@@ -232,6 +234,7 @@ impl AeonSansaNamespace {
             namespace_projection: AeonSansaCapabilityState::Complete,
             exact_address_lookup: AeonSansaCapabilityState::Complete,
             address_parsing: SANSA_RUNTIME_CAPABILITY,
+            child_identity_selectors: SANSA_MUTATE_CAPABILITY,
             resolve: SANSA_RUNTIME_CAPABILITY,
             query: SANSA_RUNTIME_CAPABILITY,
             mutate_plan: SANSA_MUTATE_CAPABILITY,
@@ -346,6 +349,31 @@ impl runtime::resolve::Namespace for AeonSansaNamespace {
 
     fn children(&self, binding: &Self::Binding) -> Vec<Self::Binding> {
         binding.children()
+    }
+
+    fn supports_structural_identity(&self) -> bool {
+        true
+    }
+    fn structural_identity_scope(&self, binding: &Self::Binding) -> bool {
+        Arc::ptr_eq(&binding.document, &self.document)
+            && binding.scope == self.scope
+            && binding.numeric_materialization == self.numeric_materialization
+    }
+    fn structural_identity(&self, binding: &Self::Binding) -> Option<String> {
+        binding.identity().map(str::to_owned)
+    }
+    fn identity_children<'a>(
+        &'a self,
+        binding: &'a Self::Binding,
+    ) -> Box<dyn Iterator<Item = Self::Binding> + 'a> {
+        Box::new(
+            binding
+                .node()
+                .children()
+                .iter()
+                .filter(|id| binding.document.view(binding.scope, **id).is_some())
+                .map(|id| binding.with_id(*id)),
+        )
     }
 
     fn parent(&self, binding: &Self::Binding) -> runtime::resolve::Navigation<Self::Binding> {
@@ -1131,6 +1159,7 @@ mod tests {
                 namespace_projection: AeonSansaCapabilityState::Complete,
                 exact_address_lookup: AeonSansaCapabilityState::Complete,
                 address_parsing: AeonSansaCapabilityState::NotExposed,
+                child_identity_selectors: AeonSansaCapabilityState::NotExposed,
                 resolve: AeonSansaCapabilityState::NotExposed,
                 query: AeonSansaCapabilityState::NotExposed,
                 mutate_plan: AeonSansaCapabilityState::NotExposed,
@@ -1339,6 +1368,7 @@ right = { code = "same", stage = |approved|, counts = [1, 2] }
                 namespace_projection: AeonSansaCapabilityState::Complete,
                 exact_address_lookup: AeonSansaCapabilityState::Complete,
                 address_parsing: AeonSansaCapabilityState::Complete,
+                child_identity_selectors: AeonSansaCapabilityState::Experimental,
                 resolve: AeonSansaCapabilityState::Complete,
                 query: AeonSansaCapabilityState::Complete,
                 mutate_plan: AeonSansaCapabilityState::Experimental,
@@ -1557,6 +1587,169 @@ right = { code = "same", stage = |approved|, counts = [1, 2] }
                 "path": path,
                 "canonical": canonical,
             }),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "sansa"))]
+mod child_identity_tests {
+    use super::*;
+    #[test]
+    fn identity_selects_same_scoped_occurrence_and_keeps_structural_address() {
+        let ns = AeonSansaNamespace::compile(
+            "group\\g\\={child\\c\\=1}\nitems=[2]",
+            CompileOptions::default(),
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        )
+        .expect("valid regression fixture");
+        let got = ns.resolve_address(
+            "$.\\g\\.\\c\\",
+            &runtime::resolve::ResolveOptions::default(),
+        );
+        assert!(got.is_ok(), "{:?}", got.errors);
+        assert_eq!(got.bindings.len(), 1);
+        assert_eq!(
+            got.bindings[0],
+            ns.root()
+                .member("group")
+                .expect("valid regression fixture")
+                .member("child")
+                .expect("valid regression fixture")
+        );
+        assert_eq!(got.bindings[0].address(), "$.group.child");
+        let root_match =
+            ns.resolve_address("$.\\absent\\", &runtime::resolve::ResolveOptions::default());
+        assert!(root_match.is_ok() && root_match.bindings.is_empty());
+        let selected = ns.evaluate_query(
+            "from $.\\g\\\nselect .",
+            &runtime::evaluate::EvaluateOptions::default(),
+        );
+        assert!(selected.is_ok(), "{:?}", selected.errors);
+        assert_eq!(
+            selected.results[0].candidate,
+            ns.root().member("group").expect("valid regression fixture")
+        );
+        assert_eq!(selected.results[0].candidate.address(), "$.group");
+    }
+    #[test]
+    fn contextual_identity_selection_is_bound_to_snapshot_scope_and_child_boundary() {
+        let ns = AeonSansaNamespace::compile(
+            "group\\g\\={child\\c\\=1}",
+            CompileOptions::default(),
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        )
+        .expect("valid regression fixture");
+        let group = ns.root().member("group").expect("valid regression fixture");
+        let opts = runtime::resolve::ResolveOptions {
+            contextual_root: Some(group.clone()),
+            ..runtime::resolve::ResolveOptions::default()
+        };
+        assert!(ns.resolve_address("?.\\g\\", &opts).bindings.is_empty());
+        let got = ns.resolve_address("?.\\c\\", &opts);
+        assert!(got.is_ok());
+        assert_eq!(
+            got.bindings[0],
+            group.member("child").expect("valid regression fixture")
+        );
+        let foreign = AeonSansaNamespace::compile(
+            "group\\g\\={child\\c\\=1}",
+            CompileOptions::default(),
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        )
+        .expect("valid regression fixture");
+        let header = AeonSansaNamespace::from_shared(
+            ns.document.clone(),
+            AeonSansaScope::Header,
+            AeonNumericMaterialization::Lossless,
+        );
+        for contextual_root in [foreign.root(), header.root()] {
+            let o = runtime::resolve::ResolveOptions {
+                contextual_root: Some(contextual_root),
+                ..runtime::resolve::ResolveOptions::default()
+            };
+            let got = runtime::resolve::resolve_address("?.\\c\\", &ns, &o);
+            assert_eq!(got.errors[0].code, "SANSA_RESOLVE_IDENTITY_SCOPE_MISMATCH");
+            assert!(got.bindings.is_empty());
+        }
+    }
+
+    #[test]
+    fn compiled_header_field_identities_stay_in_their_document_plane() {
+        let document = Arc::new(
+            AeonDocument::compile(
+                "aeon:header={value\\head\\=1}\n\"aeon:value\"\\body\\=2",
+                CompileOptions::default(),
+            )
+            .expect("valid regression fixture"),
+        );
+        let header = AeonSansaNamespace::from_shared(
+            document.clone(),
+            AeonSansaScope::Header,
+            AeonNumericMaterialization::Lossless,
+        );
+        let payload = AeonSansaNamespace::from_shared(
+            document,
+            AeonSansaScope::Payload,
+            AeonNumericMaterialization::Lossless,
+        );
+        let options = runtime::resolve::ResolveOptions::default();
+        let selected = header.resolve_address("$.\\head\\", &options);
+        assert!(selected.is_ok(), "{:?}", selected.errors);
+        assert_eq!(selected.bindings.len(), 1);
+        assert_eq!(selected.bindings[0].address(), "$.[\"aeon:value\"]");
+        assert_eq!(selected.bindings[0].identity(), Some("head"));
+        assert!(
+            header
+                .resolve_address("$.\\body\\", &options)
+                .bindings
+                .is_empty()
+        );
+        assert!(
+            payload
+                .resolve_address("$.\\head\\", &options)
+                .bindings
+                .is_empty()
+        );
+        assert_eq!(
+            payload
+                .resolve_address("$.\\body\\", &options)
+                .bindings
+                .len(),
+            1
+        );
+        let foreign_scope = runtime::resolve::ResolveOptions {
+            contextual_root: Some(payload.root()),
+            ..options
+        };
+        let denied = header.resolve_address("?.\\head\\", &foreign_scope);
+        assert!(denied.bindings.is_empty());
+        assert_eq!(
+            denied.errors[0].code,
+            "SANSA_RESOLVE_IDENTITY_SCOPE_MISMATCH"
+        );
+    }
+    #[test]
+    fn actual_aeon_sequence_and_metadata_occurrences_expose_declared_ids() {
+        for (source, path, address) in [
+            ("items=[\\i\\=2]", "$.items.\\i\\", "$.items[0]"),
+            ("items=(\\t\\=2)", "$.items.\\t\\", "$.items[0]"),
+            ("node=<tag(\\n\\=2)>", "$.node[0].\\n\\", "$.node[0][0]"),
+            ("a@{unit\\u\\=\"cm\"}=1", "$.a.@.\\u\\", "$.a.@.unit"),
+        ] {
+            let ns = AeonSansaNamespace::compile(
+                source,
+                CompileOptions::default(),
+                AeonSansaScope::Payload,
+                AeonNumericMaterialization::Lossless,
+            )
+            .expect("valid regression fixture");
+            let got = ns.resolve_address(path, &runtime::resolve::ResolveOptions::default());
+            assert!(got.is_ok(), "{source}: {:?}", got.errors);
+            assert_eq!(got.bindings.len(), 1, "{source}");
+            assert_eq!(got.bindings[0].address(), address);
         }
     }
 }

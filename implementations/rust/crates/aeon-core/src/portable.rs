@@ -299,12 +299,24 @@ pub fn compile_to_telex(input: &str, mut options: CompileToTelexOptions) -> Comp
                 projection,
                 &options.telex.limits,
             ) {
-                Ok(telex) => CompileToTelexResult {
-                    compile,
-                    records,
-                    telex: Some(telex),
-                    encode_error: None,
-                },
+                Ok(telex) => {
+                    if let Err(error) =
+                        validate_header_reference_targets(&records, &options.telex, true)
+                    {
+                        return CompileToTelexResult {
+                            compile,
+                            records: Vec::new(),
+                            telex: None,
+                            encode_error: Some(error),
+                        };
+                    }
+                    CompileToTelexResult {
+                        compile,
+                        records,
+                        telex: Some(telex),
+                        encode_error: None,
+                    }
+                }
                 Err(error) => CompileToTelexResult {
                     compile,
                     records,
@@ -328,12 +340,14 @@ pub fn export_telex(
 ) -> Result<String, TelexEncodeError> {
     if supports_typed_body_projection(events, options) {
         let records = project_aes_event_records(events);
-        return encode_aes_event_records_with_projection_and_limits(
+        let text = encode_aes_event_records_with_projection_and_limits(
             &records,
             options.profile.as_deref(),
             options.projection.as_deref(),
             &options.limits,
-        );
+        )?;
+        validate_typed_header_reference_targets(&records, options)?;
+        return Ok(text);
     }
     let records = project_telex_records(events, options)?;
     let projection = if options.include_headers {
@@ -341,12 +355,14 @@ pub fn export_telex(
     } else {
         options.projection.as_deref()
     };
-    encode_telex_with_projection_and_limits(
+    let text = encode_telex_with_projection_and_limits(
         &records,
         options.profile.as_deref(),
         projection,
         &options.limits,
-    )
+    )?;
+    validate_header_reference_targets(&records, options, false)?;
+    Ok(text)
 }
 
 /// Export an owned event stream while moving ordinary scalar payloads into
@@ -362,12 +378,14 @@ pub fn export_telex_owned(
     }
     if supports_typed_body_projection(&events, options) {
         let records = project_aes_event_records_taken(&mut events);
-        return encode_aes_event_records_with_projection_and_limits(
+        let text = encode_aes_event_records_with_projection_and_limits(
             &records,
             options.profile.as_deref(),
             options.projection.as_deref(),
             &options.limits,
-        );
+        )?;
+        validate_typed_header_reference_targets(&records, options)?;
+        return Ok(text);
     }
     export_telex(&events, options)
 }
@@ -386,6 +404,87 @@ pub fn project_telex_records(
     }
 
     project_telex_records_via_compatibility(events, options)
+}
+
+fn validate_header_reference_targets(
+    records: &[TelexRecord],
+    options: &ExportTelexOptions,
+    native_source: bool,
+) -> Result<(), TelexEncodeError> {
+    validate_header_targets(
+        records.iter().filter_map(|record| record.get("path")),
+        records
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.get("kind"),
+                    Some("CloneReference" | "PointerReference")
+                )
+            })
+            .filter_map(|record| record.get("value")),
+        options,
+        native_source,
+    )
+}
+
+fn validate_typed_header_reference_targets(
+    records: &[AesEventRecord],
+    options: &ExportTelexOptions,
+) -> Result<(), TelexEncodeError> {
+    validate_header_targets(
+        records.iter().filter_map(|record| match &record.address {
+            AesEventAddress::Path(path) => Some(path.as_str()),
+            AesEventAddress::Header(_) => None,
+        }),
+        records
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.kind,
+                    AesValueKind::CloneReference | AesValueKind::PointerReference
+                )
+            })
+            .filter_map(|record| record.value.as_deref()),
+        options,
+        false,
+    )
+}
+
+fn validate_header_targets<'a>(
+    body_paths: impl Iterator<Item = &'a str>,
+    targets: impl Iterator<Item = &'a str>,
+    options: &ExportTelexOptions,
+    native_source: bool,
+) -> Result<(), TelexEncodeError> {
+    // Raw partial streams may name an external body occurrence. A compiled
+    // native source, however, has already bound its target: exporting a header
+    // occurrence as an external body occurrence would silently change it.
+    if options.profile.as_deref().is_some_and(|profile| {
+        profile != "aes.complete.v1" && !(native_source && profile == "aes.partial.v1")
+    }) {
+        return Ok(());
+    }
+    let mut header_targets = targets
+        .filter(|target| target.starts_with("$.[\"aeon:"))
+        .peekable();
+    if header_targets.peek().is_none() {
+        return Ok(());
+    }
+    let body_paths = body_paths.collect::<HashSet<_>>();
+    for target in header_targets {
+        if !body_paths.contains(target) {
+            return Err(TelexEncodeError {
+                code: "AES_COMPAT_HEADER_REFERENCE_TARGET",
+                detail: format!(
+                    "Portable references require a body event; no body target exists for native header-shaped reference '{target}'"
+                ),
+                counter: None,
+                observed: None,
+                limit: None,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn supports_typed_body_projection(
@@ -521,7 +620,7 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
             path,
             value,
             ValueTreeMetadata {
-                identity: None,
+                identity: header.structural_ids.get(key),
                 datatype: header.datatypes.get(key),
                 attributes: None,
                 span: header.spans.get(key).copied(),
@@ -2036,6 +2135,115 @@ mod tests {
         assert_eq!(document.events[4].path.as_deref(), Some("$.a"));
     }
 
+    fn check_retained_header_identities(
+        compiler: fn(&str, CompileOptions) -> crate::CompileResult,
+    ) {
+        let ordinary = compiler("a=1", CompileOptions::default());
+        assert_eq!(
+            format!("{:?}", ordinary.header.expect("valid regression fixture")),
+            "HeaderFields { fields: {}, order: [], spans: {}, datatypes: {} }"
+        );
+        for include_header in [false, true] {
+            for source in [
+                "aeon:header={value\\head\\:number=1,items\\list\\=[\\entry\\=2]}\n\"aeon:value\"\\body\\=3",
+                "aeon:mode\\head\\:string=\"transport\"\n\"aeon:value\"\\body\\=3",
+            ] {
+                let result = compiler(
+                    source,
+                    CompileOptions {
+                        include_header,
+                        ..CompileOptions::default()
+                    },
+                );
+                assert!(result.errors.is_empty(), "{:?}", result.errors);
+                if !include_header {
+                    assert!(result.header.is_none());
+                    continue;
+                }
+                let retained = result.header.as_ref().expect("valid regression fixture");
+                assert!(format!("{retained:?}").contains("structural_ids:"));
+                let field = if source.starts_with("aeon:header") {
+                    "value"
+                } else {
+                    "mode"
+                };
+                assert_eq!(
+                    retained.structural_ids.get(field).map(String::as_str),
+                    Some("head")
+                );
+                let projected = adapt_rust_assignment_events_to_portable_aes(
+                    &result.events,
+                    &PortableAesCompatibilityOptions {
+                        include_headers: true,
+                        header: result.header,
+                        ..PortableAesCompatibilityOptions::default()
+                    },
+                )
+                .expect("valid regression fixture");
+                let address = format!("$.[\"aeon:{field}\"]");
+                let event = projected
+                    .events
+                    .iter()
+                    .find(|e| e.header.as_deref() == Some(&address))
+                    .expect("valid regression fixture");
+                assert_eq!(event.identity.as_deref(), Some("head"));
+                assert_eq!(
+                    event.datatype.as_deref(),
+                    Some(if field == "value" { "number" } else { "string" })
+                );
+                let body = projected
+                    .events
+                    .iter()
+                    .find(|e| e.path.as_deref() == Some("$.[\"aeon:value\"]"))
+                    .expect("valid regression fixture");
+                assert_eq!(body.identity.as_deref(), Some("body"));
+                if field == "value" {
+                    assert_eq!(
+                        projected
+                            .events
+                            .iter()
+                            .find(|e| e.header.as_deref() == Some("$.[\"aeon:items\"]"))
+                            .expect("valid regression fixture")
+                            .identity
+                            .as_deref(),
+                        Some("list")
+                    );
+                    assert_eq!(
+                        projected
+                            .events
+                            .iter()
+                            .find(|e| e.header.as_deref() == Some("$.[\"aeon:items\"][0]"))
+                            .expect("valid regression fixture")
+                            .identity
+                            .as_deref(),
+                        Some("entry")
+                    );
+                }
+            }
+        }
+        let duplicate = compiler(
+            "aeon:header={value\\same\\=1}\nbody\\same\\=2",
+            CompileOptions::default(),
+        );
+        assert!(
+            duplicate
+                .errors
+                .iter()
+                .any(|e| e.code == "DUPLICATE_STRUCTURAL_IDENTITY")
+        );
+    }
+
+    #[test]
+    fn retained_header_identities_survive_projection_and_keep_document_uniqueness() {
+        check_retained_header_identities(compile);
+    }
+
+    #[cfg(feature = "sofia")]
+    #[test]
+    fn sofia_retained_header_identities_survive_projection_and_keep_document_uniqueness() {
+        check_retained_header_identities(crate::compile_sofia);
+    }
+
     fn shapes(events: &[PortableAesEvent]) -> Vec<(&str, &str, Option<&str>)> {
         events
             .iter()
@@ -2494,6 +2702,117 @@ mod tests {
             &TelexLimits::default(),
         );
         assert!(validation.valid, "{:?}", validation.diagnostics);
+    }
+
+    #[test]
+    fn complete_exports_reject_header_only_reference_targets_without_partial_output() {
+        for marker in ["~", "~>"] {
+            let source = format!(
+                "aeon:header={{x={{leaf=1}}}}\n\"aeon:x\"=2\ncopy={marker}[\"aeon:x\"].leaf"
+            );
+            for include_headers in [false, true] {
+                let result = compile_to_telex(
+                    &source,
+                    CompileToTelexOptions {
+                        telex: ExportTelexOptions {
+                            include_headers,
+                            ..ExportTelexOptions::default()
+                        },
+                        ..CompileToTelexOptions::default()
+                    },
+                );
+                assert!(
+                    result.compile.errors.is_empty(),
+                    "{:?}",
+                    result.compile.errors
+                );
+                assert_eq!(
+                    result.encode_error.expect("header target error").code,
+                    "AES_COMPAT_HEADER_REFERENCE_TARGET"
+                );
+                assert!(result.telex.is_none() && result.records.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn header_target_guard_preserves_body_targets_partial_streams_and_limits() {
+        let source = "aeon:header={x={leaf=1}}\n\"aeon:x\"={leaf=2}\ncopy=~>[\"aeon:x\"].leaf";
+        let result = compile_to_telex(
+            source,
+            CompileToTelexOptions {
+                telex: ExportTelexOptions {
+                    include_headers: true,
+                    ..ExportTelexOptions::default()
+                },
+                ..CompileToTelexOptions::default()
+            },
+        );
+        assert!(
+            result.compile.errors.is_empty() && result.encode_error.is_none(),
+            "{result:?}"
+        );
+        let source = "aeon:header={x={leaf=1}}\n\"aeon:x\"=2\ncopy=~>[\"aeon:x\"].leaf";
+        let partial = compile_to_telex(
+            source,
+            CompileToTelexOptions {
+                telex: ExportTelexOptions {
+                    profile: Some(String::from("aes.partial.v1")),
+                    ..ExportTelexOptions::default()
+                },
+                ..CompileToTelexOptions::default()
+            },
+        );
+        assert_eq!(
+            partial.encode_error.expect("native header target").code,
+            "AES_COMPAT_HEADER_REFERENCE_TARGET"
+        );
+        assert!(partial.telex.is_none() && partial.records.is_empty());
+        // Caller-supplied raw partial events can still refer to an external body.
+        let mut external = compile("copy=1", crate::CompileOptions::default()).events;
+        external[0].value = Value::PointerReference {
+            segments: vec![ReferenceSegment::Key(String::from("aeon:external"))],
+            span: external[0].span,
+        };
+        assert!(
+            export_telex(
+                &external,
+                &ExportTelexOptions {
+                    profile: Some(String::from("aes.partial.v1")),
+                    ..ExportTelexOptions::default()
+                }
+            )
+            .is_ok()
+        );
+        let mut options = CompileToTelexOptions::default();
+        options.telex.limits.max_events = 0;
+        let limited = compile_to_telex(source, options);
+        assert_eq!(
+            limited.encode_error.expect("limit error").code,
+            "TELEX_LIMIT_EXCEEDED"
+        );
+    }
+
+    #[test]
+    fn borrowed_and_owned_typed_exports_reject_header_targets() {
+        let mut source = String::from("aeon:header={x=1}\ncopy=~>[\"aeon:x\"]\n");
+        for i in 0..MIN_TAKEN_AES_EVENT_RECORDS {
+            source.push_str(&format!("v{i}={i}\n"));
+        }
+        let compiled = compile(&source, crate::CompileOptions::default());
+        assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+        assert_eq!(
+            export_telex(&compiled.events, &ExportTelexOptions::default())
+                .expect_err("header target")
+                .code,
+            "AES_COMPAT_HEADER_REFERENCE_TARGET"
+        );
+        assert_eq!(
+            export_telex_owned(compiled.events, &ExportTelexOptions::default())
+                .expect_err("header target")
+                .code,
+            "AES_COMPAT_HEADER_REFERENCE_TARGET"
+        );
     }
 
     #[test]

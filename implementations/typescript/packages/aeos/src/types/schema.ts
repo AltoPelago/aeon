@@ -199,6 +199,8 @@ export interface ResourcePolicyV1 {
     readonly max_path_length?: number;
     readonly max_reference_resolution_steps?: number;
     readonly max_selector_expansions?: number;
+    /** Whole-validation logical identity inspections; default 10000. */
+    readonly max_identity_inspections?: number;
     readonly max_string_length_default?: number;
     readonly max_container_children_default?: number;
 }

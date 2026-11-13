@@ -95,6 +95,7 @@ version = "0.16.0"
 dependencies = [
  "altopelago-aeon-core",
  "altopelago-aes-telex",
+ "altopelago-sansa-runtime",
  "regex",
  "serde",
  "serde_json",
@@ -138,9 +139,8 @@ dependencies = [
 
 [[package]]
 name = "altopelago-sansa-runtime"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdce73bf3da169a71e3ea364950091f58980c6a27057dc0522ad144c68905aca"
+version = "0.15.0-rc.1"
+source = "git+https://github.com/AltoPelago/sansa?rev=7fd55c2aecd599e49f9a463c46463a7413e1438d#7fd55c2aecd599e49f9a463c46463a7413e1438d"
 
 [[package]]
 name = "base64ct"

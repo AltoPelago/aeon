@@ -6,7 +6,7 @@
   "claim_sets": [
     {
       "implementation": "typescript",
-      "implementation_version": "0.16.0",
+      "implementation_version": "0.17.0-rc.1",
       "workspace": "implementations/typescript",
       "claims": [
         {

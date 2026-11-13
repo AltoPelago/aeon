@@ -1,0 +1,23 @@
+{
+  "runtimeSourceAndBuildBeforeAfterMatch": true,
+  "hashedFiles": 1152,
+  "baselineMatchesOriginalManifest": 100,
+  "broaderOriginalAcceptedRuntimeFilesMatch": 422,
+  "originalProtocolFilesMatch": 19,
+  "notes": "Existing broader checks and measurements retain their original scope. No alias/profile functionality is claimed for the narrower artifact.",
+  "archivedCandidateSourceBuilds": {
+    "initial-failed-runtime.tar.gz": {
+      "matchingCandidateFiles": 540,
+      "sha256": "6f414cb0c2d9cbe2264c8660b1d65976dbe79aa081c8ac53927b93201d95f02b"
+    },
+    "flat-failed-runtime.tar.gz": {
+      "matchingCandidateFiles": 540,
+      "sha256": "b1e0dd9b4f7f7ecb5e3d38cf3f2486a9babecb0291c94427e18a733daffeb352"
+    },
+    "identifier-runtime.tar.gz": {
+      "matchingCandidateFiles": 540,
+      "sha256": "298e6df0a323be6f788ba4338c77b9261e301c3494c7067bd20c5ab679eba8ca"
+    }
+  },
+  "primaryAeonAndSansaStatus": "clean"
+}

@@ -223,3 +223,27 @@ test('warns when configured profile overrides a declared header profile', () => 
 
     assert.ok(diagnostics.some((diag) => diag.code === 'DECLARED_PROFILE_OVERRIDDEN'));
 });
+
+test('trusted schema identity selectors retain source diagnostic targets and path-field rejection', t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-lsp-identity-schema-'));
+    t.after(() => fs.rmSync(dir, {recursive: true, force: true}));
+    const source = 'items = [ \\item1\\ = { name\\name1\\ = "Widget" } ]\n';
+    const selector = '$.items.\\item1\\.\\name1\\';
+    const schemaPath = writeFile(dir, 'identity.json', '{}');
+    const registryPath = path.join(dir, 'registry.json');
+    const check = (field: 'selector' | 'path', type: string) => {
+        fs.writeFileSync(schemaPath, JSON.stringify({schema_id: 'identity', schema_version: '1',
+            rules: [{[field]: selector, constraints: {type, required: true}}]}));
+        fs.writeFileSync(registryPath, JSON.stringify({contracts: [{id: 'identity', kind: 'schema', version: '1',
+            path: './identity.json', sha256: sha256(schemaPath), status: 'active'}]}));
+        return getConfiguredDiagnostics(source, null, {contractRegistry: registryPath, schema: 'identity'});
+    };
+    assert.deepEqual(check('selector', 'StringLiteral'), []);
+    const failed = check('selector', 'NumberLiteral');
+    assert.equal(failed.length, 1);
+    assert.equal(failed[0]!.code, 'type_mismatch');
+    assert.equal(source.slice(failed[0]!.range.start.character, failed[0]!.range.end.character), 'name\\name1\\ = "Widget"');
+    assert.equal(failed[0]!.range.start.line, 0);
+    assert.ok(failed[0]!.range.start.character > 10);
+    assert.ok(check('path', 'StringLiteral').some(diag => /Child identity/.test(String(diag.message))));
+});

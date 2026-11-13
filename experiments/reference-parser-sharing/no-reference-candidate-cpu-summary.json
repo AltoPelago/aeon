@@ -1,0 +1,92 @@
+[
+  {
+    "function": "writeHeapSnapshot",
+    "file": "node:v8",
+    "samples": 65
+  },
+  {
+    "function": "indexReferenceOrder",
+    "file": "reference-order.js",
+    "samples": 16
+  },
+  {
+    "function": "(garbage collector)",
+    "file": "",
+    "samples": 15
+  },
+  {
+    "function": "indexReferenceOrder",
+    "file": "reference-order.js",
+    "samples": 7
+  },
+  {
+    "function": "pathKey",
+    "file": "ordering.js",
+    "samples": 6
+  },
+  {
+    "function": "referenceSafeOrders",
+    "file": "ordering.js",
+    "samples": 4
+  },
+  {
+    "function": "pop",
+    "file": "ordering.js",
+    "samples": 4
+  },
+  {
+    "function": "(program)",
+    "file": "",
+    "samples": 3
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 3
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 3
+  },
+  {
+    "function": "resolveBinding",
+    "file": "paths.js",
+    "samples": 3
+  },
+  {
+    "function": "resolveBinding",
+    "file": "paths.js",
+    "samples": 3
+  },
+  {
+    "function": "referenceSafeOrders",
+    "file": "ordering.js",
+    "samples": 3
+  },
+  {
+    "function": "validateReferences",
+    "file": "references.js",
+    "samples": 3
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 2
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 2
+  },
+  {
+    "function": "compileSourceTextModule",
+    "file": "utils",
+    "samples": 2
+  },
+  {
+    "function": "scanToken",
+    "file": "lexer.js",
+    "samples": 2
+  }
+]

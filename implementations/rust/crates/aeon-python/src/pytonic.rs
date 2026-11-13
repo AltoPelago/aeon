@@ -1285,6 +1285,7 @@ fn parse_activation_selector(value: &str) -> PyResult<runtime::evaluate::Activat
     use runtime::evaluate::ActivationSelector;
 
     match value {
+        "child_identity" => Ok(ActivationSelector::ChildIdentity),
         "member" => Ok(ActivationSelector::Member),
         "position" => Ok(ActivationSelector::Position),
         "range" => Ok(ActivationSelector::Range),

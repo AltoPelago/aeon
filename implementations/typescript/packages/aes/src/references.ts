@@ -15,6 +15,7 @@ import { indexReferenceOrder, isReferenceToSelf } from './reference-order.js';
 import { formatReferenceTargetPath } from './reference-target.js';
 
 export type ReferenceValidationErrorCode =
+    | 'INVALID_REFERENCE_SELECTION'
     | 'MISSING_REFERENCE_TARGET'
     | 'FORWARD_REFERENCE'
     | 'SELF_REFERENCE'
@@ -141,6 +142,11 @@ export function validateReferences(
     for (const { reference, path, ordinal, eventIndex } of claims) {
         const sourcePath = formatReferenceTargetPath(path);
         const targetPath = formatReferenceTargetPath(reference.path);
+        if ((reference as unknown as { selection?: unknown }).selection !== undefined) {
+            errors.push(new ReferenceValidationError('Structural references cannot contain semantic selections.',
+                reference.span, 'INVALID_REFERENCE_SELECTION', sourcePath, targetPath));
+            continue;
+        }
         const depth = reference.path.filter(segment => typeof segment === 'object').length;
         if (depth > maxAttributeDepth) {
             errors.push(new AttributeDepthExceededError(reference.span, sourcePath, targetPath, depth, maxAttributeDepth));
@@ -155,5 +161,5 @@ export function validateReferences(
             }
         }
     }
-    return { events: errors.length > 0 && !options.recovery ? [] : events, errors };
+    return { events: errors.some(error => error.code === 'INVALID_REFERENCE_SELECTION') || (errors.length > 0 && !options.recovery) ? [] : events, errors };
 }

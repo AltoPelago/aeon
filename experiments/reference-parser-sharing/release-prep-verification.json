@@ -1,0 +1,27 @@
+{
+  "sourceBuildBeforeAfterMatch": true,
+  "sourceBuildFiles": 1161,
+  "originalControls": {
+    "aeon": 404,
+    "sansa": 18,
+    "protocol": 19,
+    "baseline": 100
+  },
+  "measurementHelpersUnchanged": [
+    "compare.mjs",
+    "measure-memory.mjs"
+  ],
+  "gates": {
+    "compatibility": true,
+    "parserLatency": true,
+    "parserHeap": true,
+    "pipelineLatency": true,
+    "pipelineHeap": true
+  },
+  "runtimeArchive": {
+    "file": ".results/release-prep-runtime.tar.gz",
+    "sha256": "2c3716dff02561db7a9c76a379f6890a28f69277fc610755b81798c969291c98"
+  },
+  "registryArtifactVerified": false,
+  "hostedLinuxCIExecuted": false
+}

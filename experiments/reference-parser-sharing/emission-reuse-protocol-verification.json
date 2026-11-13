@@ -1,0 +1,16 @@
+{
+  "broaderAcceptedSourceFilesMatch": 422,
+  "originalProtocolFilesMatch": 19,
+  "baselineFilesMatch": 100,
+  "parserMeasurementsByteIdenticalToOriginal": true,
+  "hashes": {
+    "compare.mjs": "56aff93eb505ce3cb69f32a8788300f15ea4265243120f405516899acbbb2786",
+    "measure-memory.mjs": "0df0f76993b1c7984c41ffe4032f1ee98d59a3c20b545b6c37551a19573c7df3",
+    "pipeline-timing.mjs": "4f08acafbcea9b1d27a85898a66eb9b1f82f935ed16948d8110c834f08b90804",
+    "pipeline-memory.mjs": "a6ece9ae57694a7aa631c6262cc2ab9c6fb57191d67de16258cde64aaa0beca2",
+    "run-emission-reuse-matrix.mjs": "89536e23e362309bbb588861270d0c2aeb5a8c0de55ff4c9f2c5e19d22ffbe02",
+    "summarize-emission-reuse.mjs": "74750c5812bf00842bc47c8603a319c7a4a210f27f00557665726d82e6a19419",
+    "structural-path.test.mjs": "02628b1bc3d3260ebbb1024816581dc71194d799004bb86f2f14c29e051a7a46",
+    "emission-reuse.test.mjs": "a4ecf8b5683c0b1eae52d72d9500ce709d72985ceffcabeae419f097ad7ac58b"
+  }
+}
