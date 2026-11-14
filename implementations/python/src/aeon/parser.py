@@ -632,6 +632,8 @@ class Parser:
         self.skip_layout()
         tag_token = self.consume_key_token("Expected node tag after '<'")
         tag = self.key_from_token(tag_token)
+        if not tag:
+            raise SyntaxError("Node tags must not be empty", tag_token.span)
         head_start = tag_token.span.start
         head_end = tag_token.span.end
         self.skip_layout()
@@ -881,12 +883,7 @@ class Parser:
     def key_from_token(self, token: Token) -> str:
         if token.kind == "STRING" and token.quote == "`":
             raise SyntaxError("Backtick-quoted keys are not supported", token.span)
-        return self.assert_non_empty_key(token.value, token.span, "Keys must not be empty")
-
-    def assert_non_empty_key(self, key: str, span: Span, message: str) -> str:
-        if len(key) == 0:
-            raise SyntaxError(message, span)
-        return key
+        return token.value
 
     def skip_separators(self) -> None:
         while self.check("NEWLINE") or self.check("COMMA"):

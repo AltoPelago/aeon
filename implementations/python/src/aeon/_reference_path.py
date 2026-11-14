@@ -64,9 +64,6 @@ class ReferenceCursor:
         if token.kind == 'STRING' and token.quote == '`':
             message = 'Backtick-quoted keys are not supported in attribute segments' if self.context == 'attribute' else 'Backtick-quoted keys are not supported in paths'
             raise SyntaxError(message, token.span)
-        message = 'Quoted attribute keys must not be empty' if self.context == 'attribute' else 'Quoted path keys must not be empty'
-        if not token.value:
-            raise SyntaxError(message, token.span)
         return token.value
 
     def key(self, message):
@@ -84,9 +81,6 @@ class ReferenceCursor:
         token = self.tokens.consume('STRING', message)
         if token.quote == '`':
             return self.key_value(token)
-        if not token.value:
-            # Preserve AEON's close-token-before-empty-key error precedence.
-            self.consume(']')
         return self.key_value(token)
 
     def match_range_separator(self):
@@ -109,7 +103,7 @@ class ReferenceCursor:
         if self.tokens.check_next('STRING'):
             self.tokens.advance()
             token = self.tokens.advance()
-            # Backtick errors precede a missing close; empty-key errors follow it.
+            # Backtick errors precede a missing close.
             if token.quote == '`':
                 return self.key_value(token)
             self.tokens.consume('RBRACKET', "Expected ']' after quoted path segment")

@@ -1,0 +1,113 @@
+[
+  {
+    "id": "root",
+    "source": "\"\" = \"\"",
+    "paths": [
+      "$.[\"\"]"
+    ]
+  },
+  {
+    "id": "nested",
+    "source": "outer = { \"\" = { \"\" = false } }",
+    "paths": [
+      "$.outer",
+      "$.outer.[\"\"]",
+      "$.outer.[\"\"].[\"\"]"
+    ]
+  },
+  {
+    "id": "typed-attribute",
+    "source": "\"\"@{ \"\" = \"metadata\" }:string = \"\"",
+    "paths": [
+      "$.[\"\"]"
+    ]
+  },
+  {
+    "id": "values",
+    "source": "\"\" = [0, false, \"\", {}, []]",
+    "paths": [
+      "$.[\"\"]",
+      "$.[\"\"][0]",
+      "$.[\"\"][1]",
+      "$.[\"\"][2]",
+      "$.[\"\"][3]",
+      "$.[\"\"][4]"
+    ]
+  },
+  {
+    "id": "whitespace-distinct",
+    "source": "\"\" = 0\n\" \" = 1",
+    "paths": [
+      "$.[\"\"]",
+      "$.[\" \"]"
+    ]
+  },
+  {
+    "id": "clone-root",
+    "source": "\"\" = 1\ncopy = ~$.[\"\"]",
+    "paths": [
+      "$.[\"\"]",
+      "$.copy"
+    ]
+  },
+  {
+    "id": "pointer-root",
+    "source": "\"\" = 1\ncopy = ~>$.[\"\"]",
+    "paths": [
+      "$.[\"\"]",
+      "$.copy"
+    ]
+  },
+  {
+    "id": "attribute-reference",
+    "source": "value@{ \"\" = \"metadata\" } = 1\ncopy = ~value.@.[\"\"]",
+    "paths": [
+      "$.value",
+      "$.copy"
+    ]
+  },
+  {
+    "id": "sansa-literal",
+    "source": "address:sansa = $.[\"\"]",
+    "paths": [
+      "$.address"
+    ]
+  },
+  {
+    "id": "sansa-attribute-literal",
+    "source": "address:sansa = $.node.@.[\"\"]",
+    "paths": [
+      "$.address"
+    ]
+  },
+  {
+    "id": "root-duplicate",
+    "source": "\"\" = 1\n\"\" = 2",
+    "error": "DUPLICATE_KEY"
+  },
+  {
+    "id": "nested-duplicate",
+    "source": "outer = { \"\" = 1, \"\" = 2 }",
+    "error": "DUPLICATE_KEY"
+  },
+  {
+    "id": "attribute-duplicate",
+    "source": "value@{ \"\" = 1, \"\" = 2 } = 0",
+    "error": "DUPLICATE_KEY"
+  },
+  {
+    "id": "missing-reference",
+    "source": "copy = ~$.[\"\"]",
+    "error": "MISSING_REFERENCE_TARGET"
+  },
+  {
+    "id": "empty-reference-missing-close",
+    "source": "copy = ~$.[\"\"",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-local-space",
+    "source": "value:sansa = $.<\"\">",
+    "error": "SYNTAX_ERROR"
+  }
+]

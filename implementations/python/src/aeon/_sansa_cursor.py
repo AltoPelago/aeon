@@ -47,8 +47,6 @@ def parse_dot_selector(cursor, project_member=member, attribute_space=None):
     if char == "[":
         cursor.consume("[")
         name = cursor.parse_quoted_payload()
-        if len(name) == 0:
-            cursor.fail("Quoted member names must not be empty", "SANSA_EMPTY_MEMBER_NAME")
         cursor.consume("]")
         return project_member(name, True)
     if char == "<":

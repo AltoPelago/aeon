@@ -1,9 +1,12 @@
 {
-  "sourceCommit": "0436666176c9225393c43a80b99d800d00b46452",
-  "sourceTree": "96d53076d0bf38f89d888b85390305532eb2f4fc",
+  "sourceCommit": "a6b01f85f6708ff2819fceb5c527d1c030e20b1b",
+  "sourceTree": "1d678686e841c8c8e30950cb2834e484530be9b0",
+  "sourceBase": "60b635225e6b15333fce5b5dfa249cef74dc9a63",
   "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759",
-  "matchedSourceFiles": 93,
+  "archiveSha256": "81b1c4a4f6c78dfdc4dd20075ca6607d2bdd06bcb03539e48e2daa8f5e0039d6",
+  "archiveFile": "altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-81b1c4a4.tgz",
+  "matchedSourceFiles": 114,
+  "contents": "Merged Unicode hardening, ordinary empty property keys and verified conformance/documentation repairs",
   "publication": false,
   "registryArtifact": false
 }

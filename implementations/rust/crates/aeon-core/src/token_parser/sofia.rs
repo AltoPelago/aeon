@@ -656,14 +656,6 @@ impl StructuralCursor for Parser<'_, '_> {
         };
         let token = self.consume(TokenKind::String, message)?;
         let key = decode_quoted_token(token)?;
-        if key.is_empty() {
-            return Err(Diagnostic::new(
-                "SYNTAX_ERROR",
-                "Empty quoted path segments are not valid",
-            )
-            .at_path("$")
-            .with_span(token.span));
-        }
         Ok(key)
     }
     fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
@@ -1034,11 +1026,6 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
                 }
                 let token = self.advance();
                 let key = decode_quoted_token(token)?;
-                if key.is_empty() {
-                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty")
-                        .at_path("$")
-                        .with_span(token.span));
-                }
                 Ok((key, false, start))
             }
             _ => Err(self.error_at_current("Expected key")),
@@ -1167,14 +1154,6 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
 
     fn decode_reference_key(&self, token: &Token) -> Result<String, Diagnostic> {
         let key = decode_quoted_token(token)?;
-        if key.is_empty() {
-            return Err(Diagnostic::new(
-                "SYNTAX_ERROR",
-                "Empty quoted path segments are not valid",
-            )
-            .at_path("$")
-            .with_span(token.span));
-        }
         Ok(key)
     }
 
@@ -4264,9 +4243,9 @@ literal = ~true.off"#;
                 "Expected `.` after `$`",
             ),
             (
-                "bad = ~source.@.[\"\"]",
+                "bad = ~source.@.[\"\"",
                 "SYNTAX_ERROR",
-                "Empty quoted path segments are not valid",
+                "Expected `]` after quoted attribute key",
             ),
         ];
 

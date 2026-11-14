@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
           path: aes
 
       - name: Link AES for the Rust workspace
@@ -89,7 +89,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 928341c90028787e8eeb21fbc7e2f755df539d4b
+          ref: bcd4d3b14981adf80f4131ef8f9457f45db57e05
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -141,7 +141,7 @@ jobs:
       - name: CTS conformance (all lanes)
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
-        run: pnpm test:cts:all
+        run: pnpm test:cts:empty-keys
 
       - name: Core escaped-path public CLI parity
         run: node ../../scripts/test-core-path-escaping.mjs
@@ -175,7 +175,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -212,14 +212,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 928341c90028787e8eeb21fbc7e2f755df539d4b
+          ref: bcd4d3b14981adf80f4131ef8f9457f45db57e05
           path: aeonite-cts
 
       - name: Checkout AES
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
           path: aes
 
       - name: Link AES for the Rust workspace

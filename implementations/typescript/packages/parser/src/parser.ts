@@ -1548,14 +1548,7 @@ class Parser {
                 token.value
             );
         }
-        return this.assertNonEmptyKey(token.value, token.span, 'Keys must not be empty');
-    }
-
-    private assertNonEmptyKey(key: string, span: Span, message: string): string {
-        if (key.length === 0) {
-            throw new SyntaxError(message, span, 'non-empty key', key);
-        }
-        return key;
+        return token.value;
     }
 
     private synchronize(): void {

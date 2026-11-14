@@ -501,14 +501,6 @@ impl StructuralCursor for TokenParser<'_> {
         };
         let token = self.consume(TokenKind::String, message)?;
         let key = decode_quoted_token(token)?;
-        if key.is_empty() {
-            return Err(Diagnostic::new(
-                "SYNTAX_ERROR",
-                "Empty quoted path segments are not valid",
-            )
-            .at_path("$")
-            .with_span(token.span));
-        }
         Ok(key)
     }
     fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
@@ -691,11 +683,6 @@ impl<'a> TokenParser<'a> {
                 }
                 let token = self.advance();
                 let key = decode_quoted_token(token)?;
-                if key.is_empty() {
-                    return Err(Diagnostic::new("SYNTAX_ERROR", "Keys must not be empty")
-                        .at_path("$")
-                        .with_span(token.span));
-                }
                 Ok((key, false))
             }
             _ => Err(self.error_at_current("Expected key")),
@@ -1322,14 +1309,6 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::LeftBracket) {
                 let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
                 let key = decode_quoted_token(key_token)?;
-                if key.is_empty() {
-                    return Err(Diagnostic::new(
-                        "SYNTAX_ERROR",
-                        "Empty quoted path segments are not valid",
-                    )
-                    .at_path("$")
-                    .with_span(key_token.span));
-                }
                 self.consume(
                     TokenKind::RightBracket,
                     "Expected `]` after quoted member key",
@@ -1341,14 +1320,6 @@ impl<'a> TokenParser<'a> {
         } else if self.match_kind(TokenKind::LeftBracket) {
             let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
             let key = decode_quoted_token(key_token)?;
-            if key.is_empty() {
-                return Err(Diagnostic::new(
-                    "SYNTAX_ERROR",
-                    "Empty quoted path segments are not valid",
-                )
-                .at_path("$")
-                .with_span(key_token.span));
-            }
             self.consume(
                 TokenKind::RightBracket,
                 "Expected `]` after quoted reference key",
@@ -1384,14 +1355,6 @@ impl<'a> TokenParser<'a> {
                 if self.check(TokenKind::String) {
                     let key_token = self.advance();
                     let key = decode_quoted_token(key_token)?;
-                    if key.is_empty() {
-                        return Err(Diagnostic::new(
-                            "SYNTAX_ERROR",
-                            "Empty quoted path segments are not valid",
-                        )
-                        .at_path("$")
-                        .with_span(key_token.span));
-                    }
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
                 } else {
@@ -1421,14 +1384,6 @@ impl<'a> TokenParser<'a> {
             TokenKind::String => {
                 let token = self.advance();
                 let key = decode_quoted_token(token)?;
-                if key.is_empty() {
-                    return Err(Diagnostic::new(
-                        "SYNTAX_ERROR",
-                        "Empty quoted path segments are not valid",
-                    )
-                    .at_path("$")
-                    .with_span(token.span));
-                }
                 Ok(key)
             }
             _ => Err(self.error_at_current("Expected reference path segment")),
@@ -2625,7 +2580,7 @@ clone = ~$.["source"].["quoted.key"][1]
 pointer = ~>source.@.meta.["x.y"][0]
 literal = ~true.off"#,
             "bad = ~$[\"source\"]\nlater = true",
-            "bad = ~source.@.[\"\"]\nlater = true",
+            "bad = ~source.@.[\"\"\nlater = true",
             "bad = [1 2]\nlater = true",
             "bad = [1)\nlater = true",
             "bad = (1 2)\nlater = true",
@@ -3365,7 +3320,7 @@ context = ?.name"#;
         for source in [
             "bad = $.inventory:csv[,]\nlater = true",
             "bad = ~$[\"source\"]\nlater = true",
-            "bad = ~source.@.[\"\"]\nlater = true",
+            "bad = ~source.@.[\"\"\nlater = true",
         ] {
             let mut splits = source
                 .char_indices()
@@ -3612,20 +3567,13 @@ context = ?.name"#;
     }
 
     #[test]
-    fn rejects_empty_quoted_reference_segments() {
-        let object_key_error =
-            parse("a = { \"\" = 1 }\nv = ~a.[\"\"]\n").expect_err("expected syntax error");
-        assert_eq!(object_key_error.code, "SYNTAX_ERROR");
-        assert_eq!(object_key_error.message, "Keys must not be empty");
-
-        for source in ["a = 1\nv = ~a.@.[\"\"]\n", "a = 1\nv = ~a[\"\"]\n"] {
-            let error = parse(source).expect_err("expected syntax error");
-            assert_eq!(error.code, "SYNTAX_ERROR");
-            assert!(
-                error
-                    .message
-                    .contains("Empty quoted path segments are not valid")
-            );
+    fn parses_empty_quoted_reference_segments() {
+        for source in [
+            "a = { \"\" = 1 }\nv = ~a.[\"\"]\n",
+            "a = 1\nv = ~a.@.[\"\"]\n",
+            "a = 1\nv = ~a[\"\"]\n",
+        ] {
+            assert!(parse(source).is_ok(), "{source}");
         }
     }
 
@@ -3721,10 +3669,9 @@ context = ?.name"#;
     }
 
     #[test]
-    fn rejects_empty_quoted_keys_in_binding_positions() {
-        let error = parse("\"\" = 1\n").expect_err("expected syntax error");
-        assert_eq!(error.code, "SYNTAX_ERROR");
-        assert_eq!(error.message, "Keys must not be empty");
+    fn parses_empty_quoted_keys_in_binding_positions() {
+        let bindings = parse("\"\" = 1\n").expect("empty property key");
+        assert_eq!(bindings[0].key, "");
     }
 
     #[test]
