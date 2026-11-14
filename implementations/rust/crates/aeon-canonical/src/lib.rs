@@ -1,7 +1,7 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::{BTreeMap, HashSet};
 use std::borrow::Cow;
+use std::collections::{BTreeMap, HashSet};
 
 use aeon_core::{Diagnostic, Position, Span, normalize_number_literal};
 
@@ -3864,6 +3864,69 @@ mod lexical_preprocessing_tests {
                 let old = super::strip_preamble(&aeon_core::strip_leading_bom(&input));
                 assert_eq!(super::lexical_source(&input).as_ref(), old, "{input:?}");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod unicode_identity_regressions {
+    use super::*;
+    #[test]
+    fn unicode_keys_references_and_canonical_fixed_points_remain_exact() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/unicode-hardening-v1.json"
+        ))
+        .expect("unicode fixtures");
+        for pair in fixtures["identity_pairs"].as_array().expect("pairs") {
+            let left = pair["left"].to_string();
+            let right = pair["right"].to_string();
+            let source = format!(
+                "{left}=\"left\"\n{right}=\"right\"\nleftCopy=~[{left}]\nrightPointer=~>[{right}]"
+            );
+            let result = canonicalize(&source);
+            assert!(
+                result.errors.is_empty(),
+                "{}: {:?}",
+                pair["id"],
+                result.errors
+            );
+            let again = canonicalize(&result.text);
+            assert!(again.errors.is_empty());
+            assert_eq!(again.text, result.text);
+            let compiled = aeon_core::compile(&result.text, aeon_core::CompileOptions::default());
+            assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
+            for (copy, target) in [
+                ("leftCopy", pair["left"].as_str().expect("left")),
+                ("rightPointer", pair["right"].as_str().expect("right")),
+            ] {
+                let event = compiled
+                    .events
+                    .iter()
+                    .find(|e| e.key == copy)
+                    .expect("reference event");
+                match &event.value {
+                    aeon_core::Value::CloneReference { segments, .. }
+                    | aeon_core::Value::PointerReference { segments, .. } => assert_eq!(
+                        segments,
+                        &vec![aeon_core::ReferenceSegment::Key(target.to_owned())]
+                    ),
+                    _ => panic!("expected retained reference occurrence"),
+                }
+            }
+            for key in [
+                pair["left"].as_str().expect("left"),
+                pair["right"].as_str().expect("right"),
+            ] {
+                assert!(compiled.events.iter().any(|e| e.key == key));
+            }
+            assert!(
+                !aeon_core::compile(
+                    &format!("{left}=1\n{left}=2"),
+                    aeon_core::CompileOptions::default()
+                )
+                .errors
+                .is_empty()
+            );
         }
     }
 }

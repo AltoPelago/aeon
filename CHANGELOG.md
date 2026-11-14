@@ -8,6 +8,10 @@ repositories.
 
 ## Unreleased
 
+### Unicode hardening
+
+- Rust AEOS ordinary and attribute string-form constraints now use the existing UTF-16 unit contract; native Python inherits the correction on rebuild. Pure Python SANSA name patterns now match LF. Shared cross-runtime vectors protect exact Unicode keys/reference targets and canonical fixed points without normalization or new profile admission.
+
 ### Added
 
 - Experimental TypeScript SDK namespaces expose declared binding identities through an explicit SANSA identity accessor. Returned paths remain structural. Read-only consumer support is described in the SDK and [AEOS selector contract](docs/aeos-child-identity-selectors.md); mutation and reference admission remain separately constrained.
