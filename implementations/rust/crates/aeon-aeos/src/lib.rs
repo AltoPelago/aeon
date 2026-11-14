@@ -2786,7 +2786,7 @@ fn check_string_form(
         let Some(value) = string_value(event.value.as_ref()) else {
             continue;
         };
-        let length = value.chars().count();
+        let length = value.encode_utf16().count();
 
         if let Some(min_length) = constraints.get("min_length").and_then(JsonValue::as_u64)
             && length < min_length as usize
@@ -3191,10 +3191,11 @@ fn validate_attribute_entry(
 
     if is_string_like_literal(&entry.value_type) {
         let value = string_value(entry.value.as_ref()).unwrap_or_default();
+        let length = value.encode_utf16().count();
         if let Some(min_length) = effective_constraints
             .get("min_length")
             .and_then(JsonValue::as_u64)
-            && value.len() < min_length as usize
+            && length < min_length as usize
         {
             emit_error(
                 ctx,
@@ -3209,7 +3210,7 @@ fn validate_attribute_entry(
         if let Some(max_length) = effective_constraints
             .get("max_length")
             .and_then(JsonValue::as_u64)
-            && value.len() > max_length as usize
+            && length > max_length as usize
         {
             emit_error(
                 ctx,
@@ -6401,3 +6402,81 @@ mod tests {
 
 #[cfg(test)]
 mod child_identity_tests;
+
+#[cfg(test)]
+mod unicode_length_regressions {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn unicode_length_uses_utf16_across_ordinary_attribute_and_alternate_paths() {
+        let fixture: JsonValue =
+            serde_json::from_str(include_str!("../tests/fixtures/unicode-hardening-v1.json"))
+                .expect("unicode fixtures");
+        for case in fixture["length_cases"].as_array().expect("length cases") {
+            let value = case["value"].as_str().expect("value");
+            let units = case["utf16"].as_u64().expect("utf16");
+            for (constraint, expected) in [
+                (json!({"min_length":units,"max_length":units}), true),
+                (json!({"max_length":units-1}), false),
+                (json!({"min_length":units+1}), false),
+            ] {
+                for surface in [
+                    "ordinary",
+                    "attribute",
+                    "attribute-path",
+                    "datatype",
+                    "attribute-datatype",
+                    "alternate",
+                ] {
+                    let mut event = json!({"path":{"segments":[{"type":"root"},{"type":"member","key":"value"}]},"key":"value","value":{"type":"StringLiteral","value":value},"annotations":{"label":{"value":{"type":"StringLiteral","value":value}}}});
+                    let mut schema = json!({"rules":[],"datatype_rules":{},"world":"open"});
+                    match surface {
+                        "ordinary" => {
+                            schema["rules"] = json!([{"path":"$.value","constraints":constraint}])
+                        }
+                        "attribute" => {
+                            schema["rules"] = json!([{"path":"$.value","constraints":{"attributes":{"label":constraint}}}])
+                        }
+                        "attribute-path" => {
+                            schema["rules"] =
+                                json!([{"path":"$.value.@.label","constraints":constraint}])
+                        }
+                        "datatype" => {
+                            event["datatype"] = json!("lengthtext");
+                            schema["datatype_rules"] = json!({"lengthtext":constraint});
+                        }
+                        "attribute-datatype" => {
+                            event["annotations"]["label"]["datatype"] = json!("lengthtext");
+                            schema["datatype_rules"] = json!({"lengthtext":constraint});
+                        }
+                        "alternate" => {
+                            schema["rules"] =
+                                json!([{"path":"$.value","constraints":{"any_of":[constraint]}}])
+                        }
+                        _ => unreachable!(),
+                    }
+                    let envelope: ValidationEnvelope =
+                        serde_json::from_value(json!({"aes":[event],"schema":schema}))
+                            .expect("envelope");
+                    let result = validate(&envelope);
+                    assert_eq!(
+                        result.ok, expected,
+                        "{} / {surface} / {constraint}: {:?}",
+                        case["id"], result.errors
+                    );
+                    if !expected {
+                        assert!(!result.errors.is_empty());
+                        assert!(
+                            result.errors.iter().any(|d| d
+                                .path
+                                .as_deref()
+                                .is_some_and(|p| p.starts_with("$.value"))),
+                            "original structural target required"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

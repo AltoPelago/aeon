@@ -1,0 +1,401 @@
+{
+  "fixture_format": "aeon.unicode-hardening-regressions.v1",
+  "status": "implementation-regression-data; not an immutable CTS snapshot or a new profile claim",
+  "contracts": {
+    "identity": "AEON exact decoded scalar sequence; no normalization/folding",
+    "casing": "existing implementation-slice full default/explicit Intl casing; record runtime/provider versions",
+    "length": "AEOS v1 string-form UTF-16 code units",
+    "wildcards": "SANSA name-pattern ? = one Unicode code point; * = zero or more"
+  },
+  "identity_pairs": [
+    {
+      "id": "unicode.identity.turkish-upper-lower",
+      "left": "I",
+      "right": "i",
+      "left_points": [
+        "U+0049"
+      ],
+      "right_points": [
+        "U+0069"
+      ]
+    },
+    {
+      "id": "unicode.identity.turkish-dotted-dotless",
+      "left": "\u0130",
+      "right": "\u0131",
+      "left_points": [
+        "U+0130"
+      ],
+      "right_points": [
+        "U+0131"
+      ]
+    },
+    {
+      "id": "unicode.identity.turkish-combining-dot",
+      "left": "\u0130",
+      "right": "i\u0307",
+      "left_points": [
+        "U+0130"
+      ],
+      "right_points": [
+        "U+0069",
+        "U+0307"
+      ]
+    },
+    {
+      "id": "unicode.identity.canonical-accent",
+      "left": "\u00e9",
+      "right": "e\u0301",
+      "left_points": [
+        "U+00E9"
+      ],
+      "right_points": [
+        "U+0065",
+        "U+0301"
+      ]
+    },
+    {
+      "id": "unicode.identity.kelvin",
+      "left": "K",
+      "right": "\u212a",
+      "left_points": [
+        "U+004B"
+      ],
+      "right_points": [
+        "U+212A"
+      ]
+    },
+    {
+      "id": "unicode.identity.fullwidth",
+      "left": "A",
+      "right": "\uff21",
+      "left_points": [
+        "U+0041"
+      ],
+      "right_points": [
+        "U+FF21"
+      ]
+    },
+    {
+      "id": "unicode.identity.confusable",
+      "left": "a",
+      "right": "\u0430",
+      "left_points": [
+        "U+0061"
+      ],
+      "right_points": [
+        "U+0430"
+      ]
+    },
+    {
+      "id": "unicode.identity.zero-width",
+      "left": "x",
+      "right": "x\u200b",
+      "left_points": [
+        "U+0078"
+      ],
+      "right_points": [
+        "U+0078",
+        "U+200B"
+      ]
+    },
+    {
+      "id": "unicode.identity.variation-selector",
+      "left": "\u2764",
+      "right": "\u2764\ufe0f",
+      "left_points": [
+        "U+2764"
+      ],
+      "right_points": [
+        "U+2764",
+        "U+FE0F"
+      ]
+    },
+    {
+      "id": "unicode.identity.hangul",
+      "left": "\uac00",
+      "right": "\u1100\u1161",
+      "left_points": [
+        "U+AC00"
+      ],
+      "right_points": [
+        "U+1100",
+        "U+1161"
+      ]
+    }
+  ],
+  "mapping_cases": [
+    {
+      "id": "unicode.mapping.01",
+      "locale": "default",
+      "operation": "lower",
+      "input": "\u0130",
+      "expected": "i\u0307",
+      "input_points": [
+        "U+0130"
+      ],
+      "expected_points": [
+        "U+0069",
+        "U+0307"
+      ]
+    },
+    {
+      "id": "unicode.mapping.02",
+      "locale": "default",
+      "operation": "lower",
+      "input": "\u039f\u03a3",
+      "expected": "\u03bf\u03c2",
+      "input_points": [
+        "U+039F",
+        "U+03A3"
+      ],
+      "expected_points": [
+        "U+03BF",
+        "U+03C2"
+      ]
+    },
+    {
+      "id": "unicode.mapping.03",
+      "locale": "default",
+      "operation": "lower",
+      "input": "\u039f\u03a3\u0391",
+      "expected": "\u03bf\u03c3\u03b1",
+      "input_points": [
+        "U+039F",
+        "U+03A3",
+        "U+0391"
+      ],
+      "expected_points": [
+        "U+03BF",
+        "U+03C3",
+        "U+03B1"
+      ]
+    },
+    {
+      "id": "unicode.mapping.04",
+      "locale": "default",
+      "operation": "upper",
+      "input": "stra\u00dfe",
+      "expected": "STRASSE",
+      "input_points": [
+        "U+0073",
+        "U+0074",
+        "U+0072",
+        "U+0061",
+        "U+00DF",
+        "U+0065"
+      ],
+      "expected_points": [
+        "U+0053",
+        "U+0054",
+        "U+0052",
+        "U+0041",
+        "U+0053",
+        "U+0053",
+        "U+0045"
+      ]
+    },
+    {
+      "id": "unicode.mapping.05",
+      "locale": "default",
+      "operation": "upper",
+      "input": "\ufb03",
+      "expected": "FFI",
+      "input_points": [
+        "U+FB03"
+      ],
+      "expected_points": [
+        "U+0046",
+        "U+0046",
+        "U+0049"
+      ]
+    },
+    {
+      "id": "unicode.mapping.06",
+      "locale": "default",
+      "operation": "lower",
+      "input": "\u212a",
+      "expected": "k",
+      "input_points": [
+        "U+212A"
+      ],
+      "expected_points": [
+        "U+006B"
+      ]
+    },
+    {
+      "id": "unicode.mapping.07",
+      "locale": "default",
+      "operation": "lower",
+      "input": "\uff21",
+      "expected": "\uff41",
+      "input_points": [
+        "U+FF21"
+      ],
+      "expected_points": [
+        "U+FF41"
+      ]
+    },
+    {
+      "id": "unicode.mapping.08",
+      "locale": "tr",
+      "operation": "lower",
+      "input": "I\u0130i\u0131",
+      "expected": "\u0131ii\u0131",
+      "input_points": [
+        "U+0049",
+        "U+0130",
+        "U+0069",
+        "U+0131"
+      ],
+      "expected_points": [
+        "U+0131",
+        "U+0069",
+        "U+0069",
+        "U+0131"
+      ]
+    },
+    {
+      "id": "unicode.mapping.09",
+      "locale": "tr",
+      "operation": "upper",
+      "input": "I\u0130i\u0131",
+      "expected": "I\u0130\u0130I",
+      "input_points": [
+        "U+0049",
+        "U+0130",
+        "U+0069",
+        "U+0131"
+      ],
+      "expected_points": [
+        "U+0049",
+        "U+0130",
+        "U+0130",
+        "U+0049"
+      ]
+    },
+    {
+      "id": "unicode.mapping.10",
+      "locale": "az",
+      "operation": "lower",
+      "input": "I\u0130i\u0131",
+      "expected": "\u0131ii\u0131",
+      "input_points": [
+        "U+0049",
+        "U+0130",
+        "U+0069",
+        "U+0131"
+      ],
+      "expected_points": [
+        "U+0131",
+        "U+0069",
+        "U+0069",
+        "U+0131"
+      ]
+    },
+    {
+      "id": "unicode.mapping.11",
+      "locale": "az",
+      "operation": "upper",
+      "input": "I\u0130i\u0131",
+      "expected": "I\u0130\u0130I",
+      "input_points": [
+        "U+0049",
+        "U+0130",
+        "U+0069",
+        "U+0131"
+      ],
+      "expected_points": [
+        "U+0049",
+        "U+0130",
+        "U+0130",
+        "U+0049"
+      ]
+    },
+    {
+      "id": "unicode.mapping.12",
+      "locale": "tr",
+      "operation": "lower",
+      "input": "I\u0307",
+      "expected": "i",
+      "input_points": [
+        "U+0049",
+        "U+0307"
+      ],
+      "expected_points": [
+        "U+0069"
+      ]
+    },
+    {
+      "id": "unicode.mapping.13",
+      "locale": "lt",
+      "operation": "lower",
+      "input": "I\u0301",
+      "expected": "i\u0307\u0301",
+      "input_points": [
+        "U+0049",
+        "U+0301"
+      ],
+      "expected_points": [
+        "U+0069",
+        "U+0307",
+        "U+0301"
+      ]
+    }
+  ],
+  "wildcard_names": [
+    "\ud83d\ude00",
+    "e\u0301",
+    "\n",
+    "\r",
+    "\u2028",
+    "\u2029",
+    "plain",
+    "plain\n",
+    ""
+  ],
+  "length_cases": [
+    {
+      "id": "unicode.length.ascii",
+      "value": "a",
+      "utf16": 1
+    },
+    {
+      "id": "unicode.length.accent",
+      "value": "\u00e9",
+      "utf16": 1
+    },
+    {
+      "id": "unicode.length.astral",
+      "value": "\ud83d\ude00",
+      "utf16": 2
+    },
+    {
+      "id": "unicode.length.combining",
+      "value": "e\u0301",
+      "utf16": 2
+    },
+    {
+      "id": "unicode.length.family",
+      "value": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66",
+      "utf16": 11
+    },
+    {
+      "id": "unicode.length.flag",
+      "value": "\ud83c\uddf9\ud83c\uddf7",
+      "utf16": 4
+    },
+    {
+      "id": "unicode.length.dotted-i",
+      "value": "\u0130",
+      "utf16": 1
+    }
+  ],
+  "exact_equality_values": [
+    "I",
+    "i",
+    "\u0130",
+    "\u0131",
+    "i\u0307"
+  ]
+}

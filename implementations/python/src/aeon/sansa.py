@@ -946,7 +946,7 @@ def glob_pattern_to_regex(pattern: str) -> re.Pattern[str]:
             source += re.escape(char)
         index += 1
     source += "$"
-    return re.compile(source)
+    return re.compile(source, re.DOTALL)
 
 
 def code_point_to_string(code_point: int, index: int) -> str:
