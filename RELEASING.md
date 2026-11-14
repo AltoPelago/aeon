@@ -42,6 +42,20 @@ Avoid ad hoc folder-by-folder `npm publish`.
 
 ## Preconditions
 
+### Prerelease stages
+
+Follow the [beta → RC → stable policy](docs/release-strategy.md#beta-release-candidate-and-stable-stages)
+and the [shared 0.17.0 checklist](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-checklist.md).
+Publish betas while planned work is landing; publish RCs only after scope is
+complete and repository acceptance passes. Both npm stages use `next`, with
+exact versions pinned for downstream acceptance. Keep normal dry-run,
+reviewed-main, signed-tag, provenance and registry-consumer gates at every stage.
+Stable publication uses a new stable version and repeats artifact verification.
+
+Earlier local `0.17.0-rc.1` preparation is retained evidence, not proof that the
+expanded 0.17.0 scope is complete. Before the next version change, reconcile the
+selected source and registry state using the checklist's transition gate.
+
 ### Coordinated 0.16.0 cut
 
 The 0.16.0 preparation coordinates all three AEON implementation tracks,

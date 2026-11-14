@@ -4,9 +4,16 @@ Local candidates: SANSA 0.15.0-rc.1 and AEON TypeScript 0.17.0-rc.1. No registry
 
 ## Release order
 
-1. Review/merge SANSA's supported parsing API and its normal tests/CTS/version metadata. Publish the RC through its release workflow using the `next` dist-tag.
+The candidate names above describe the earlier local preparation. New cuts use
+the [beta → RC → stable policy](release-strategy.md#beta-release-candidate-and-stable-stages)
+and [shared 0.17.0 checklist](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-checklist.md).
+While intended scope is landing, publish betas; use RCs only after scope completion.
+Reconcile unpublished RC metadata before selecting a beta; do not bypass version
+precedence guards or rewrite historical evidence.
+
+1. Review/merge SANSA's supported parsing API and its normal tests/CTS/version metadata. Publish the selected beta or RC through its release workflow using the `next` dist-tag.
 2. Download the exact registry tarball, verify its version/exports/content/integrity against the reviewed candidate, and regenerate or confirm AEON's lockfile using that actual registry artifact. The current lock integrity is from the exact local candidate tarball exercised by clean consumers, not a claim of registry availability. Stop on a mismatch; never remove integrity or weaken frozen-lock checks.
-3. Run AEON's frozen registry install, build, normal tests, released relevant CTS, runtime/installed-package checks and final unchanged-budget matrix. Publish the AEON RC using `next` only after reviewed registry dependency verification.
+3. Run AEON's frozen registry install, build, normal tests, released relevant CTS, runtime/installed-package checks and final unchanged-budget matrix. Publish the AEON beta or RC using `next` only after reviewed registry dependency verification.
 4. Stable publication requires its own approved version/tag and the same artifact checks. Node 20/22/24 and local tarball success do not prove Linux CI or a registry install of an unpublished RC.
 
 `node scripts/test-installed-reference-paths.mjs --sansa /path/to/sansa` packs actual artifacts, installs them in a fresh offline consumer and tests runtime semantics/declarations. Without `--sansa`, CI packs the already installed SANSA dependency after its frozen registry installation. It exercises the local shared JSON vectors under `test-fixtures/` without importing implementation code from the worktree into the consumer. Temporary artifact/consumer directories are retained for review and recorded in the report; use `--report path.json` for a durable record.
