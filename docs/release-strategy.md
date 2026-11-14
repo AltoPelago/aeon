@@ -66,6 +66,37 @@ This keeps the release history honest about what was actually shipped.
 
 ## Release flow
 
+### Beta, release candidate, and stable stages
+
+Use `X.Y.Z-beta.N` while intended release work is still landing. A beta is an
+installable integration checkpoint; its notes must identify incomplete scope,
+known failures and supported implementation surfaces. Required packaging,
+security and publication checks still apply.
+
+Use `X.Y.Z-rc.N` only when the declared scope is complete, release notes and
+migration guidance are ready, and repository checks pass on the selected
+revision. Freeze scope at RC: only stabilization fixes enter the cut, and each
+changed candidate gets a new immutable version and renewed affected checks.
+If scope must expand, explicitly reopen planning and repeat candidate acceptance.
+
+Publish npm betas and RCs through the existing publisher with `next`; reserve
+`latest` for stable versions. Downstream acceptance installs exact versions,
+not the moving `next` tag. Rust uses SemVer prereleases; Python distribution
+metadata uses its registry's normalized form, such as `X.Y.Zb1` and `X.Y.Zrc1`.
+Verify the version tool, tag validator and wheel metadata agree before a native
+prerelease; TypeScript prerelease support does not establish native readiness.
+
+Accept an RC only after clean registry consumer and affected downstream checks
+pass for the recorded artifact combination. Publish stable with a new stable
+version and verified tag, then repeat package/consumer checks: changing only a
+dist-tag does not turn an RC version into a stable version. Preserve exact
+source revisions, dependency versions, artifact integrity and verification limits.
+
+All stages follow the reviewed-main, signed-tag and implementation-specific
+publication gates below. They do not synchronize independent package, language
+or CTS version numbers. For the coordinated cut, use the
+[shared 0.17.0 checklist](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-checklist.md).
+
 Normal release flow:
 
 1. Merge release-ready work into `main`.
