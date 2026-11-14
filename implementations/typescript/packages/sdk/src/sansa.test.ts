@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
-import { evaluateQuery, planMutation, resolveAddress, validateMutationPlanTarget } from '@altopelago/sansa';
+import { evaluateQuery, parseAddress, planMutation, resolveAddress, validateMutationPlanTarget } from '@altopelago/sansa';
 import { readAeon } from './index.js';
 import {
   createAeonNamespace,
@@ -9,6 +9,26 @@ import {
   type AeonSansaBinding,
   type AeonSansaNamespace,
 } from './sansa.js';
+
+test('SDK dependency preserves identity bindings with decimal numeric qualifiers', () => {
+  const namespace = readAeonNamespace(String.raw`value\x\=1`).namespace;
+  const selected = resolveAddress('$.value', namespace).bindings[0];
+  assert.ok(selected);
+  for (const decimal of ['0.0000001', '-0.0000001', '1000000000000000000000']) {
+    const source = '$.\\x\\:Q[' + decimal + ']';
+    const parsed = parseAddress(source);
+    assert.equal(parsed.ok, true);
+    for (const input of [source, parsed.address!]) {
+      const result = resolveAddress(input, namespace);
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.bindings, [selected]);
+      assert.equal(result.bindings[0], selected);
+    }
+    const query = evaluateQuery('from ' + source + '\nselect .', namespace);
+    assert.equal(query.ok, true);
+    assert.equal(query.results[0]?.binding, selected);
+  }
+});
 
 const INVENTORY_SOURCE = String.raw`aeon:header = {
   mode:string = "strict"

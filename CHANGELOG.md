@@ -18,7 +18,7 @@ repositories.
 
 - Local experimental native Python standalone SANSA child-identity parser/render/Resolve support, with explicit namespace accessors, cumulative inspection budgets and bounded caller-AST normalization. References remain structural; AEOS selector rules use per-validation identity inspection budgets. Bridge verification and final release gates remain open.
 
-- Local experimental Rust SANSA child-identity parser/Resolve support in Core and the shared runtime, with explicit structural metadata, inspection budgets, ambiguity failures and scoped SDK integration. The SDK pins the `0.15.0-rc.1` runtime source at immutable SANSA Git revision `7fd55c2aecd599e49f9a463c46463a7413e1438d`; coordinated registry/version/lock verification remains release work. AEOS selector support follows its linked contract above; mutation and identity-reference admission remain constrained.
+- Local experimental Rust SANSA child-identity parser/Resolve support in Core and the shared runtime, with explicit structural metadata, inspection budgets, ambiguity failures and scoped SDK integration. The SDK pins the `0.15.0-rc.1` runtime source at immutable SANSA Git revision `0436666176c9225393c43a80b99d800d00b46452`; coordinated registry/version/lock verification remains release work. AEOS selector support follows its linked contract above; mutation and identity-reference admission remain constrained.
 
 ### Fixed
 

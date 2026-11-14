@@ -5,8 +5,8 @@ import {copyFileSync,existsSync,readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const sha256='26c8a4933cee1e887db2bb97f37052b65b46491d50cd94aeb8b53d8f2047469f';
-const target=fileURLToPath(new URL('../.candidate-packages/altopelago-sansa-0.15.0-rc.1-53d375c.tgz',import.meta.url));
+const sha256='bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759';
+const target=fileURLToPath(new URL('../.candidate-packages/altopelago-sansa-0.15.0-rc.1-0436666.tgz',import.meta.url));
 const args=process.argv.slice(2);
 if(args.length>1)throw new Error('Usage: node tools/stage-sansa-candidate.mjs [reviewed-archive.tgz]');
 function verify(path) {
