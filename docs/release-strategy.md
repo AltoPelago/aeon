@@ -250,3 +250,24 @@ Release notes should not imply that:
 - language and normative semantics: sibling specs repo
 - conformance truth: sibling CTS repo
 - implementation packaging and release operations: this repo
+
+## Held SANSA development candidate
+
+The private TypeScript workspace override uses the source-verified SANSA
+`0.15.0-rc.1` archive from merged commit
+`0436666176c9225393c43a80b99d800d00b46452`. The filename, staging helper,
+checksum whitelist, provenance record and frozen lock identify the same bytes:
+SHA-256 `bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759`.
+Rust development pins the same immutable Git revision under the existing strict
+source policy. Package versions and unrelated locked dependencies are unchanged.
+
+This override is development preparation and does not certify that a registry
+contains these bytes. Before official publication, remove the private override
+and archive, select coordinated final versions, and qualify the actual registry
+artifacts, integrity locks and installed consumers through the existing release
+checks. Do not treat the local archive checksum as registry provenance.
+
+Official releases, deployment, final version allocation and stable contract
+promotion remain on hold. This development-pin refresh does not relax publish
+guards, compatibility or target-preservation checks, performance ceilings, or
+the remaining platform and artifact qualification requirements.
