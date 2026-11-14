@@ -4,4 +4,4 @@ packages:
 
 # Reviewed local candidate; see .candidate-packages/README.md before release.
 overrides:
-  '@altopelago/sansa': file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-81b1c4a4.tgz
+  '@altopelago/sansa': file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-c0471ad5.tgz
