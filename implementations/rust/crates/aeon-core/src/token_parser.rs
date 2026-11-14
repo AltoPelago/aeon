@@ -500,7 +500,7 @@ impl StructuralCursor for TokenParser<'_> {
             _ => "Expected quoted member key",
         };
         let token = self.consume(TokenKind::String, message)?;
-        let key = decode_quoted_token(token)?;
+        let key = decode_reference_key_token(token)?;
         Ok(key)
     }
     fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
@@ -1308,7 +1308,7 @@ impl<'a> TokenParser<'a> {
             self.consume(TokenKind::Dot, "Expected `.` after `$`")?;
             if self.match_kind(TokenKind::LeftBracket) {
                 let key_token = self.consume(TokenKind::String, "Expected quoted member key")?;
-                let key = decode_quoted_token(key_token)?;
+                let key = decode_reference_key_token(key_token)?;
                 self.consume(
                     TokenKind::RightBracket,
                     "Expected `]` after quoted member key",
@@ -1319,7 +1319,7 @@ impl<'a> TokenParser<'a> {
             }
         } else if self.match_kind(TokenKind::LeftBracket) {
             let key_token = self.consume(TokenKind::String, "Expected quoted reference key")?;
-            let key = decode_quoted_token(key_token)?;
+            let key = decode_reference_key_token(key_token)?;
             self.consume(
                 TokenKind::RightBracket,
                 "Expected `]` after quoted reference key",
@@ -1354,7 +1354,7 @@ impl<'a> TokenParser<'a> {
             if self.match_kind(TokenKind::LeftBracket) {
                 if self.check(TokenKind::String) {
                     let key_token = self.advance();
-                    let key = decode_quoted_token(key_token)?;
+                    let key = decode_reference_key_token(key_token)?;
                     self.consume(TokenKind::RightBracket, "Expected `]` after quoted key")?;
                     segments.push(ReferenceSegment::Key(key));
                 } else {
@@ -1383,7 +1383,7 @@ impl<'a> TokenParser<'a> {
             kind if is_bare_key_kind(kind) => Ok(self.advance().text.clone()),
             TokenKind::String => {
                 let token = self.advance();
-                let key = decode_quoted_token(token)?;
+                let key = decode_reference_key_token(token)?;
                 Ok(key)
             }
             _ => Err(self.error_at_current("Expected reference path segment")),
@@ -1992,6 +1992,19 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "sansa"
             | "null"
     )
+}
+
+// Reference members use ordinary quoted keys; backticks remain value syntax.
+fn decode_reference_key_token(token: &Token) -> Result<String, Diagnostic> {
+    if token.quote == Some('`') {
+        return Err(Diagnostic::new(
+            "SYNTAX_ERROR",
+            "Backtick strings are not valid reference keys",
+        )
+        .at_path("$")
+        .with_span(token.span));
+    }
+    decode_quoted_token(token)
 }
 
 fn decode_quoted_token(token: &Token) -> Result<String, Diagnostic> {

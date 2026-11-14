@@ -16,9 +16,10 @@ use crate::{
 
 use super::{
     ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, datatype_base,
-    datatype_bracket_specs, decode_quoted_token, invalid_temporal_literal,
-    is_ascii_whitespace_only, is_bare_key_kind, is_reserved_null_sentinel, is_valid_number_literal,
-    render_quoted_string, validate_binding_node_datatype, validate_reserved_datatype_adornments,
+    datatype_bracket_specs, decode_quoted_token, decode_reference_key_token,
+    invalid_temporal_literal, is_ascii_whitespace_only, is_bare_key_kind,
+    is_reserved_null_sentinel, is_valid_number_literal, render_quoted_string,
+    validate_binding_node_datatype, validate_reserved_datatype_adornments,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -655,7 +656,7 @@ impl StructuralCursor for Parser<'_, '_> {
             _ => "Expected quoted member key",
         };
         let token = self.consume(TokenKind::String, message)?;
-        let key = decode_quoted_token(token)?;
+        let key = decode_reference_key_token(token)?;
         Ok(key)
     }
     fn close_bracket(&mut self, context: MemberContext) -> Result<(), Self::Error> {
@@ -1153,8 +1154,7 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     }
 
     fn decode_reference_key(&self, token: &Token) -> Result<String, Diagnostic> {
-        let key = decode_quoted_token(token)?;
-        Ok(key)
+        decode_reference_key_token(token)
     }
 
     fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {

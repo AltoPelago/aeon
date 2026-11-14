@@ -109,5 +109,125 @@
     "id": "empty-local-space",
     "source": "value:sansa = $.<\"\">",
     "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-clone-root-shorthand",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~``",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-clone-root-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-clone-root-explicit",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~$.[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-clone-nested-dot",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~outer.[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-clone-nested-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~outer[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-clone-attribute",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~outer.@.[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-pointer-root-shorthand",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>``",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-pointer-root-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-pointer-root-explicit",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>$.[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-pointer-nested-dot",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>outer.[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-pointer-nested-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>outer[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "empty-backtick-pointer-attribute",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>outer.@.[``]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-clone-root-shorthand",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~`field`",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-clone-root-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-clone-root-explicit",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~$.[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-clone-nested-dot",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~outer.[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-clone-nested-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~outer[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-clone-attribute",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~outer.@.[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-pointer-root-shorthand",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>`field`",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-pointer-root-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-pointer-root-explicit",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>$.[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-pointer-nested-dot",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>outer.[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-pointer-nested-bracket",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>outer[`field`]",
+    "error": "SYNTAX_ERROR"
+  },
+  {
+    "id": "nonempty-backtick-pointer-attribute",
+    "source": "\"\"=1\nfield=1\nouter@{\"\"=1,field=1}={\"\"=1,field=1}\ncopy=~>outer.@.[`field`]",
+    "error": "SYNTAX_ERROR"
   }
 ]
