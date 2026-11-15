@@ -139,7 +139,7 @@ function sourceTypeForDatatype(datatype) {
   if (base === "date") return "DateLiteral";
   if (base === "time") return "TimeLiteral";
   if (base === "datetime") return "DateTimeLiteral";
-  if (base === "wtc") return "WTCDateTimeLiteral";
+  if (base === "wtc") return "DateTimeLiteral";
   if (base === "sep" || base === "kadot" || base === "separator") return "SeparatorLiteral";
   if (base === "tuple" || base === "triple") return "TupleNode";
   if (base === "list") return "ListNode";
@@ -430,7 +430,7 @@ function sourceRowsFromRuntimeResult(result) {
   const seen = new Set();
   for (const event of events) {
     const path = normalizeSourceRuntimePath(formatEventPath(event.path));
-    if (!path || path === "$" || path.includes("[*]") || path.startsWith('$.["aeon:') || seen.has(path)) continue;
+    if (!path || path === "$" || event.sourcePlane === "header" || seen.has(path)) continue;
     const type = sourceTypeForEvent(event);
     rows.push({
       path,
@@ -618,7 +618,7 @@ function mountAeonSourceComposer(options) {
   const removeButton = shell.querySelector("[data-source-builder-remove]");
   if (!source || !modal || !tree || !detail) return null;
 
-  const state = { rows: [], selectedPath: null };
+  const state = { rows: [], selectedPath: null, sourceText: null };
   const runtimeReady = options.runtimeReady ?? import("@aeon/runtime");
   const getMode = options.getMode ?? (() => "transport");
   const runtimeConfig = options.runtimeConfig ?? ((text) => ({
@@ -832,25 +832,34 @@ function mountAeonSourceComposer(options) {
     `;
   }
 
-  async function seedRows() {
-    await options.validateSource?.(source.value);
-    const runtime = await runtimeReady;
-    const runRuntime = runtime.runRuntime;
-    const mode = getMode();
-    const normal = runtimeConfig(source.value, mode, false);
-    let result = runRuntime(normal.text, normal.options);
-    let rows = sourceRowsFromRuntimeResult(result);
+  async function parseSource(text, mode) {
+    await options.validateSource?.(text);
+    const {runRuntime} = await runtimeReady;
+    const config = runtimeConfig(text, mode, false);
+    let result = runRuntime(config.text, config.options);
     if (mode !== "transport" && (result.meta?.errors?.length ?? 0) > 0) {
-      const relaxed = runtimeConfig(source.value, mode, true);
-      const relaxedResult = runRuntime(relaxed.text, relaxed.options);
-      const relaxedRows = sourceRowsFromRuntimeResult(relaxedResult);
-      if (relaxedRows.length > 0) {
-        result = relaxedResult;
-        rows = relaxedRows;
-      }
+      // Keep the existing strict/custom repair flow, but only when the actual
+      // relaxed parser accepts the complete source without recovery errors.
+      const relaxed = runtimeConfig(text, mode, true);
+      result = runRuntime(relaxed.text, relaxed.options);
     }
+    // Semantic errors can be repaired in the relaxed editor. Parser recovery is
+    // never an editable AST: it may omit unfinished authored bindings.
+    if ((result.meta?.errors ?? []).some(diag => !Number.isInteger(diag.phase) || diag.phase <= 5)) {
+      throw new Error("Fix the source syntax before using AEON Composer. The source text has been kept unchanged.");
+    }
+    return result;
+  }
+
+  async function seedRows() {
+    const text = source.value;
+    const mode = getMode();
+    const result = await parseSource(text, mode);
+    const rows = sourceRowsFromRuntimeResult(result);
+    if (source.value !== text) throw new Error("Source changed; reload AEON Composer before applying edits.");
+    state.sourceText = text;
     state.rows = rows;
-    addStandaloneCommentRows(source.value, state.rows);
+    addStandaloneCommentRows(text, state.rows);
     if (mode !== "transport") {
       for (const row of state.rows) {
         if (row.kind !== "comment" && !row.datatype) row.datatype = datatypeForSourceType(row.type);
@@ -995,8 +1004,16 @@ function mountAeonSourceComposer(options) {
   reloadButton?.addEventListener("click", () => seedRows().then(render).catch((error) => onError(error)));
   applyButton?.addEventListener("click", async () => {
     try {
-      await options.validateSource?.(source.value);
-      source.value = buildSource();
+      const text = source.value;
+      const mode = getMode();
+      await parseSource(text, mode);
+      if (text !== state.sourceText || source.value !== text) {
+        throw new Error("Source changed; reload AEON Composer before applying edits. The source text has been kept unchanged.");
+      }
+      const candidate = buildSource();
+      await parseSource(candidate, mode);
+      if (source.value !== text) throw new Error("Source changed; reload AEON Composer before applying edits.");
+      source.value = candidate;
       source.dispatchEvent(new Event("input", { bubbles: true }));
       close();
       onApply(source.value);

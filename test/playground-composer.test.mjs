@@ -34,7 +34,7 @@ class DetailFormData {
 function runtime(text) {
   return runRuntime(text, {profile:'aeon.gp.profile.v1', mode:'loose', datatypePolicy:'reserved_only', includeAnnotations:true, output:'map'});
 }
-async function mounted(text) {
+async function mounted(text, {open = true, getMode, runtimeConfig} = {}) {
   let descriptions = 0;
   const elements = new Map();
   for (const name of ['modal','tree','detail','open','reload','apply','add-peer','add-child','add-attribute','add-comment','remove']) {
@@ -53,11 +53,11 @@ async function mounted(text) {
   vm.runInContext("const originalParentPath = sourceParentPath; sourceParentPath = path => { countParent(); return originalParentPath(path); };", context);
   const composer = context.window.AeonSourceComposer.mount({
     shell:{querySelector(selector) { return elements.get(selector.match(/data-source-builder-(.*)\]/)?.[1]); },querySelectorAll() {return [];}},
-    source, runtimeReady:Promise.resolve({runRuntime}), onError:error=>errors.push(String(error)),
+    source, getMode, runtimeConfig, runtimeReady:Promise.resolve({runRuntime}), onError:error=>errors.push(String(error)),
     validateSource:async value=>{const reason = composerUnsupportedReason(value, tokenize); if (reason) throw Error(reason);}
   });
-  await composer.open();
-  return {source, elements, errors, context, inspections:()=>descriptions,
+  if (open) await composer.open();
+  return {composer, source, elements, errors, context, inspections:()=>descriptions,
     async apply() {await elements.get('apply').listeners.click(); assert.deepEqual(errors, []); return source.value;},
     select(path) {elements.get('tree').listeners.click({target:{closest(selector) {return selector === '[data-source-builder-path]' ? {dataset:{sourceBuilderPath:path}} : null;}}});},
     edit(key, value) {elements.get('detail').edits.set(key, value);}
@@ -152,4 +152,79 @@ test('Data, Annotations and Canonical never inspect or format the inactive AES t
   const active = runtime('value@{unit="kg"}=1');
   assert.equal(context.formatRuntimeResult(active, 'aes').aes, context.renderAesTable(active.aes, active.document));
   assert.match(context.formatRuntimeResult(active, 'aes').aes, /\$\.value\.@\.unit/);
+});
+
+
+test('quoted wildcard/header-like keys survive as sole, root and nested body members', async()=>{
+  for (const key of ['[*]', 'prefix[*]suffix', 'aeon:foo', 'aeon:mode', 'aeon:header']) {
+    const binding = `${JSON.stringify(key)}=2`;
+    await roundTrip(binding);
+    await roundTrip(`a=1\n${binding}`);
+    await roundTrip(`obj={${binding}}`);
+  }
+  await roundTrip('aeon:header={version="1.0",mode="transport"}\na=1\n"aeon:foo"=2');
+});
+test('typed WTC and ordinary temporal controls survive Composer without edits', async()=>{
+  for (const binding of ['x:wtc=2026-01-01T09:10:10&TAI','x=2026-01-01T09:10:10&TAI',
+    'x:date=2026-01-01','x:time=09:10:10','x:datetime=2026-01-01T09:10:10Z']) {
+    await roundTrip(binding);
+  }
+  await roundTrip('values=[:wtc=2026-01-01T09:10:10&TAI]');
+  await roundTrip('value@{stamp:wtc=2026-01-01T09:10:10&TAI}=1');
+});
+test('parser-recovery source is rejected before opening and original text stays intact', async()=>{
+  for (const input of ['x=1\ny=', 'x=1\ny=[1,', 'x=1\ny={a=']) {
+    for (const mode of ['transport','strict']) {
+      const fixture = await mounted(input,{open:false,getMode:()=>mode});
+      await assert.rejects(fixture.composer.open(), /syntax|pars/i);
+      assert.equal(fixture.source.value,input);
+    }
+  }
+});
+test('strict datatype repair remains available only after a clean relaxed parse', async()=>{
+  const config=(text, mode, relaxed)=>({text:relaxed ? text.replace(/^aeon:mode="strict"\n/, '') : text,
+    options:{profile:'aeon.gp.profile.v1',mode:relaxed?'loose':'strict',datatypePolicy:'reserved_only',includeAnnotations:true,output:'map'}});
+  const input='aeon:mode="strict"\nx=1';
+  const fixture=await mounted(input,{getMode:()=> 'strict',runtimeConfig:config});
+  const output=await fixture.apply();assert.match(output,/x:number = 1/);
+  assert.deepEqual(runtime(output).meta.errors,[]);
+  const invalid=await mounted(input+'\ny=',{open:false,getMode:()=> 'strict',runtimeConfig:config});
+  await assert.rejects(invalid.composer.open(),/syntax|pars/i);
+  assert.equal(invalid.source.value,input+'\ny=');
+});
+test('Apply rejects changed or unfinished source and malformed generated edits without overwriting text', async()=>{
+  for (const next of ['x=1\ny=','x=2']) {
+    const fixture = await mounted('x=1'); fixture.source.value=next;
+    await fixture.elements.get('apply').listeners.click();
+    assert.equal(fixture.source.value,next);
+    assert.equal(fixture.errors.length,1);
+    assert.match(fixture.errors[0],/syntax|pars|changed|reload/i);
+  }
+  const generated = await mounted('x=1'); generated.edit('value','[');
+  await generated.elements.get('apply').listeners.click();
+  assert.equal(generated.source.value,'x=1');
+  assert.equal(generated.errors.length,1);
+  assert.match(generated.errors[0],/syntax|pars/i);
+});
+test('active AES preserves full cells without longest-cell times row-count padding', t=>{
+  const controller = readFileSync(new URL('../tools/playground/playground.js', import.meta.url), 'utf8');
+  const context = vm.createContext({window:{},Map});
+  vm.runInContext(controller.slice(controller.indexOf('  function formatRuntimeResult('), controller.indexOf('  function escapeHtml(')), context);
+  const counts=[];
+  for (const width of [128,256]) {
+    const long='x'.repeat(width);
+    const text=Array.from({length:width},(_,i)=>`a${i}=${i===0 ? JSON.stringify(long) : '1'}`).join('\n');
+    const result=runtime(text);assert.deepEqual(result.meta.errors,[]);
+    const table=context.renderAesTable(result.aes,result.document);
+    assert.ok(table.includes(long));assert.ok(table.includes(`$.a${width-1}`));
+    assert.ok(table.length < text.length*12, `${text.length} -> ${table.length}`);
+    counts.push({rows:width,source:text.length,display:table.length});
+  }
+  // All cells fit the column allowance, but total padding would exceed 64 KiB.
+  const source=Array.from({length:512},(_,i)=>i===0 ? `${'a'.repeat(60)}:${'custom'.repeat(10)}="${'x'.repeat(60)}"` : `a${i}=1`).join('\n');
+  const result=runtime(source);assert.deepEqual(result.meta.errors,[]);
+  const table=context.renderAesTable(result.aes,result.document);
+  assert.ok(table.includes('custom'.repeat(10)));assert.ok(table.includes('x'.repeat(60)));
+  assert.ok(table.length < source.length*12, `${source.length} -> ${table.length}`);
+  t.diagnostic(JSON.stringify(counts));
 });

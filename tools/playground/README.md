@@ -44,7 +44,15 @@ attributes and datatype). SANSA's selected parser/renderer classifies and builds
 its structural row paths, so a quoted body key such as `"@name"` remains a member.
 Child rows are indexed once per render/build; the obsolete fallback Composer is
 removed. Output formatting runs only for the selected view, including the padded
-AES table. Mounted Composer regressions compare canonical output before/after
+AES table. Header events are identified by the runtime source plane, never by
+quoted key text. Typed WTC values use the runtime datetime value type while
+retaining their authored datatype and raw value. Opening/reloading requires a
+complete parse; Apply rechecks the current source and generated text before
+replacing it. Strict/custom datatype repair still uses the actual relaxed parser,
+and changed source requires reloading Composer. Large AES displays retain all
+cell text in tab-separated columns when a cell exceeds 80 code units or total
+alignment padding would exceed 64 KiB. These are presentation allowances, not
+runtime or performance-budget changes. Mounted Composer regressions compare canonical output before/after
 Apply through the actual runtime and canonicalizer. These UI repairs do not alter
 runtime grammar, reference admission or selector semantics.
 

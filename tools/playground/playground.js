@@ -418,12 +418,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const rows = [];
     events.forEach((event, index) => pushAesRows(rows, event, String(index + 1), formatEventPath(event.path), document));
     const headers = ["#", "Path", "Value Type", "Datatype", "Value"];
+    // Alignment is optional presentation. Keep cells complete without multiplying
+    // one long cell by every unrelated row, or retaining unbounded padding.
+    const maxColumnWidth = 80;
+    const maxPaddingCodeUnits = 65_536;
     const widths = headers.map(header => header.length);
+    let compact = false;
     for (const row of rows) {
       for (let column = 0; column < widths.length; column += 1) {
-        widths[column] = Math.max(widths[column], row[column].length);
+        if (row[column].length > maxColumnWidth) compact = true;
+        widths[column] = Math.max(widths[column], Math.min(maxColumnWidth, row[column].length));
       }
     }
+    let padding = 0;
+    if (!compact) {
+      for (const row of rows) {
+        for (let column = 0; column < widths.length; column += 1) padding += widths[column] - row[column].length;
+        if (padding > maxPaddingCodeUnits) { compact = true; break; }
+      }
+    }
+    if (compact) return [headers.join("\t"), ...rows.map(row => row.join("\t"))].join("\n");
     const formatRow = (row) => row.map((cell, column) => padCell(cell, widths[column])).join("  ");
     const divider = widths.map((width) => "-".repeat(width)).join("  ");
     return [

@@ -53,7 +53,8 @@
     "Retain the original website palette with presentation roles over lexer tokens; unclassified identifiers keep the original foreground",
     "Match playground output font-size to the source editor at 0.78rem; scope the rule above shared walkthrough styles",
     "Composer preserves runtime AST metadata/composite attribute values; selected SANSA parser/renderer owns row-path syntax and member/attribute roles",
-    "Index Composer child rows per render/build; remove duplicate fallback Composer and format only the selected output view"
+    "Index Composer child rows per render/build; remove duplicate fallback Composer and format only the selected output view",
+    "Follow-up: classify runtime header events structurally, preserve typed WTC, require clean parser results and unchanged source before Apply, and bound optional AES alignment padding without truncating values"
   ],
   "highlighterBase": {
     "repository": "AltoPelago/sansa",
