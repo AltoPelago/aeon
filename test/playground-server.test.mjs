@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {request} from 'node:http';
 import {createPlaygroundServer, playgroundModules, watchWorkspace, defaultRoot} from '../scripts/playground.mjs';
-import {composerUnsupportedReason} from '../tools/playground/composer-policy.mjs';
+import {composerUnsupportedReason, COMPOSER_MAX_SOURCE_CODE_UNITS} from '../tools/playground/composer-policy.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'aeon-playground-'));
@@ -107,4 +107,9 @@ test('composer identifies unsupported reference/address forms without treating q
     assert.equal(composerUnsupportedReason(text,tokenize),undefined,text);
   }
   assert.match(composerUnsupportedReason('value="unfinished',tokenize),/Fix the source syntax/);
+});
+test('composer bounds its new lexical preflight before token allocation',()=>{
+  for(const width of [COMPOSER_MAX_SOURCE_CODE_UNITS+1,COMPOSER_MAX_SOURCE_CODE_UNITS+1024]) {
+    let reads=0;assert.match(composerUnsupportedReason('x'.repeat(width),()=>{reads++;throw Error('should not tokenize');}),/too large/);assert.equal(reads,0);
+  }
 });

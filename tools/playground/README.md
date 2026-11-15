@@ -29,6 +29,8 @@ structural-reference boundaries; they do not introduce new selector semantics.
 The inherited Composer materializes values and cannot safely reconstruct reference
 or SANSA literals. For those sources it keeps the editor text unchanged and asks
 you to edit directly. All inspection/output views remain available.
+Its lexical preflight is capped at 1,048,576 UTF-16 source code units before
+tokenization. This local composer allowance does not change runtime parser limits.
 
 ```sh
 npm run playground -- --port 4176
