@@ -111,7 +111,7 @@ test('immediate availability installs the complete exact public set and runs smo
     .map(entry => JSON.parse(readFileSync(new URL(`${entry.name}/package.json`, packageRoot), 'utf8')))
     .filter(pkg => pkg.private !== true)
     .map(pkg => `${pkg.name}@1.2.3`).sort();
-  assert.equal(expected.length, 17);
+  assert.equal(expected.length, 18);
   assert.deepEqual(result.installs[0].filter(arg => arg.startsWith('@')).sort(), expected);
 });
 

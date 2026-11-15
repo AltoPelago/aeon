@@ -311,3 +311,25 @@ not the publishable package roster or public package versions. Empty ordinary
 property keys supersede only the explicitly audited historical rejection cases.
 Official releases, registry publication, deployment and stable CTS promotion stay
 held until owning reviews merge and the separate release gates are completed.
+
+## Optional browser highlighting package in TypeScript 0.17.0
+
+The reviewed 0.17.0 TypeScript package set may add
+`@altopelago/aeon-highlight` alongside the existing published libraries. This is
+an explicit publish-surface preparation change, independently reviewed in the
+browser-package branch; it does not authorize publication. The package uses the
+same TypeScript release version and an exact packed dependency on the matching
+AEON lexer. Core/runtime packages do not depend on it.
+
+Its public surfaces are the DOM-free renderer, an optional explicitly registered
+browser element, and two scoped CSS themes. JavaScript remains side-effect free;
+only this package's exact exported `dist/theme.css` and `dist/theme-light.css`
+assets are marked as side effects so bundlers retain requested styles. Existing
+packages keep their `sideEffects=false` requirement. The package discovery,
+version checks, clean registry-consumer roster and installed API smoke include
+the new package through the existing release workflow.
+
+Package review, fresh frozen installation, full package preflight, CI and
+consumer migrations must finish before selecting a release combination. The
+[consumer checklist](browser-highlighting-0.17.0.md) records the local packaging
+proof and remaining gates. Official releases and deployment remain on hold.

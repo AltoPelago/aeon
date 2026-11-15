@@ -21,7 +21,7 @@
     "version:set": "node ./scripts/version.mjs set",
     "version:recover": "node ./scripts/version.mjs recover",
     "test:version": "node --test ./test/version-tool.test.mjs",
-    "test:release-workflows": "node --test ./test/npm-publish-workflow.test.mjs",
+    "test:release-workflows": "node --test ./test/npm-publish-workflow.test.mjs ./test/package-side-effects-policy.test.mjs",
     "oracle:gen": "node stress-tests/tools/gen-oracle.mjs",
     "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run"
   }

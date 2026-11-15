@@ -26,6 +26,7 @@ If you want to:
 - use AEON as a library, start with `packages/core/README.md`
 - validate AES against AEOS schemas, then read `packages/aeos/README.md`
 - run the full phase-ordered runtime, read `packages/runtime/README.md`
+- render AEON in browsers or SSR, read `packages/highlight/README.md`
 - use the CLI, read `packages/cli/OUTPUT_CONTRACT.md`
 
 ## Workspace Setup

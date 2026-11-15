@@ -167,6 +167,7 @@ jobs:
               "@altopelago/aeon-cli@${VERSION}" \
               "@altopelago/aeon-core@${VERSION}" \
               "@altopelago/aeon-finalize@${VERSION}" \
+              "@altopelago/aeon-highlight@${VERSION}" \
               "@altopelago/aeon-integrity@${VERSION}" \
               "@altopelago/aeon-lexer@${VERSION}" \
               "@altopelago/aeon-parser@${VERSION}" \
@@ -200,4 +201,4 @@ jobs:
       - name: Exercise installed public API once
         working-directory: aeon-registry-smoke
         run: |
-          node --input-type=module -e 'import { readAeonChecked } from "@altopelago/aeon-sdk"; const result = readAeonChecked("greeting:string = \"Hello\"\n"); if (result.finalized.document.greeting !== "Hello") process.exit(1)'
+          node --input-type=module -e 'import { readAeonChecked } from "@altopelago/aeon-sdk"; const result = readAeonChecked("greeting:string = \"Hello\"\n"); if (result.finalized.document.greeting !== "Hello") process.exit(1); const { highlightAeon } = await import("@altopelago/aeon-highlight"); if (!highlightAeon("x=1").includes("tok-key")) process.exit(1); await import("@altopelago/aeon-highlight/element")'
