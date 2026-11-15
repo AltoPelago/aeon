@@ -1,0 +1,64 @@
+{
+  "name": "@altopelago/aeon-highlight",
+  "version": "0.17.0-rc.1",
+  "description": "Lexer-backed AEON highlighting, optional browser code block and themes.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./element": {
+      "types": "./dist/element.d.ts",
+      "import": "./dist/element.js"
+    },
+    "./theme.css": "./dist/theme.css",
+    "./theme-light.css": "./dist/theme-light.css"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.d.ts.map",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.js.map"
+  ],
+  "sideEffects": [
+    "./dist/theme.css",
+    "./dist/theme-light.css"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AltoPelago/aeon.git",
+    "directory": "implementations/typescript/packages/highlight"
+  },
+  "bugs": {
+    "url": "https://github.com/AltoPelago/aeon/issues"
+  },
+  "homepage": "https://github.com/AltoPelago/aeon/tree/main/implementations/typescript/packages/highlight#readme",
+  "keywords": [
+    "aeon",
+    "aeonite",
+    "syntax-highlighting",
+    "web-components",
+    "browser",
+    "typescript"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node build-assets.mjs",
+    "test": "node --test test/*.test.mjs",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@altopelago/aeon-lexer": "workspace:*"
+  }
+}

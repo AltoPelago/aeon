@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { packageSideEffectsAllowed } from './package-side-effects-policy.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -95,7 +96,9 @@ function auditDependencies(packageJson) {
 function auditPackageMetadata(packageJson) {
   check(typeof packageJson.description === 'string' && packageJson.description.length > 0, 'manifest is missing description');
   check(packageJson.license === 'MIT', `manifest license is ${packageJson.license ?? 'missing'}`);
-  check(packageJson.sideEffects === false, 'manifest must declare sideEffects=false');
+  check(packageSideEffectsAllowed(packageJson), packageJson.name === '@altopelago/aeon-highlight'
+    ? 'highlight must mark only its two exported CSS assets as side effects'
+    : 'manifest must declare sideEffects=false');
   check(packageJson.engines?.node === '>=20.0.0', 'manifest must declare engines.node >=20.0.0');
   check(packageJson.publishConfig?.access === 'public', 'manifest must declare publishConfig.access=public');
   check(packageJson.repository?.type === 'git', 'manifest repository.type must be git');

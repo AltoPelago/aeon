@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AEON highlighting package preview</title>
+<style>
+body{margin:24px;background:#eeeae3;color:#1b1b1b;font:16px system-ui,sans-serif}h1{font:700 28px Georgia,serif}
+textarea{box-sizing:border-box;width:100%;height:115px;font:13px/1.5 monospace;padding:12px}
+.panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:20px}
+h2{font:700 22px Georgia,serif}p{max-width:70ch}.status{font:13px monospace}aeon-code-block{font:14px system-ui,sans-serif}
+@media(max-width:700px){.panels{grid-template-columns:1fr}}
+</style>
+<script type="importmap">{"imports":{"@altopelago/aeon-highlight":"/node_modules/@altopelago/aeon-highlight/dist/index.js","@altopelago/aeon-highlight/element":"/node_modules/@altopelago/aeon-highlight/dist/element.js","@altopelago/aeon-lexer":"/node_modules/@altopelago/aeon-lexer/dist/index.js"}}</script>
+<h1>AEON browser highlighting</h1>
+<p>Both code blocks use the same implementation lexer and renderer. The light theme retains Aeonite’s existing semantic colours.</p>
+<label for="source">AEON source</label>
+<textarea id="source" spellcheck="false">items:list&lt;object&gt; = [
+  \item1\ = { name\name1\ = "Widget 😀", qty = 12 }
+]
+</textarea>
+<div class="panels"><section><h2>AEON dark palette</h2><aeon-code-block id="dark" title="Dark"></aeon-code-block></section>
+<section><h2>Aeonite light palette</h2><aeon-code-block id="light" theme="light" title="Light"></aeon-code-block></section></div>
+<p class="status" id="status" role="status">Loading package…</p>
+<script type="module">
+import {defineAeonCodeBlock} from '@altopelago/aeon-highlight/element';
+defineAeonCodeBlock();
+const source=document.querySelector('#source');const blocks=[...document.querySelectorAll('aeon-code-block')];
+function render(){for(const block of blocks)block.code=source.value;document.querySelector('#status').textContent='Package loaded · original source preserved · '+source.value.length+' UTF-16 code units';}
+source.addEventListener('input',render);render();
+</script></html>
