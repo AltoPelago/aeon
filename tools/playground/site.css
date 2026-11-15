@@ -3297,7 +3297,6 @@ input[disabled],
 
 .tok-number { color: var(--aeon-number); }
 .tok-temporal { color: var(--aeon-temporal); }
-.tok-sansa { color: var(--aeon-symbol); }
 
 .tok-symbol {
   color: var(--aeon-symbol);

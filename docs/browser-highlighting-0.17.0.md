@@ -134,3 +134,18 @@ Consumer checks must prove both profiles; no silent runtime upgrade is implied.
 These are source integration results, not full native/registry acceptance or new
 performance measurements. Compatibility and target-preservation checks and
 1.15× latency/1.20× memory ceilings are unchanged. Releases/deployment stay held.
+
+## Numeric, temporal and address colours — 16 November 2026
+
+- [x] Distinguish lexer numeric/hex/radix (`tok-number`) and date/time/datetime
+  (`tok-temporal`) tokens; retain other literal roles and source spans.
+- [x] Add cyan/light-yellow dark defaults and readable cyan/ochre light defaults.
+  SANSA address literals inherit the symbol colour. JSON numbers use numeric colour.
+- [x] Pass 19 package tests and 68 playground/release checks; consumer suites pass
+  (website72, tooling14, Aeonite56, SANSA548 with92 optional skips).
+- [x] Verify actual computed dark/light colours and Aeonite expanded-code colours;
+  refresh exact development archives, staged renderer and generated bundle.
+- [ ] Complete owning PR reviews/CI/merges and resulting-main verification.
+
+This changes presentation only. Existing compatibility/target-preservation checks
+and performance budgets remain unchanged. Releases and deployment stay held.
