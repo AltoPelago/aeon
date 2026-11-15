@@ -39,7 +39,7 @@ export function playgroundModules(repoRoot = defaultRoot) {
   }
   for (const [alias, name] of Object.entries(aliases)) imports[`@aeon/${alias}`] = imports[`@altopelago/${name}`];
   imports['@aeos/core'] = imports['@altopelago/aeos-core'];
-  for (const name of ['@aeon/runtime', '@aeon/canonical', '@altopelago/sansa']) {
+  for (const name of ['@aeon/runtime', '@aeon/canonical', '@altopelago/aeon-highlight', '@altopelago/sansa']) {
     if (!imports[name]) throw new Error(`Missing browser entry point: ${name}`);
   }
   return {imports, roots, sansa:join(sansa, 'src')};
@@ -91,7 +91,7 @@ export function createPlaygroundServer({repoRoot = defaultRoot, buildState = {re
 export function buildWorkspace(repoRoot = defaultRoot) {
   return new Promise((fulfil, reject) => {
     const child = spawn(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
-      ['--filter', '@altopelago/aeon-runtime...', '--filter', '@altopelago/aeon-canonical...', '--filter', '@altopelago/aeon-sdk...', 'build'],
+      ['--filter', '@altopelago/aeon-runtime...', '--filter', '@altopelago/aeon-canonical...', '--filter', '@altopelago/aeon-sdk...', '--filter', '@altopelago/aeon-highlight...', 'build'],
       {cwd:join(repoRoot, 'implementations/typescript'), stdio:'inherit'});
     child.once('error', reject);
     child.once('exit', (code, signal) => code === 0 ? fulfil() : reject(new Error(`Workspace build failed (${signal ?? code}).`)));

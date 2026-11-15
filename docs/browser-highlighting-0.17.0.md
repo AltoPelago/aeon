@@ -53,7 +53,7 @@ SANSA's independent work are preserved.
   dependency, SSR imports, DOM-free and browser declarations, CSS exports and
   byte-identical installed runtime files. Browser verifies both themes, source
   updates, empty/hostile/malformed input and exact Unicode source preservation.
-- [ ] Review/merge the package independently of PR #197. Fresh frozen installation
+- [x] Merge the package in #198 and local playground in #197. Fresh frozen installation
   and owning CI remain required; local cached-toolchain checks cannot replace them.
 - [ ] Migrate tooling and the AEON playground/website after their active reviews;
   select exact local artifacts without publishing or changing released defaults.
@@ -108,3 +108,29 @@ script, empty-attribute and property controls. Getter/display source consistency
 is verified; no real clipboard write or full browser matrix is claimed. Node
 renderer/API tests and TypeScript build/typecheck still pass. The shared runtime,
 reference/target guards and performance budgets are unchanged.
+
+## Shared consumer integration
+
+The AEON playground now delegates to the public package and builds it by default;
+its local adapter retains positional diagnostic calls. Existing 68 playground,
+composer/version/release checks and 17 package tests pass. Duplicate renderer and
+JSON/&ND files are removed. The additive provider-only `./renderer` entry allows
+legacy and candidate websites to bind the same rendering logic to their actual
+selected lexer. It loads neither a lexer nor a DOM itself, preserving the released
+0.16 graph while the default package/element remain on the matching 0.17 graph.
+Consumer checks must prove both profiles; no silent runtime upgrade is implied.
+
+### Consumer migration review checkpoint — 16 November 2026
+
+- [x] Prepare AEON playground/provider entry in [#199](https://github.com/AltoPelago/aeon/pull/199). 17 package + 68 existing tooling checks pass.
+- [x] Prepare website [#12](https://github.com/AltoPelago/aeon-website/pull/12), preserving released/candidate lexer graphs; 72 tests pass.
+- [x] Prepare tooling [#3](https://github.com/AltoPelago/aeon-tooling/pull/3); 11 highlighter + 3 converter checks pass. Converter tests use a worktree sibling-path loader.
+- [x] Prepare Aeonite website [#8](https://github.com/AltoPelago/aeonite-website/pull/8); 56 pinned-input tests and reproducible bundle check pass. Retain light theme and site language/expansion controls.
+- [x] Prepare SANSA playground [#47](https://github.com/AltoPelago/sansa/pull/47); 548 pass, 92 optional-runtime skips.
+- [x] Browser-smoke the two source playgrounds, default website and tooling demo; verify Aeonite light rendering and expansion close/focus return. Preserve all 11 original helper hashes and frozen performance manifest.
+- [ ] Complete owning review/current-head CI and merge #199 before its dependent migrations; verify the resulting main combination.
+- [ ] Replace development-only SHA-pinned tarballs with qualified exact registry artifacts at release; complete fresh install, clipboard/browser matrix and final release acceptance.
+
+These are source integration results, not full native/registry acceptance or new
+performance measurements. Compatibility and target-preservation checks and
+1.15× latency/1.20× memory ceilings are unchanged. Releases/deployment stay held.

@@ -1,8 +1,9 @@
-import * as lexer from '@aeon/lexer';
-import {createAeonHighlighter} from './aeon-token-highlight.mjs';
-import {highlightJson} from './presentation-highlight.mjs';
+import {highlightAeon as renderAeon, highlightJson} from '@altopelago/aeon-highlight';
 
-const {highlightAeon} = createAeonHighlighter(lexer);
+// Preserve the editor adapter's positional diagnostic API.
+function highlightAeon(source, line = null, column = 1) {
+  return renderAeon(source, {diagnosticLine: line, diagnosticColumn: column});
+}
 
 function attachHighlightEditor(textarea, backdrop) {
   const editor = textarea.closest(".highlight-editor");

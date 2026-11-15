@@ -333,3 +333,9 @@ Package review, fresh frozen installation, full package preflight, CI and
 consumer migrations must finish before selecting a release combination. The
 [consumer checklist](browser-highlighting-0.17.0.md) records the local packaging
 proof and remaining gates. Official releases and deployment remain on hold.
+
+The optional `./renderer` entry exports a provider-bound renderer for hosts that
+select their own implementation lexer. It loads no lexer or DOM itself. Existing
+root/element entries retain the exact matching 0.17 lexer dependency. Website
+legacy 0.16 and candidate 0.17 providers require explicit consumer compatibility
+checks; this does not upgrade or relax their runtime graphs.

@@ -16,7 +16,11 @@
       "import": "./dist/element.js"
     },
     "./theme.css": "./dist/theme.css",
-    "./theme-light.css": "./dist/theme-light.css"
+    "./theme-light.css": "./dist/theme-light.css",
+    "./renderer": {
+      "types": "./dist/renderer.d.ts",
+      "import": "./dist/renderer.js"
+    }
   },
   "files": [
     "dist",

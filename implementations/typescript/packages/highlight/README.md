@@ -82,3 +82,20 @@ page and press **Run lifecycle tests**. The import map uses the installed packag
 and lexer; it has no workspace fallback. This browser fixture is separate from
 the Node-only test command above. Clipboard permissions and the browser-engine
 matrix remain release qualification checks.
+
+## Hosts with a selected lexer
+
+`@altopelago/aeon-highlight/renderer` exports `createHighlighter(lexer)` and the
+`Highlighter`, `LexerProvider` and diagnostic option types. This entry loads no
+lexer or DOM. Supply the actual implementation namespace selected by the host:
+
+```js
+import * as lexer from '@aeon/lexer'; // The host page's existing import map.
+import {createHighlighter} from '@altopelago/aeon-highlight/renderer';
+const {highlightAeon, highlightJson} = createHighlighter(lexer);
+```
+
+This keeps legacy website 0.16 and candidate 0.17 tokenization tied to their own
+selected runtimes. Consumers must test those exact provider artifacts. The root
+and element entries retain their matching 0.17 lexer dependency and unchanged
+APIs. Provider rendering does not add a parser or a fallback scanner.
