@@ -25,6 +25,6 @@
     "oracle:gen": "node stress-tests/tools/gen-oracle.mjs",
     "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run",
     "playground": "node scripts/playground.mjs",
-    "test:playground": "node --test test/playground-server.test.mjs"
+    "test:playground": "node --test test/playground-server.test.mjs test/playground-highlight.test.mjs"
   }
 }

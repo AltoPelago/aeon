@@ -98,7 +98,7 @@ export function buildWorkspace(repoRoot = defaultRoot) {
   });
 }
 
-export function watchWorkspace(repoRoot, rebuild, onError = console.error) {
+export function watchWorkspace(repoRoot, rebuild, onError = console.error, createWatcher = watch) {
   const packages = join(repoRoot, 'implementations/typescript/packages'), watchers = [];
   let timer, running = false, pending = false, closed = false;
   const run = async () => {
@@ -112,10 +112,10 @@ export function watchWorkspace(repoRoot, rebuild, onError = console.error) {
   try {
     for (const dir of readdirSync(packages, {withFileTypes:true}).filter(d => d.isDirectory())) {
       const root = join(packages, dir.name), src = join(root, 'src');
-      if (existsSync(src)) watchers.push(watch(src, {recursive:true}, schedule));
-      watchers.push(watch(root, (_event, file) => { if (file === 'tsconfig.json') schedule(); }));
+      if (existsSync(src)) watchers.push(createWatcher(src, {recursive:true}, schedule));
+      watchers.push(createWatcher(root, (_event, file) => { if (file === 'tsconfig.json') schedule(); }));
     }
-    watchers.push(watch(join(repoRoot, 'implementations/typescript'), (_event, file) => {
+    watchers.push(createWatcher(join(repoRoot, 'implementations/typescript'), (_event, file) => {
       if (file === 'tsconfig.base.json') schedule();
     }));
     for (const watcher of watchers) watcher.on('error', onError);

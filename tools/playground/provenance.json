@@ -45,8 +45,15 @@
   "adaptations": [
     "PHP template converted to standalone HTML with server-injected import map and shared JSON examples",
     "Local header, build status, source-reload state and two integration examples",
-    "Website CSS, highlighter and walkthrough retained unchanged",
+    "Website CSS and walkthrough retained unchanged",
     "Playground/controller and shared composer add an optional source-validation hook; local token-aware policy refuses lossy reference/SANSA rewrites",
-    "Local controller-ready event restores mode/view only after the website event handlers are installed"
-  ]
+    "Local controller-ready event restores mode/view only after the website event handlers are installed",
+    "Reuse the already-hardened SANSA highlighter; escape all matched tokens explicitly at HTML boundaries to resolve copied regex/DOM alerts"
+  ],
+  "highlighterBase": {
+    "repository": "AltoPelago/sansa",
+    "commit": "8f2976e7c71cf796f9f62701e6d2ed13451ff004",
+    "path": "tools/playground/aeon-highlight.js",
+    "sha256": "d5e1855eae070db9c3f7d1df6e05689e1585840371b4a3311578f10b4248a5f9"
+  }
 }

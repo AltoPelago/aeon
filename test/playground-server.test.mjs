@@ -4,6 +4,7 @@ import {mkdtemp, mkdir, writeFile, symlink, rm, readFile} from 'node:fs/promises
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {request} from 'node:http';
+import {EventEmitter} from 'node:events';
 import {createPlaygroundServer, playgroundModules, watchWorkspace, defaultRoot} from '../scripts/playground.mjs';
 import {composerUnsupportedReason, COMPOSER_MAX_SOURCE_CODE_UNITS} from '../tools/playground/composer-policy.mjs';
 
@@ -74,12 +75,15 @@ test('build state blocks partial module reads and reports stale-build failure',a
   assert.equal((await fetch(url+'/aeon/runtime/dist/index.js')).status,200);
 });
 test('source watch serializes rebuilds and retains edits arriving during a build',async t=>{
-  const {root,put}=await fixture(t);let starts=0,active=0,peak=0,release;
+  const {root}=await fixture(t);let starts=0,active=0,peak=0,release;
   const finish=new Promise(resolve=>release=resolve),errors=[];
-  const close=watchWorkspace(root,async()=>{starts++;peak=Math.max(peak,++active);if(starts===1)await finish;active--;},e=>errors.push(e));t.after(close);
+  const changes=new Map();
+  const createWatcher=(path,options,listener)=>{const event=new EventEmitter();event.close=()=>event.removeAllListeners();changes.set(path,listener??options);return event;};
+  const close=watchWorkspace(root,async()=>{starts++;peak=Math.max(peak,++active);if(starts===1)await finish;active--;},e=>errors.push(e),createWatcher);t.after(close);
   const until=async predicate=>{const end=Date.now()+5000;while(!predicate()){assert.ok(Date.now()<end,'watch deadline');await new Promise(r=>setTimeout(r,30));}};
-  await put('implementations/typescript/packages/runtime/src/index.ts','// edit one');await until(()=>starts===1);
-  await put('implementations/typescript/packages/runtime/src/index.ts','// edit two');await new Promise(r=>setTimeout(r,400));assert.equal(starts,1);
+  const changed=changes.get(join(root,'implementations/typescript/packages/runtime/src'));
+  changed('change','index.ts');await until(()=>starts===1);
+  changed('change','index.ts');await new Promise(r=>setTimeout(r,400));assert.equal(starts,1);
   release();await until(()=>starts>=2 && active===0);assert.equal(peak,1);assert.deepEqual(errors,[]);
 });
 test('real workspace examples compile and retain local identities, references and empty keys',async()=>{
