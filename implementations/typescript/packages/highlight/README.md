@@ -99,3 +99,11 @@ This keeps legacy website 0.16 and candidate 0.17 tokenization tied to their own
 selected runtimes. Consumers must test those exact provider artifacts. The root
 and element entries retain their matching 0.17 lexer dependency and unchanged
 APIs. Provider rendering does not add a parser or a fallback scanner.
+
+Numbers (including radix/hex literals) use `tok-number` / `--aeon-number`;
+dates, times and datetimes use `tok-temporal` / `--aeon-temporal`. Dark defaults
+are cyan `#7dd3fc` and light yellow `#f5e6a8`; light-theme equivalents are
+`#006b80` and `#806500`. SANSA address literals retain `tok-sansa` and inherit
+`--aeon-symbol`. Booleans and other literals retain `--aeon-literal`. JSON
+numbers use the numeric colour too. These are presentation roles over existing
+lexer tokens and do not change parsing or reference semantics.

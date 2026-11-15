@@ -39,3 +39,15 @@ test('provider entry loads without loading a lexer or DOM',async()=>{
     if(h.highlightAeon('<raw>')!=='&lt;raw&gt;'||calls!==1)throw Error('provider ignored');`;
   const result=spawnSync(process.execPath,['--input-type=module','-e',script,new URL('../dist/renderer.js',import.meta.url).href],{encoding:'utf8',timeout:5000});assert.equal(result.status,0,result.stderr);
 });
+
+
+test('numeric/temporal theme roles are distinct and addresses inherit symbol colour',async()=>{
+  for(const [file,number,temporal] of [['theme.css','#7dd3fc','#f5e6a8'],['theme-light.css','#006b80','#806500']]){
+    const css=await readFile(new URL('../dist/'+file,import.meta.url),'utf8');
+    assert.ok(css.includes('--aeon-number: '+number+';'));
+    assert.ok(css.includes('--aeon-temporal: '+temporal+';'));
+    assert.ok(css.includes('--aeon-sansa: var(--aeon-symbol);'));
+    assert.ok(css.includes('.tok-number { color: var(--aeon-number); }'));
+    assert.ok(css.includes('.tok-temporal { color: var(--aeon-temporal); }'));
+  }
+});
