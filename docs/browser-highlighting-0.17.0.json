@@ -11,11 +11,11 @@
     "adaptation": "JSDoc parameter types only"
   },
   "artifacts": {
-    "altopelago-aeon-highlight-0.17.0-rc.1.tgz": "297d49c1ac0033bed99ede83360b0ca064048761d1b92e007fcbea7120bf5eb8",
+    "altopelago-aeon-highlight-0.17.0-rc.1.tgz": "25ef35539cf1bb203ada1c5d6e85466c57ad75642241e4f16b9130ba997d0f6f",
     "altopelago-aeon-lexer-0.17.0-rc.1.tgz": "ac967ffcab1619a1cd801c4f63a966598ae5c867645a20427a7bf089f338b09d"
   },
   "checks": {
-    "rendererAndPublicAPI": 14,
+    "rendererAndPublicAPI": 15,
     "unchangedLexer": 137,
     "versionAndReleaseWorkflow": 33,
     "build": true,
@@ -58,9 +58,16 @@
     "newPerformanceQualification": false,
     "fullWorkspacePackagePreflight": false
   },
-  "runtimeOrFixtureChanges": false,
   "budgetChanges": false,
   "pr197Changed": false,
   "officialRelease": false,
-  "deployment": false
+  "deployment": false,
+  "ciFollowup": {
+    "initialHead": "47ef655c4a7bebaa0686777605e62c0567ab71be",
+    "jsonQuotedRegex": "replaced with bounded string walk; escaped quote, key spacing and malformed-tail regressions pass",
+    "publishSurfaceGuard": "explicit new-package policy added to recognized docs/release-strategy.md; guard unchanged",
+    "securityQueriesSuppressed": false,
+    "newHeadCI": "pending"
+  },
+  "existingCoreRuntimeOrFixtureChanges": false
 }

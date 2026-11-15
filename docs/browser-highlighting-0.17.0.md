@@ -46,7 +46,7 @@ SANSA's independent work are preserved.
 - [x] Record both additional consumers and the distinct Aeonite light palette.
 - [x] Add package to the existing TypeScript release roster and installed smoke;
   retain all original compatibility/target checks and performance ceilings.
-- [x] Pass 14 renderer/public-API tests, 137 unchanged lexer tests and 33 existing
+- [x] Pass 15 renderer/public-API tests, 137 unchanged lexer tests and 33 existing
   version/release-workflow tests, plus two new side-effect-policy tests.
   Build/typecheck and dependency checks pass.
 - [x] Verify final local tarballs in a fresh offline consumer: exact lexer
@@ -87,3 +87,11 @@ the new package and CSS side effects in existing packages. The only metadata
 exception is the highlight package’s two exact exported CSS assets, which
 bundlers must retain. The full workspace preflight is still a combined release
 gate; this scoped run does not claim it.
+
+CI follow-up: the publish-surface guard requires its recognized release-policy
+record for a new public package; that record is now in
+[release strategy](release-strategy.md#optional-browser-highlighting-package-in-typescript-0170).
+The inherited JSON helper’s quoted-string regex was replaced with a bounded
+string walk, with escaped-quote/key-spacing/malformed-tail regressions. This
+separate JSON presentation helper does not tokenize AEON. No guard, security
+query or target check is suppressed.

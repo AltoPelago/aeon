@@ -63,7 +63,7 @@ test('AEON highlighting uses one official lexer call and original source spans',
   for(const line of html.split('\n'))assert.equal((line.match(/<span\b/g)??[]).length,(line.match(/<\/span>/g)??[]).length);
 });
 
-test('gaps, malformed inputs, Unicode, BOM and all examples remain text-exact',()=>{
+test('gaps, malformed inputs, Unicode, BOM and mixed source forms remain text-exact',()=>{
   const sources=['name:string="Hello"','items=[\\item1\\={name="😀"}]','<tag flag=true>',
     '\uFEFF#!/usr/bin/env aeon\r\nx="unfinished','😀\nvalue="\\q"\n<unclosed',
     'value="&lt;<img>"','x=1\r\n\t\n','/# [*one]\n[@link|target] #/',''];
@@ -137,4 +137,16 @@ test('escaped symbolic pipes use one lexer pass for closed and unfinished litera
     }
   }
   assert.equal(calls,6);
+});
+
+test('JSON quoted strings preserve escaped quotes, malformed tails and key spacing',()=>{
+  for(const width of [1024,2048,4096]){
+    for(const closed of [false,true]){
+      const source='"'+'\\\\"'.repeat(width)+(closed?'"':'');
+      assert.equal(plain(highlighter.highlightJson(source)),source);
+    }
+  }
+  const source='{"a\\\"b" \r\n : "<img src=x>", "flag":true, "n":null}';
+  const html=highlighter.highlightJson(source);assert.equal(plain(html),source);
+  assert.match(html,/json-key/);assert.match(html,/json-string/);assert.ok(!html.includes('<img'));
 });

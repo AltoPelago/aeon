@@ -182,27 +182,37 @@ function highlightFromColumn(html, column) {
 }
 
 function highlightJson(source) {
-  const pattern = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false)\b|\bnull\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],:])/y;
+  // Quoted text is walked once; no quote/escape repetition enters a regex.
+  const pattern = /\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],:])/y;
   let html = "";
   let index = 0;
   while (index < source.length) {
-    pattern.lastIndex = index;
-    const token = pattern.exec(source);
-    if (!token) {
-      if (source[index] === '"') {
-        html += escapeHtml(source.slice(index));
-        break;
+    if (source[index] === '"') {
+      const start = index;
+      let end = index + 1;
+      let closed = false;
+      while (end < source.length) {
+        const ch = source[end];
+        if (ch === '\\') end = Math.min(source.length, end + 2);
+        else if (ch === '"') { end += 1; closed = true; break; }
+        else end += 1;
       }
-      html += escapeHtml(source[index++]);
+      if (!closed) { html += escapeHtml(source.slice(start)); break; }
+      let colon = end;
+      while (colon < source.length && ' \t\r\n'.includes(source[colon])) colon += 1;
+      const isKey = source[colon] === ':';
+      html += isKey
+        ? `<span class="json-key">${escapeHtml(source.slice(start, end))}</span>`
+        : `<span class="json-string">${escapeHtml(source.slice(start, end))}</span>`;
+      if (isKey) { html += escapeHtml(source.slice(end, colon + 1)); index = colon + 1; }
+      else index = end;
       continue;
     }
-    const [match, str, colon, bool, num, punct] = token;
-    if (str) {
-      html += colon
-        ? `<span class="json-key">${escapeHtml(str)}</span>${escapeHtml(colon)}`
-        : `<span class="json-string">${escapeHtml(str)}</span>`;
-    } else if (bool) html += `<span class="json-bool">${escapeHtml(match)}</span>`;
-    else if (match === "null") html += '<span class="json-null">null</span>';
+    pattern.lastIndex = index;
+    const token = pattern.exec(source);
+    if (!token) { html += escapeHtml(source[index++]); continue; }
+    const [match, keyword, num, punct] = token;
+    if (keyword) html += `<span class="json-${keyword === 'null' ? 'null' : 'bool'}">${escapeHtml(match)}</span>`;
     else if (num) html += `<span class="json-number">${escapeHtml(match)}</span>`;
     else if (punct) html += `<span class="json-punct">${escapeHtml(match)}</span>`;
     index = pattern.lastIndex;
