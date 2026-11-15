@@ -12,8 +12,9 @@ export function createAeonHighlighter({tokenize, TokenType}) {
     [TokenType.Tilde, 'binding'], [TokenType.TildeArrow, 'binding'],
     [TokenType.Equals, 'operator'],
     [TokenType.SymbolicLiteral, 'symbol'],
-    ...['Number', 'HexLiteral', 'RadixLiteral', 'EncodingLiteral', 'SeparatorLiteral',
-      'True', 'False', 'Yes', 'No', 'On', 'Off', 'Date', 'DateTime', 'Time']
+    ...['Number', 'HexLiteral', 'RadixLiteral'].map(name => [TokenType[name], 'number']),
+    ...['Date', 'DateTime', 'Time'].map(name => [TokenType[name], 'temporal']),
+    ...['EncodingLiteral', 'SeparatorLiteral', 'True', 'False', 'Yes', 'No', 'On', 'Off']
       .map(name => [TokenType[name], 'literal']),
     ...['LeftBrace', 'RightBrace', 'LeftBracket', 'RightBracket', 'LeftParen', 'RightParen',
       'LeftAngle', 'RightAngle', 'Colon', 'Comma', 'Dot', 'At', 'Caret', 'Hash', 'Dollar',
@@ -60,7 +61,7 @@ export function createAeonHighlighter({tokenize, TokenType}) {
         } else if (type === TokenType.Identifier || type === TokenType.String) {
           if (previous?.type === TokenType.LeftAngle) roles.set(token, 'tag');
           else if ([TokenType.Colon, TokenType.StructuralIdentity, TokenType.Equals, TokenType.At].includes(next?.type)) roles.set(token, 'key');
-          else if (type === TokenType.Identifier && ['NaN', 'Infinity'].includes(token.value)) roles.set(token, 'literal');
+          else if (type === TokenType.Identifier && ['NaN', 'Infinity'].includes(token.value)) roles.set(token, 'number');
           else if (previous?.type === TokenType.Symbol && previous.value === '!') roles.set(token, 'literal');
         }
         if (type === TokenType.LeftBrace) {

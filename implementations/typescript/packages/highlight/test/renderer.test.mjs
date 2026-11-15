@@ -109,11 +109,11 @@ test('lexer presentation restores established key, type, tag, symbol and referen
   const samples=[
     ['name:string="hello"',[['key','name'],['type','string'],['string','"hello"']]],
     ['"":list<object> = []',[['key','""'],['type','list'],['type','<'],['type','object'],['type','>']]],
-    ['name\\id\\ = 12',[['key','name'],['identity','\\id\\'],['literal','12']]],
+    ['name\\id\\ = 12',[['key','name'],['identity','\\id\\'],['number','12']]],
     ['node = <widget label="x">',[['key','node'],['tag','widget'],['key','label']]],
     ['value = |ready|',[['symbol','|ready|']]],
     ['aeon:header={version="1.0"}',[['directive','aeon'],['directive',':'],['directive','header']]],
-    ['value = NaN',[['literal','NaN']]],
+    ['value = NaN',[['number','NaN']]],
     ['value = !missing',[['literal','!'],['literal','missing']]],
     ['copy = ~$.items[0]',[['binding','~'],['binding','$'],['binding','items'],['binding','0']]],
     ['pointer = ~> $.items[0]',[['binding','~>'],['binding','$'],['binding','items']]],
@@ -149,4 +149,18 @@ test('JSON quoted strings preserve escaped quotes, malformed tails and key spaci
   const source='{"a\\\"b" \r\n : "<img src=x>", "flag":true, "n":null}';
   const html=highlighter.highlightJson(source);assert.equal(plain(html),source);
   assert.match(html,/json-key/);assert.match(html,/json-string/);assert.ok(!html.includes('<img'));
+});
+
+
+test('numeric and temporal roles follow lexer tokens without recolouring boolean or symbolic literals',()=>{
+  for(const [value,role] of [
+    ['42','number'],['-1.25e+3','number'],['%1011','number'],['%+.1','number'],
+    ['NaN','number'],['Infinity','number'],['2026-11-16','temporal'],
+    ['09:30:00','temporal'],['2026-11-16T12:00:00Z&Asia/Tokyo','temporal'],
+    ['true','literal'],['false','literal'],['|ready|','symbol'],['$.items','sansa'],
+  ]){
+    const source='value = '+value; const html=highlighter.highlightAeon(source);
+    assert.equal(plain(html),source);
+    assert.ok(html.includes('<span class="tok-'+role+'">'+value.replaceAll('&','&amp;')+'</span>'),html);
+  }
 });

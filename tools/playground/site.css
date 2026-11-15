@@ -3249,6 +3249,8 @@ input[disabled],
   --aeon-tag: #e2c97a;
   --aeon-string: #d9c58b;
   --aeon-literal: #c7d98a;
+  --aeon-number: #7dd3fc;
+  --aeon-temporal: #f5e6a8;
   --aeon-symbol: #50dabe;
   --aeon-directive: #8ec7d9;
   --aeon-comment: #a8adb8;
@@ -3292,6 +3294,9 @@ input[disabled],
 .tok-literal {
   color: var(--aeon-literal);
 }
+
+.tok-number { color: var(--aeon-number); }
+.tok-temporal { color: var(--aeon-temporal); }
 
 .tok-symbol {
   color: var(--aeon-symbol);
@@ -3354,7 +3359,7 @@ input[disabled],
 }
 
 .json-number {
-  color: var(--aeon-literal);
+  color: var(--aeon-number);
 }
 
 .json-bool {
@@ -3916,4 +3921,4 @@ input[type="reset"],
 
 /* Structural identity metadata and SANSA literals are distinct from references. */
 .tok-identity { color: #e2c97a; }
-.tok-sansa { color: #7fb2ff; }
+.tok-sansa { color: var(--aeon-symbol); }

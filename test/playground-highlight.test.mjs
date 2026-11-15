@@ -110,11 +110,11 @@ test('lexer presentation restores established key, type, tag, symbol and referen
   const samples=[
     ['name:string="hello"',[['key','name'],['type','string'],['string','"hello"']]],
     ['"":list<object> = []',[['key','""'],['type','list'],['type','<'],['type','object'],['type','>']]],
-    ['name\\id\\ = 12',[['key','name'],['identity','\\id\\'],['literal','12']]],
+    ['name\\id\\ = 12',[['key','name'],['identity','\\id\\'],['number','12']]],
     ['node = <widget label="x">',[['key','node'],['tag','widget'],['key','label']]],
     ['value = |ready|',[['symbol','|ready|']]],
     ['aeon:header={version="1.0"}',[['directive','aeon'],['directive',':'],['directive','header']]],
-    ['value = NaN',[['literal','NaN']]],
+    ['value = NaN',[['number','NaN']]],
     ['value = !missing',[['literal','!'],['literal','missing']]],
     ['copy = ~$.items[0]',[['binding','~'],['binding','$'],['binding','items'],['binding','0']]],
     ['pointer = ~> $.items[0]',[['binding','~>'],['binding','$'],['binding','items']]],
