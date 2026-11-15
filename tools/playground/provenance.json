@@ -48,12 +48,21 @@
     "Website CSS and walkthrough retained unchanged",
     "Playground/controller and shared composer add an optional source-validation hook; local token-aware policy refuses lossy reference/SANSA rewrites",
     "Local controller-ready event restores mode/view only after the website event handlers are installed",
-    "Reuse the already-hardened SANSA highlighter; escape all matched tokens explicitly at HTML boundaries to resolve copied regex/DOM alerts"
+    "Reuse the already-hardened SANSA highlighter; escape all matched tokens explicitly at HTML boundaries to resolve copied regex/DOM alerts",
+    "Replace the custom AEON scanner with workspace lexer-token rendering; retain JSON and &ND helpers as presentation only"
   ],
   "highlighterBase": {
     "repository": "AltoPelago/sansa",
     "commit": "8f2976e7c71cf796f9f62701e6d2ed13451ff004",
     "path": "tools/playground/aeon-highlight.js",
     "sha256": "d5e1855eae070db9c3f7d1df6e05689e1585840371b4a3311578f10b4248a5f9"
+  },
+  "aeonTokenization": {
+    "module": "@aeon/lexer",
+    "provider": "the selected checkout workspace implementation; no embedded lexer copy",
+    "source": "implementations/typescript/packages/lexer/src/lexer.ts",
+    "reviewedSourceSha256": "01aa32cb38a03018cd90313a683ccb7bcf1fd05480b7e271751958d848897f40",
+    "tokens": "implementation TokenType and UTF-16 source span offsets",
+    "fallback": "escaped plain text only"
   }
 }

@@ -91,6 +91,7 @@ test('real workspace examples compile and retain local identities, references an
   const {canonicalize}=await import('../implementations/typescript/packages/canonical/dist/index.js');
   const {readAeonNamespace}=await import('../implementations/typescript/packages/sdk/dist/sansa.js');
   const modules=playgroundModules();assert.equal(modules.imports['@altopelago/aeon-sdk/sansa'],'/aeon/sdk/dist/sansa.js');
+  assert.equal(modules.imports['@aeon/lexer'],'/aeon/lexer/dist/index.js');
   const examples=JSON.parse(await readFile(join(defaultRoot,'tools/playground/examples.json'),'utf8'));
   for(const [id,example] of Object.entries(examples)){
     const result=runRuntime(example.source,{profile:'aeon.gp.profile.v1',mode:example.mode==='transport'?'loose':'strict',datatypePolicy:example.mode==='custom'?'allow_custom':'reserved_only',includeAnnotations:true,output:'json'});

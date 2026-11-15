@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import vm from 'node:vm';
+import * as lexer from '../implementations/typescript/packages/lexer/dist/index.js';
+import {createAeonHighlighter, MAX_HIGHLIGHT_SOURCE_CODE_UNITS} from '../tools/playground/aeon-token-highlight.mjs';
+import {highlightJson} from '../tools/playground/presentation-highlight.mjs';
 
-const file=new URL('../tools/playground/aeon-highlight.js',import.meta.url);
-const context=vm.createContext({window:{}});
-vm.runInContext(readFileSync(file,'utf8'),context);
-const highlighter=context.window.AeonWebHighlight;
+const file=new URL('../tools/playground/aeon-token-highlight.mjs',import.meta.url);
+const lexerFile=new URL('../implementations/typescript/packages/lexer/dist/index.js',import.meta.url);
+const presentationFile=new URL('../tools/playground/presentation-highlight.mjs',import.meta.url);
+const highlighter={...createAeonHighlighter(lexer),highlightJson};
+const plain=html=>html.replace(/<\/?span\b[^>]*>/g,'').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&');
 
 test('AEON and JSON highlighting escape hostile text at every HTML boundary',()=>{
   const hostile='<img src=x onerror=alert(1)>';
@@ -29,9 +32,11 @@ test('highlighting retains identities, addresses and documentation token formatt
   assert.ok(json.includes('&lt;key&gt;'));assert.ok(json.includes('&amp;value'));assert.match(json,/json-bool/);
 });
 test('unterminated quoted tokens and repeated comment starts complete in a bounded process',()=>{
-  const script=`import {readFileSync} from 'node:fs';import vm from 'node:vm';
-    const context=vm.createContext({window:{}});vm.runInContext(readFileSync(process.argv[1],'utf8'),context);
-    const h=context.window.AeonWebHighlight;
+  const script=`import {pathToFileURL} from 'node:url';
+    const {createAeonHighlighter}=await import(pathToFileURL(process.argv[1]));
+    const lexer=await import(pathToFileURL(process.argv[2]));
+    const {highlightJson}=await import(pathToFileURL(process.argv[3]));
+    const h={...createAeonHighlighter(lexer),highlightJson};
     for(const width of [1024,2048]){
       for(const prefix of ['"',"'",'!"','~["','~>["','~.@.["']){
         const text=prefix+'\\\\!'.repeat(width);const result=h.highlightAeon(text);
@@ -41,6 +46,62 @@ test('unterminated quoted tokens and repeated comment starts complete in a bound
       const comment='//# '+'[*'.repeat(width);if(h.highlightAeon(comment).length<comment.length)throw Error('truncated comment');
     }
     process.stdout.write('completed');`;
-  const result=spawnSync(process.execPath,['--input-type=module','-e',script,fileURLToPath(file)],{timeout:5000,encoding:'utf8'});
+  const result=spawnSync(process.execPath,['--input-type=module','-e',script,fileURLToPath(file),fileURLToPath(lexerFile),fileURLToPath(presentationFile)],{timeout:5000,encoding:'utf8'});
   assert.equal(result.error,undefined,String(result.error));assert.equal(result.status,0,result.stderr);assert.equal(result.stdout,'completed');
+});
+
+test('AEON highlighting uses one official lexer call and original source spans',()=>{
+  const source='""\\id\\ = "a\\n😀"\r\nselector:sansa=$.[""]\n/* block\ncomment */\nx=`a\nb`';
+  let calls=0;
+  const h=createAeonHighlighter({...lexer,tokenize:(text,options)=>{
+    calls++;assert.equal(text,source);assert.deepEqual(options,{includeComments:true,includeNewlines:true});
+    const result=lexer.tokenize(text,options);
+    for(const token of result.tokens)Object.freeze(token);
+    Object.freeze(result.tokens);return result;
+  }});
+  const html=h.highlightAeon(source);assert.equal(calls,1);assert.equal(plain(html),source);
+  assert.ok(html.includes('a\\n😀'));assert.match(html,/tok-sansa/);assert.match(html,/tok-identity/);
+  for(const line of html.split('\n'))assert.equal((line.match(/<span\b/g)??[]).length,(line.match(/<\/span>/g)??[]).length);
+});
+
+test('gaps, malformed inputs, Unicode, BOM and all examples remain text-exact',()=>{
+  const examples=JSON.parse(readFileSync(new URL('../tools/playground/examples.json',import.meta.url),'utf8'));
+  const sources=[...Object.values(examples).map(x=>x.source),'\uFEFF#!/usr/bin/env aeon\r\nx="unfinished',
+    '😀\nvalue="\\q"\n<unclosed','value="&lt;<img>"','x=1\r\n\t\n', '/# [*one]\n[@link|target] #/', ''];
+  for(const source of sources)assert.equal(plain(highlighter.highlightAeon(source)),source,source);
+});
+
+test('comments use implementation metadata while optional doc formatting stays inside comments',()=>{
+  for(const [source,style]of [['//# [*bold]','comment-doc'],['//@ annotation','comment-annotation'],
+    ['//? hint','comment-hint'],['//! host','comment-host'],['/{ structural }/','comment-structure'],
+    ['/[ profile ]/','comment-profile'],['/( instructions )/','comment-future'],['/* plain */','comment']]){
+    const result=lexer.tokenize(source,{includeComments:true});assert.equal(result.tokens[0].type.endsWith('Comment'),true);
+    const html=highlighter.highlightAeon(source);assert.ok(html.includes('tok-'+style));assert.equal(plain(html),source);
+  }
+  assert.ok(!highlighter.highlightAeon('value="//# [*not a comment]"').includes('tok-and-strong'));
+});
+
+test('diagnostic columns preserve the implementation UTF-16 source positions',()=>{
+  const source='value="😀&<"';const column=source.indexOf('&')+1;
+  const html=highlighter.highlightAeon(source,1,column);
+  const marker='<span class="aeon-diagnostic-line">';assert.ok(html.includes(marker));
+  assert.equal(plain(html.slice(0,html.indexOf(marker))),source.slice(0,column-1));
+  assert.equal(plain(html),source);
+});
+
+test('unknown tokens, invalid spans and unavailable lexing never trigger a fallback scanner',()=>{
+  const source='<img src=x>';
+  const unknown=createAeonHighlighter({...lexer,tokenize:()=>({tokens:[{type:'FutureToken',value:'wrong',span:{start:{offset:0},end:{offset:source.length}}}]})});
+  assert.equal(unknown.highlightAeon(source),'&lt;img src=x&gt;');
+  for(const tokenize of [()=>{throw Error('unavailable');},()=>({tokens:[{type:lexer.TokenType.String,span:{start:{offset:-1},end:{offset:2}}}]})]){
+    const html=createAeonHighlighter({...lexer,tokenize}).highlightAeon(source);assert.equal(html,'&lt;img src=x&gt;');
+  }
+});
+
+test('presentation size allowance skips lexing and retains all source text',()=>{
+  let calls=0;const h=createAeonHighlighter({...lexer,tokenize:()=>{calls++;throw Error('should not tokenize');}});
+  for(const size of [MAX_HIGHLIGHT_SOURCE_CODE_UNITS+1,MAX_HIGHLIGHT_SOURCE_CODE_UNITS+1024]){
+    const source='<'.repeat(size);const html=h.highlightAeon(source);assert.equal(plain(html),source);
+  }
+  assert.equal(calls,0);
 });

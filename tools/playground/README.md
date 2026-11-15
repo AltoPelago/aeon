@@ -26,6 +26,13 @@ sources are served from their actual packages; the playground does not fetch or
 replace dependency pins. It does not represent Rust, WASM or Python execution.
 The identity and empty-key examples exercise the current read-only selector and
 structural-reference boundaries; they do not introduce new selector semantics.
+AEON highlighting uses the workspace lexer's token types and original source
+spans. It has no separate AEON scanner or syntax fallback. Unknown token kinds,
+lexical gaps and sources above 1,048,576 UTF-16 code units display as escaped
+plain text; the compiler's validation and limits remain unchanged. Identifier
+colour follows the lexer category, shared by names used as keys, tags or types.
+JSON colouring and optional &ND decoration inside doc-comment tokens remain
+separate presentation helpers.
 The inherited Composer materializes values and cannot safely reconstruct reference
 or SANSA literals. For those sources it keeps the editor text unchanged and asks
 you to edit directly. All inspection/output views remain available.

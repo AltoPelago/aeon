@@ -12,3 +12,6 @@
   .local-header nav { display: none; }
   .page--playground { height: auto; min-height: calc(100dvh - 88px); overflow: visible; }
 }
+
+/* Identifier is a lexer category; keys, tags and datatype names share it. */
+.tok-identifier { color: #e6c784; }
