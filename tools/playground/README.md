@@ -29,8 +29,9 @@ structural-reference boundaries; they do not introduce new selector semantics.
 AEON highlighting uses the workspace lexer's token types and original source
 spans. It has no separate AEON scanner or syntax fallback. Unknown token kinds,
 lexical gaps and sources above 1,048,576 UTF-16 code units display as escaped
-plain text; the compiler's validation and limits remain unchanged. Identifier
-colour follows the lexer category, shared by names used as keys, tags or types.
+plain text; the compiler's validation and limits remain unchanged. The original key, datatype, tag, literal, reference and comment palette is retained
+through presentation roles over lexer tokens; unclassified identifiers retain the
+original default foreground. No AEON source is rescanned for highlighting.
 JSON colouring and optional &ND decoration inside doc-comment tokens remain
 separate presentation helpers.
 The inherited Composer materializes values and cannot safely reconstruct reference

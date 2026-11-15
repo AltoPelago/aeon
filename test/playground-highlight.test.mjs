@@ -105,3 +105,29 @@ test('presentation size allowance skips lexing and retains all source text',()=>
   }
   assert.equal(calls,0);
 });
+
+test('lexer presentation restores established key, type, tag, symbol and reference roles',()=>{
+  const samples=[
+    ['name:string="hello"',[['key','name'],['type','string'],['string','"hello"']]],
+    ['"":list<object> = []',[['key','""'],['type','list'],['type','<'],['type','object'],['type','>']]],
+    ['name\\id\\ = 12',[['key','name'],['identity','\\id\\'],['literal','12']]],
+    ['node = <widget label="x">',[['key','node'],['tag','widget'],['key','label']]],
+    ['value = |ready|',[['symbol','|ready|']]],
+    ['aeon:header={version="1.0"}',[['directive','aeon'],['directive',':'],['directive','header']]],
+    ['value = NaN',[['literal','NaN']]],
+    ['value = !missing',[['literal','!'],['literal','missing']]],
+    ['copy = ~$.items[0]',[['binding','~'],['binding','$'],['binding','items'],['binding','0']]],
+    ['pointer = ~> $.items[0]',[['binding','~>'],['binding','$'],['binding','items']]],
+    ['x @{ flag=true } = "ok"',[['attribute-punct','@'],['attribute-punct','{'],['key','flag'],['attribute-punct','}']]],
+  ];
+  for(const [source,roles]of samples){
+    const html=highlighter.highlightAeon(source);assert.equal(plain(html),source);
+    for(const [role,text]of roles)assert.ok(html.includes(`<span class="tok-${role}">${text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}</span>`),`${source}: ${role} ${text}\n${html}`);
+  }
+  assert.equal(highlighter.highlightAeon('unclassified'), 'unclassified');
+  const css=readFileSync(new URL('../tools/playground/site.css',import.meta.url),'utf8');
+  for(const [role,colour]of [['key','#7fb2ff'],['type','#c7b8ff'],['tag','#e2c97a'],['string','#d9c58b'],['literal','#c7d98a'],['symbol','#50dabe'],['binding','#7fb2ff']]){
+    assert.ok(css.includes(`--aeon-${role}: ${colour};`));assert.ok(css.includes(`.tok-${role} {\n  color: var(--aeon-${role});`));
+  }
+  assert.ok(!readFileSync(new URL('../tools/playground/local.css',import.meta.url),'utf8').includes('.tok-identifier'));
+});
