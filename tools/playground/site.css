@@ -2525,7 +2525,7 @@ input[disabled],
   overflow: auto;
 }
 
-.playground-output {
+.playground-output-pane .playground-output {
   flex: 1;
   min-height: 100%;
   height: 100%;
@@ -2535,7 +2535,7 @@ input[disabled],
   max-width: 100%;
   display: block;
   font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.88rem;
+  font-size: 0.78rem;
   line-height: 1.6;
 }
 
