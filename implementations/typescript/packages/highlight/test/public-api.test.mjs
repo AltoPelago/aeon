@@ -23,3 +23,19 @@ test('dark and light themes keep existing site palette values',async()=>{
   for(const [role,colour]of [['key','#006f56'],['type','#5d5a8d'],['string','#7a5c1f'],['literal','#526c20'],['comment','#767676']])assert.ok(light.includes(`--aeon-${role}: ${colour};`));
   assert.ok(!dark.includes('.tok-identifier'));assert.ok(!light.includes('.tok-identifier'));
 });
+
+test('provider renderer uses only the selected tokenizer and preserves options',async()=>{
+  const {createHighlighter}=await import('../dist/renderer.js');
+  const lexer=await import('@altopelago/aeon-lexer');let calls=0;
+  const h=createHighlighter({...lexer,tokenize:(source,options)=>{calls++;assert.deepEqual(options,{includeComments:true,includeNewlines:true});return lexer.tokenize(source,options);}});
+  const source='name\\id\\="😀"';assert.equal(h.highlightAeon(source),highlightAeon(source));assert.equal(calls,1);
+});
+test('provider entry loads without loading a lexer or DOM',async()=>{
+  const {spawnSync}=await import('node:child_process');
+  const script=`import {register} from 'node:module';
+    register('data:text/javascript,'+encodeURIComponent('export function resolve(s,c,n){if(s.includes("aeon-lexer"))throw Error("unexpected lexer load");return n(s,c);}'),import.meta.url);
+    const {createHighlighter}=await import(process.argv[1]);let calls=0;
+    const h=createHighlighter({TokenType:{},tokenize:()=>{calls++;return {tokens:[]};}});
+    if(h.highlightAeon('<raw>')!=='&lt;raw&gt;'||calls!==1)throw Error('provider ignored');`;
+  const result=spawnSync(process.execPath,['--input-type=module','-e',script,new URL('../dist/renderer.js',import.meta.url).href],{encoding:'utf8',timeout:5000});assert.equal(result.status,0,result.stderr);
+});

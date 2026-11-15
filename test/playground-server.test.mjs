@@ -12,7 +12,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'aeon-playground-'));
   t.after(() => rm(root, {recursive:true, force:true}));
   const put = async (path, value) => { const target=join(root,path); await mkdir(join(target,'..'),{recursive:true}); await writeFile(target,value); };
-  for (const [dir,name] of [['runtime','@altopelago/aeon-runtime'], ['canonical','@altopelago/aeon-canonical'], ['parser','@altopelago/aeon-parser']]) {
+  for (const [dir,name] of [['runtime','@altopelago/aeon-runtime'], ['canonical','@altopelago/aeon-canonical'], ['parser','@altopelago/aeon-parser'], ['highlight','@altopelago/aeon-highlight']]) {
     await put(`implementations/typescript/packages/${dir}/package.json`, JSON.stringify({name,exports:{'.':{import:'./dist/index.js'}}}));
     await put(`implementations/typescript/packages/${dir}/dist/index.js`, 'export const marker = "initial";');
     await put(`implementations/typescript/packages/${dir}/src/index.ts`, 'export const marker = "source";');

@@ -1,24 +1,10 @@
 import * as lexer from '@altopelago/aeon-lexer';
-import {createAeonHighlighter, MAX_HIGHLIGHT_SOURCE_CODE_UNITS} from './aeon-token-highlight.mjs';
-import {highlightJson as renderJson} from './presentation-highlight.mjs';
+import {createHighlighter} from './renderer.js';
+export {MAX_HIGHLIGHT_SOURCE_CODE_UNITS} from './renderer.js';
+export type {HighlightOptions} from './renderer.js';
 
-export {MAX_HIGHLIGHT_SOURCE_CODE_UNITS};
-
-export interface HighlightOptions {
-    /** One-based source line to mark; invalid or absent values leave it unmarked. */
-    readonly diagnosticLine?: number;
-    /** One-based UTF-16 source column; defaults to one. */
-    readonly diagnosticColumn?: number;
-}
-
-const renderer = createAeonHighlighter(lexer);
-
-/** Render escaped original source slices using implementation lexer tokens. No DOM required. */
-export function highlightAeon(source: string, options: HighlightOptions = {}): string {
-    return renderer.highlightAeon(source, options.diagnosticLine ?? null, options.diagnosticColumn ?? 1);
-}
-
-/** Optional JSON presentation helper; it does not parse or validate AEON. */
-export function highlightJson(source: string): string {
-    return renderJson(source);
-}
+const renderer = createHighlighter(lexer);
+/** Render original source using the package's matching implementation lexer. */
+export const highlightAeon = renderer.highlightAeon;
+/** Separate JSON presentation helper; it does not parse or validate AEON. */
+export const highlightJson = renderer.highlightJson;

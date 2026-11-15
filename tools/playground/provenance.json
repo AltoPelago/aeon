@@ -54,7 +54,8 @@
     "Match playground output font-size to the source editor at 0.78rem; scope the rule above shared walkthrough styles",
     "Composer preserves runtime AST metadata/composite attribute values; selected SANSA parser/renderer owns row-path syntax and member/attribute roles",
     "Index Composer child rows per render/build; remove duplicate fallback Composer and format only the selected output view",
-    "Follow-up: classify runtime header events structurally, preserve typed WTC, require clean parser results and unchanged source before Apply, and bound optional AES alignment padding without truncating values"
+    "Follow-up: classify runtime header events structurally, preserve typed WTC, require clean parser results and unchanged source before Apply, and bound optional AES alignment padding without truncating values",
+    "Replace copied token/JSON/presentation renderers with the workspace aeon-highlight public API; retain only the editor/diagnostic adapter"
   ],
   "highlighterBase": {
     "repository": "AltoPelago/sansa",
@@ -63,11 +64,11 @@
     "sha256": "d5e1855eae070db9c3f7d1df6e05689e1585840371b4a3311578f10b4248a5f9"
   },
   "aeonTokenization": {
-    "module": "@aeon/lexer",
-    "provider": "the selected checkout workspace implementation; no embedded lexer copy",
-    "source": "implementations/typescript/packages/lexer/src/lexer.ts",
-    "reviewedSourceSha256": "01aa32cb38a03018cd90313a683ccb7bcf1fd05480b7e271751958d848897f40",
+    "module": "@altopelago/aeon-highlight",
+    "provider": "selected workspace package; its exact matching implementation lexer",
     "tokens": "implementation TokenType and UTF-16 source span offsets",
-    "fallback": "escaped plain text only"
+    "fallback": "escaped plain text only",
+    "lexerSource": "implementations/typescript/packages/lexer/src/lexer.ts",
+    "reviewedLexerSourceSha256": "01aa32cb38a03018cd90313a683ccb7bcf1fd05480b7e271751958d848897f40"
   }
 }

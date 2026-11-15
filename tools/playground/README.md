@@ -73,3 +73,8 @@ have a JSON representation; use AES or Canonical to inspect those values.
 The server binds to loopback and serves only playground assets and selected
 workspace package source/output directories. No official release, version,
 registry publication or deployment is performed by these commands.
+
+Highlighting delegates to the selected workspace `@altopelago/aeon-highlight`
+package. The editor/diagnostic adapter remains local; there are no copied token
+renderers or JSON/&ND helpers in this playground. The default build includes the
+highlight package, and its public exports are served through the workspace map.

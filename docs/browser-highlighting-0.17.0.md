@@ -108,3 +108,14 @@ script, empty-attribute and property controls. Getter/display source consistency
 is verified; no real clipboard write or full browser matrix is claimed. Node
 renderer/API tests and TypeScript build/typecheck still pass. The shared runtime,
 reference/target guards and performance budgets are unchanged.
+
+## Shared consumer integration
+
+The AEON playground now delegates to the public package and builds it by default;
+its local adapter retains positional diagnostic calls. Existing 68 playground,
+composer/version/release checks and 17 package tests pass. Duplicate renderer and
+JSON/&ND files are removed. The additive provider-only `./renderer` entry allows
+legacy and candidate websites to bind the same rendering logic to their actual
+selected lexer. It loads neither a lexer nor a DOM itself, preserving the released
+0.16 graph while the default package/element remain on the matching 0.17 graph.
+Consumer checks must prove both profiles; no silent runtime upgrade is implied.

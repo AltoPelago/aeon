@@ -4,12 +4,12 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import * as lexer from '../implementations/typescript/packages/lexer/dist/index.js';
-import {createAeonHighlighter, MAX_HIGHLIGHT_SOURCE_CODE_UNITS} from '../tools/playground/aeon-token-highlight.mjs';
-import {highlightJson} from '../tools/playground/presentation-highlight.mjs';
+import {createHighlighter as createAeonHighlighter, MAX_HIGHLIGHT_SOURCE_CODE_UNITS} from '../implementations/typescript/packages/highlight/dist/renderer.js';
+import {highlightJson} from '../implementations/typescript/packages/highlight/dist/index.js';
 
-const file=new URL('../tools/playground/aeon-token-highlight.mjs',import.meta.url);
+const file=new URL('../implementations/typescript/packages/highlight/dist/renderer.js',import.meta.url);
 const lexerFile=new URL('../implementations/typescript/packages/lexer/dist/index.js',import.meta.url);
-const presentationFile=new URL('../tools/playground/presentation-highlight.mjs',import.meta.url);
+const presentationFile=new URL('../implementations/typescript/packages/highlight/dist/index.js',import.meta.url);
 const highlighter={...createAeonHighlighter(lexer),highlightJson};
 const plain=html=>html.replace(/<\/?span\b[^>]*>/g,'').replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&');
 
@@ -33,7 +33,7 @@ test('highlighting retains identities, addresses and documentation token formatt
 });
 test('unterminated quoted tokens and repeated comment starts complete in a bounded process',()=>{
   const script=`import {pathToFileURL} from 'node:url';
-    const {createAeonHighlighter}=await import(pathToFileURL(process.argv[1]));
+    const {createHighlighter:createAeonHighlighter}=await import(pathToFileURL(process.argv[1]));
     const lexer=await import(pathToFileURL(process.argv[2]));
     const {highlightJson}=await import(pathToFileURL(process.argv[3]));
     const h={...createAeonHighlighter(lexer),highlightJson};
@@ -83,7 +83,7 @@ test('comments use implementation metadata while optional doc formatting stays i
 
 test('diagnostic columns preserve the implementation UTF-16 source positions',()=>{
   const source='value="😀&<"';const column=source.indexOf('&')+1;
-  const html=highlighter.highlightAeon(source,1,column);
+  const html=highlighter.highlightAeon(source,{diagnosticLine:1,diagnosticColumn:column});
   const marker='<span class="aeon-diagnostic-line">';assert.ok(html.includes(marker));
   assert.equal(plain(html.slice(0,html.indexOf(marker))),source.slice(0,column-1));
   assert.equal(plain(html),source);
