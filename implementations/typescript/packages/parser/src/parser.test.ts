@@ -339,12 +339,11 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.document!.bindings[0]!.key, '_hello');
         });
 
-        it('should reject empty quoted top-level key', () => {
+        it('should parse empty quoted top-level key', () => {
             const tokens = tokenize('"" = 2').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
         });
 
         it('should preserve structured header bindings with quoted keys, datatypes, attributes, and nested values', () => {
@@ -654,12 +653,11 @@ b = [\A1\ = 2]`).tokens;
             }
         });
 
-        it('should reject empty quoted object key', () => {
+        it('should parse empty quoted object key', () => {
             const tokens = tokenize('obj = { "" = 1 }').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
         });
 
         it('should parse nested objects', () => {
@@ -855,20 +853,18 @@ b = [\A1\ = 2]`).tokens;
             }
         });
 
-        it('should reject empty quoted bracket segment in reference path', () => {
+        it('should parse empty quoted bracket segment in reference path', () => {
             const tokens = tokenize('a = 1\nv = ~[""]').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should reject empty quoted attribute segment in reference path', () => {
+        it('should parse empty quoted attribute segment in reference path', () => {
             const tokens = tokenize('a@{meta = 1} = 0\nv = ~a.@.[""]').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
         });
 
         it('should parse quoted bracket member segment after dot in reference path', () => {
@@ -884,12 +880,11 @@ b = [\A1\ = 2]`).tokens;
             }
         });
 
-        it('should reject empty quoted bracket member segment after dot in reference path', () => {
+        it('should parse empty quoted bracket member segment after dot in reference path', () => {
             const tokens = tokenize('a = 1\nv = ~a.[""]').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.strictEqual(result.errors.length, 0);
         });
 
         it('should parse quoted bracket member segment after attribute selector in reference path', () => {

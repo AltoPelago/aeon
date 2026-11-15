@@ -365,7 +365,7 @@ def normalize_identity_address(address):
         kind = selector.get("type")
         if kind in {"member", "localSpace", "semanticTypeFilter", "representationKindFilter"}:
             name = selector.get("name")
-            if not isinstance(name, str) or not name or (kind.endswith("Filter") and not IDENTIFIER_RE.fullmatch(name)):
+            if not isinstance(name, str) or (kind != "member" and not name) or (kind.endswith("Filter") and not IDENTIFIER_RE.fullmatch(name)):
                 raise ValueError("Invalid selector name")
         elif kind == "namePattern":
             if not isinstance(selector.get("pattern"), str):

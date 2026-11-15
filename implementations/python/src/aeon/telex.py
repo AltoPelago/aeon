@@ -741,7 +741,7 @@ def _read_member(path: str, cursor: int) -> tuple[str, int]:
         if end >= len(path) or path[end] != "]" or not isinstance(value, str):
             raise ValueError(f"Unterminated quoted canonical member in path: {path}")
         canonical = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-        if not value or BARE_MEMBER.fullmatch(value) is not None or canonical != encoded:
+        if BARE_MEMBER.fullmatch(value) is not None or canonical != encoded:
             raise ValueError(f"Non-canonical quoted member in path: {path}")
         _assert_unicode_scalars(value, "Canonical path member")
         return value, end + 1

@@ -99,6 +99,34 @@
       "source": "z\\Z\\=1\ncopy=~$.\\Z\\",
       "ok": false,
       "code": "SYNTAX_ERROR"
+    },
+    {
+      "id": "empty-root-member",
+      "source": "\"\"=1\ncopy=~$.[\"\"]",
+      "ok": true,
+      "target": [
+        ""
+      ]
+    },
+    {
+      "id": "empty-nested-member",
+      "source": "z={\"\"=1}\ncopy=~>z.[\"\"]",
+      "ok": true,
+      "target": [
+        "z",
+        ""
+      ]
+    },
+    {
+      "id": "empty-attribute",
+      "source": "z@{\"\"=1}=0\ncopy=~z.@.[\"\"]",
+      "ok": true,
+      "target": [
+        "z",
+        {
+          "attribute": ""
+        }
+      ]
     }
   ]
 }

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from aeon.core import CompileOptions, compile_source
-from aeon.sansa import resolve_address
+from aeon.sansa import parse_address, resolve_address
 from aeon.sansa_document import namespace_from_assignment_events, namespace_from_portable_records, SansaNamespaceError
 from aeon.portable import adapt_python_assignment_events_to_portable_aes
 from aeon.telex import AEON_DOCUMENT_PROJECTION, encode_telex, parse_telex
@@ -24,6 +24,53 @@ class SansaDocumentTests(unittest.TestCase):
         result = resolve_address(address, namespace)
         self.assertTrue(result['ok'], result)
         return result['bindings']
+
+    def test_empty_member_identity_ast_matches_text_for_source_and_wire_namespaces(self):
+        source = r'""\outer\@{""\meta\={""\attrleaf\="m"}}={""\leaf\@{""="metadata"}="x"}'
+        compiled = self.compile(source)
+        records = adapt_python_assignment_events_to_portable_aes(compiled.events)['events']
+        wire = parse_telex(encode_telex(records, limits={'max_attribute_depth': 8}),
+                           limits={'max_attribute_depth': 8}).records
+        identity = lambda name: '.' + chr(92) + name + chr(92)
+        cases = [
+            ('$.[""]' + identity('leaf'), '$.[""].[""]'),
+            ('$' + identity('outer') + '.[""]', '$.[""].[""]'),
+            ('$.[""]' + identity('leaf') + '.@.[""]', '$.[""].[""].@.[""]'),
+            ('$' + identity('outer') + '.[""].@.[""]', '$.[""].[""].@.[""]'),
+            ('$.[""].@' + identity('meta') + '.[""]', '$.[""].@.[""].[""]'),
+            ('$' + identity('outer') + '.@.[""]' + identity('attrleaf'), '$.[""].@.[""].[""]'),
+            ('$' + identity('outer') + identity('leaf'), '$.[""].[""]'),
+            ('$.[""].[""]', '$.[""].[""]'),
+        ]
+        namespaces = [
+            namespace_from_assignment_events(compiled.events, limits={'max_attribute_depth': 8}),
+            namespace_from_portable_records(records, limits={'max_attribute_depth': 8}),
+            namespace_from_portable_records(wire, limits={'max_attribute_depth': 8}),
+        ]
+        for namespace in namespaces:
+            contextual_root = self.selected(namespace, '$.[""]')[0]
+            contextual = [
+                ('?.@.[""]' + identity('attrleaf'), '$.[""].@.[""].[""]'),
+                ('?' + identity('leaf') + '.@.[""]', '$.[""].[""].@.[""]'),
+            ]
+            for selector, expected, options in [
+                *[(selector, expected, {}) for selector, expected in cases],
+                *[(selector, expected, {'contextualRoot': contextual_root}) for selector, expected in contextual],
+            ]:
+                with self.subTest(selector=selector):
+                    parsed = parse_address(selector)
+                    self.assertTrue(parsed['ok'], parsed)
+                    address = parsed['address']
+                    if any(step['type'] == 'childIdentity' for step in address['selectors']):
+                        address.update(canonical='$.untrusted', isExact=True)
+                    original = copy.deepcopy(address)
+                    text = resolve_address(selector, namespace, options)
+                    ast = resolve_address(address, namespace, options)
+                    self.assertTrue(text['ok'], text)
+                    self.assertTrue(ast['ok'], ast)
+                    self.assertEqual([expected], [b['path'] for b in ast['bindings']])
+                    self.assertIs(ast['bindings'][0], text['bindings'][0])
+                    self.assertEqual(original, address)
 
     def test_native_and_wire_occurrence_kinds(self):
         cases = [

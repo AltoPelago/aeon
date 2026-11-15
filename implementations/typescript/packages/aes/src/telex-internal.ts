@@ -1238,7 +1238,6 @@ function readMember(path, cursor) {
       throw new TypeError(`Invalid quoted canonical member in path: ${path}`);
     }
     if (typeof decoded !== 'string'
-      || decoded.length === 0
       || BARE_PATH_MEMBER.test(decoded)
       || hasLoneSurrogate(decoded)
       || JSON.stringify(decoded) !== encoded) {

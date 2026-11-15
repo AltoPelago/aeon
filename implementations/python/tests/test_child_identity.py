@@ -175,6 +175,35 @@ class ChildIdentityTests(unittest.TestCase):
             self.assertEqual(result['errors'][0]['code'], 'SANSA_RESOLVE_INVALID_ADDRESS')
         self.assertEqual(calls, [])
 
+    def test_empty_member_ast_keeps_identifier_payload_and_work_guards(self):
+        namespace, _, calls = adapter()
+        base = parse_address('$.[""]' + '.' + chr(92) + 'item1' + chr(92))['address']
+        invalid = []
+        for name in (None, False, 0, [], {}, 'x' * 65537, chr(0xD800)):
+            address = copy.deepcopy(base)
+            address['selectors'][0]['name'] = name
+            invalid.append(address)
+        address = copy.deepcopy(base)
+        del address['selectors'][0]['name']
+        invalid.append(address)
+        for kind in ('localSpace', 'semanticTypeFilter', 'representationKindFilter'):
+            address = copy.deepcopy(base)
+            address['selectors'][0] = {'type': kind, 'name': ''}
+            invalid.append(address)
+        address = copy.deepcopy(base)
+        address['selectors'][1]['identity'] = ''
+        invalid.append(address)
+        address = copy.deepcopy(base)
+        address['selectors'] = [base['selectors'][0]] * 1025 + [base['selectors'][1]]
+        invalid.append(address)
+        for address in invalid:
+            with self.subTest(address_type=address['selectors'][0]['type']):
+                result = resolve_address(address, namespace)
+                self.assertFalse(result['ok'], result)
+                self.assertEqual(result['errors'][0]['code'], 'SANSA_RESOLVE_INVALID_ADDRESS')
+                self.assertEqual([], result['bindings'])
+        self.assertEqual([], calls)
+
     def test_reorder_retains_occurrence_and_move_out_misses(self):
         namespace, nodes, _ = adapter()
         group, selected = nodes['$.group'], nodes['$.group[0]']

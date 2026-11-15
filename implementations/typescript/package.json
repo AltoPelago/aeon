@@ -54,7 +54,9 @@
     "ci:canonical": "pnpm build && cd ../rust && cargo build -p aeon-cli && cd ../typescript && bash ../../scripts/canonical-cts.sh --mode all --brief",
     "ci": "pnpm ci:typescript && pnpm ci:canonical",
     "clean": "pnpm -r --filter './packages/**' --filter './tools/**' clean",
-    "test:reference-packages": "node ../../scripts/test-installed-reference-paths.mjs"
+    "test:reference-packages": "node ../../scripts/test-installed-reference-paths.mjs",
+    "test:cts:empty-keys": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/check-empty-key-cts.mjs",
+    "test:cts:empty-keys:legacy": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/check-empty-key-cts.mjs --legacy-only"
   },
   "devDependencies": {
     "typescript": "7.0.2",

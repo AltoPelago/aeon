@@ -855,12 +855,6 @@ impl StructuralCursor for AddressParser<'_> {
             return self.parse_identifier("member selector");
         }
         let name = self.parse_quoted_payload()?;
-        if name.is_empty() {
-            return self.fail(
-                "Quoted member names must not be empty",
-                "SANSA_EMPTY_MEMBER_NAME",
-            );
-        }
         Ok(name)
     }
     fn close_bracket(&mut self, _: MemberContext) -> Result<(), Self::Error> {

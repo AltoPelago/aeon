@@ -8,6 +8,10 @@ repositories.
 
 ## Unreleased
 
+### Empty property keys
+
+- Empty quoted property and attribute keys are accepted by the TypeScript, Rust and pure Python parsers, references and portable AES paths. `"" = ""` is an ordinary unique binding; SANSA integration uses a local development candidate. Specification/CTS transition, native artifacts and release acceptance remain pending.
+
 ### Unicode hardening
 
 - Rust AEOS ordinary and attribute string-form constraints now use the existing UTF-16 unit contract; native Python inherits the correction on rebuild. Pure Python SANSA name patterns now match LF. Shared cross-runtime vectors protect exact Unicode keys/reference targets and canonical fixed points without normalization or new profile admission.

@@ -123,13 +123,14 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("TupleLiteral", by_path["$.e"]["value"]["type"])
         self.assertEqual("SansaAddressLiteral", by_path["$.f"]["value"]["type"])
 
-    def test_empty_quoted_key_rejected(self) -> None:
+    def test_empty_quoted_key_accepted(self) -> None:
         result = compile_source('"" = ""')
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual([], result.errors)
+        self.assertEqual('$.[""]', result.events[0]["path"])
 
-    def test_empty_quoted_path_segment_rejected(self) -> None:
-        result = compile_source('a = 1\nv = ~a.[""]')
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+    def test_empty_quoted_path_segment_accepted(self) -> None:
+        result = compile_source('a = { "" = 1 }\nv = ~a.[""]')
+        self.assertEqual([], result.errors)
 
     def test_root_quoted_member_requires_explicit_dot(self) -> None:
         result = compile_source('"a.b" = 1\nv = ~$["a.b"]')

@@ -1,24 +1,14 @@
-# Local SANSA development candidate
+# Combined SANSA development candidate
 
-The workspace override pins the reviewed SANSA `0436666` archive until official
-release coordination. Package manifests retain the intended `0.15.0-rc.1`
-dependency; this local install does not assert that the registry has these bytes.
+The selected local archive contains ordinary empty property names and merged
+Unicode hardening from immutable SANSA source `05b8739f06be0e76d03e0d3b17ec6c403568d41e`.
 
-The exact reviewed archive is retained on the integration branch, so a checkout
-can verify it and install directly from `implementations/typescript`:
+Archive: `altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-c0471ad5.tgz`.
+SHA-256: `c0471ad59f6f0594e0ca6183ad6a292d02c208bd9cc30709bb5b27ac9e7d222b`.
+All 114 packaged files match that source; provenance.json records the tree.
+Previous archives remain unchanged for provenance. The staging helper verifies
+only the selected bytes; it never fetches, publishes or substitutes a package.
 
-```sh
-node tools/stage-sansa-candidate.mjs
-pnpm install --offline --frozen-lockfile --ignore-scripts
-```
-
-Use the workspace's pinned pnpm 10.34.4. Running the helper without an argument
-verifies the staged archive. It refuses different bytes; it never fetches,
-publishes, repacks or silently substitutes another candidate.
-
-SHA-256: `bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759`.
-Only this reviewed archive is versioned; other tarballs remain ignored. The
-staging helper can also restore it from the retained readiness archive after
-checking its checksum. Release preparation must remove the override/archive and qualify actual final
-registry versions/integrities, rather than reusing the local archive's checksum
-as a registry claim. Official releases and deployment remain on hold.
+This is an unreleased integration candidate. Package versions and registry
+dependencies are not advanced. Final registry integrity, platform qualification
+and release adoption remain separate; releases and deployment stay held.

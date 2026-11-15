@@ -285,10 +285,10 @@ Release notes should not imply that:
 ## Held SANSA development candidate
 
 The private TypeScript workspace override uses the source-verified SANSA
-`0.15.0-rc.1` archive from merged commit
-`0436666176c9225393c43a80b99d800d00b46452`. The filename, staging helper,
+`0.15.0-rc.1` archive from reviewed development commit
+`05b8739f06be0e76d03e0d3b17ec6c403568d41e`. The filename, staging helper,
 checksum whitelist, provenance record and frozen lock identify the same bytes:
-SHA-256 `bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759`.
+SHA-256 `c0471ad59f6f0594e0ca6183ad6a292d02c208bd9cc30709bb5b27ac9e7d222b`.
 Rust development pins the same immutable Git revision under the existing strict
 source policy. Package versions and unrelated locked dependencies are unchanged.
 
@@ -302,3 +302,12 @@ Official releases, deployment, final version allocation and stable contract
 promotion remain on hold. This development-pin refresh does not relax publish
 guards, compatibility or target-preservation checks, performance ceilings, or
 the remaining platform and artifact qualification requirements.
+
+The combined empty-key/Unicode development graph selects SANSA `05b8739f06be0e76d03e0d3b17ec6c403568d41e`
+from `altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-c0471ad5.tgz` (SHA-256 `c0471ad59f6f0594e0ca6183ad6a292d02c208bd9cc30709bb5b27ac9e7d222b`).
+The TypeScript override and frozen lock select these same bytes; Rust selects the
+same source revision. This deliberately updates the private development controls,
+not the publishable package roster or public package versions. Empty ordinary
+property keys supersede only the explicitly audited historical rejection cases.
+Official releases, registry publication, deployment and stable CTS promotion stay
+held until owning reviews merge and the separate release gates are completed.

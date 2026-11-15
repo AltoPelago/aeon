@@ -30,7 +30,6 @@ function punctuationType(char: string): TokenType | undefined {
 }
 export class ReferenceReader implements SansaSelectorCursor {
     protected context: 'initial' | 'member' | 'attribute' | 'bracket' = 'initial';
-    private quotedToken: Token | undefined;
     private virtualClose = false;
     protected output!: ReferencePathSegment[];
     constructor(protected readonly tokens: ReferenceTokenCursor) {}
@@ -45,14 +44,10 @@ export class ReferenceReader implements SansaSelectorCursor {
     }
     private keyValue(token: Token): string {
         if (token.type === TokenType.String && token.quote === '`') return this.backtick(token);
-        if (!token.value.length) return this.emptyKey(token);
         return token.value;
     }
     private backtick(token: Token): never {
         return this.error(this.context === 'attribute' ? 'Backtick-quoted keys are not supported in attribute segments' : 'Backtick-quoted keys are not supported in paths', 'single or double quoted key', token);
-    }
-    private emptyKey(token: Token): never {
-        return this.error(this.context === 'attribute' ? 'Quoted attribute keys must not be empty' : 'Quoted path keys must not be empty', 'non-empty key', token);
     }
 
     get index() { return this.tokens.peek().span.start.offset; }
@@ -92,11 +87,6 @@ export class ReferenceReader implements SansaSelectorCursor {
     }
     private quotedValue(token: Token): string {
         if (token.quote === '`') return this.backtick(token);
-        if (!token.value.length) {
-            // AEON requires the closing token before reporting an empty key.
-            this.consume(']');
-            return this.emptyKey(token);
-        }
         return token.value;
     }
     private expectedQuotedPayload(): never {
@@ -113,7 +103,7 @@ export class ReferenceReader implements SansaSelectorCursor {
         this.virtualClose = true;
         return value;
     }
-    fail(): never { return this.error('Quoted path keys must not be empty', 'non-empty key', this.quotedToken); }
+    fail(message: string): never { return this.error(message, 'reference path'); }
     emitMember(name: string, _quoted: boolean): void { this.output.push(name); }
     private emitAttribute(name: string, _quoted: boolean): void { this.output.push({ type: 'attr', key: name }); }
     emit(selector: SansaSelector | string | number): void {
@@ -149,14 +139,12 @@ export class ReferenceReader implements SansaSelectorCursor {
         } catch (error) {
             // Lazy error stacks retain this receiver: release partial buffers.
             this.output = undefined!;
-            this.quotedToken = undefined;
             throw error;
         }
     }
     read(): void {
         this.output = [];
         this.context = 'initial';
-        this.quotedToken = undefined;
         this.virtualClose = false;
         this.readInitial();
         for (;;) {

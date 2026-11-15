@@ -1509,7 +1509,7 @@ fn push_aes_path_segment(
         PathSegment::Root => {}
         PathSegment::Member(member) => rendered
             .push_member(member)
-            .expect("validated AEON paths have nonempty members"),
+            .expect("AEON member names produce canonical paths"),
         PathSegment::Index(index) => rendered.push_index(*index),
     }
 }
@@ -1517,14 +1517,14 @@ fn push_aes_path_segment(
 fn append_member(owner_path: &AesCanonicalPath, key: &str) -> AesCanonicalPath {
     let mut path = owner_path.clone();
     path.push_member(key)
-        .expect("validated AEON paths have nonempty members");
+        .expect("AEON member names produce canonical paths");
     path
 }
 
 fn append_attribute(owner_path: &AesCanonicalPath, key: &str) -> AesCanonicalPath {
     let mut path = owner_path.clone();
     path.push_attribute(key)
-        .expect("validated AEON paths have nonempty attributes");
+        .expect("AEON attribute names produce canonical paths");
     path
 }
 

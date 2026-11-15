@@ -101,7 +101,13 @@ async function main() {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     assert.equal(manifest.meta.format, 'film.aes');
     assert.equal(manifest.meta.format_version, '1');
-    assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.4');
+    const released = manifest.meta.status === 'released';
+    if (released) assert.equal(manifest.meta.snapshot_id, 'film-cts-v1-snapshot-0.4');
+    else {
+        assert.equal(manifest.meta.status, 'experimental');
+        assert.ok(manifestPath.endsWith('.next.json'));
+        assert.equal(manifest.meta.snapshot_id, 'film-next-cts-v1-snapshot-0.1');
+    }
 
     let directDecode = 0;
     let producerFixtures = 0;
@@ -111,8 +117,10 @@ async function main() {
     for (const suiteRef of manifest.suites) {
         const suitePath = path.resolve(path.dirname(manifestPath), suiteRef.file);
         const suiteBytes = await readFile(suitePath);
-        assert.equal(createHash('sha256').update(suiteBytes).digest('hex'), suiteRef.content_sha256,
-            `${suiteRef.id}: suite digest differs from the immutable manifest`);
+        if (released || suiteRef.content_sha256 !== undefined) {
+            assert.equal(createHash('sha256').update(suiteBytes).digest('hex'), suiteRef.content_sha256,
+                `${suiteRef.id}: suite digest differs from the selected manifest`);
+        }
         const suite = JSON.parse(suiteBytes.toString('utf8'));
         assert.equal(suite.id, suiteRef.id);
         const excluded = new Set(suiteRef.exclude_tests ?? []);
@@ -153,9 +161,13 @@ async function main() {
             }
         }
     }
-    assert.deepEqual({ directDecode, producerFixtures, encoderOnly, incrementalVectors }, {
-        directDecode: 103, producerFixtures: 13, encoderOnly: 12, incrementalVectors: 34,
-    });
+    if (released) {
+        assert.deepEqual({ directDecode, producerFixtures, encoderOnly, incrementalVectors }, {
+            directDecode: 103, producerFixtures: 13, encoderOnly: 12, incrementalVectors: 34,
+        });
+    } else {
+        assert.equal(directDecode + producerFixtures + encoderOnly, manifest.meta.expected_test_count);
+    }
     process.stdout.write(`Film reader CTS passed: ${directDecode} decode + ${producerFixtures} producer fixtures; `
         + `${encoderOnly} encoder-only negatives skipped; ${incrementalVectors} incremental vectors / ${incrementalSplits} splits\n`);
 }

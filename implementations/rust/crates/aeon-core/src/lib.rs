@@ -4240,32 +4240,27 @@ z = 7"###,
     }
 
     #[test]
-    fn collects_multiple_parse_errors_for_empty_quoted_keys() {
+    fn compiles_empty_quoted_keys_and_references() {
         let result = compile(
             "a = { \"\" = 1 }\nv = ~a.[\"\"]\n",
             CompileOptions::default(),
         );
-        assert_eq!(result.errors.len(), 2, "{:?}", result.errors);
-        assert!(
-            result
-                .errors
-                .iter()
-                .all(|error| error.code == "SYNTAX_ERROR")
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(
+            crate::pathing::format_path(&result.events[1].path),
+            "$.a.[\"\"]"
         );
     }
 
     #[test]
     fn recovers_to_quoted_key_bindings_after_parse_errors() {
-        let result = compile("a = { \"\" = 1 }\n\"\" = 2\n", CompileOptions::default());
-        assert_eq!(result.errors.len(), 2, "{:?}", result.errors);
-        assert!(
-            result
-                .errors
-                .iter()
-                .all(|error| error.code == "SYNTAX_ERROR"),
-            "{:?}",
-            result.errors
+        let result = parse_document_from_tokens_recovery_with_implementation(
+            "a = }\n\"\" = 2\n",
+            ParserLimits::new(64, 1, 1, 1, 32, 128),
+            ParserImplementation::Baseline,
         );
+        assert!(!result.errors.is_empty());
+        assert!(result.bindings.iter().any(|binding| binding.key.is_empty()));
     }
 
     #[test]
@@ -4996,11 +4991,14 @@ z = 7"###,
     }
 
     #[test]
-    fn rejects_empty_quoted_keys_in_binding_positions() {
+    fn accepts_empty_quoted_keys_in_binding_positions() {
         let result = compile("\"\" = 1\n", CompileOptions::default());
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        assert_eq!(result.errors[0].message, "Keys must not be empty");
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].key, "");
+        assert_eq!(
+            crate::pathing::format_path(&result.events[0].path),
+            "$.[\"\"]"
+        );
     }
 
     #[test]
