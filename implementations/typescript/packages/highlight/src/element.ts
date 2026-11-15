@@ -39,6 +39,8 @@ export function defineAeonCodeBlock(tagName = 'aeon-code-block'): AeonCodeBlockC
         private readonly copyButton: HTMLButtonElement;
         private readonly status: HTMLElement;
         private readonly observer: MutationObserver;
+        private readonly templateObserver: MutationObserver;
+        private observedTemplate: DocumentFragment | null = null;
         constructor() {
             super();
             const shadow = this.attachShadow({mode: 'open'});
@@ -55,29 +57,46 @@ export function defineAeonCodeBlock(tagName = 'aeon-code-block'): AeonCodeBlockC
             shadow.append(style, frame);
             this.copyButton.addEventListener('click', () => { void this.copySource(); });
             this.observer = new MutationObserver(() => this.render());
+            this.templateObserver = new MutationObserver(() => this.render());
         }
         /** Exact authored source; assigning it does not rewrite light DOM. */
-        get code(): string {
-            if (this.sourceOverride !== undefined) return this.sourceOverride;
+        get code(): string { return this.readSource().text; }
+        private readSource(): {text: string; template: DocumentFragment | null} {
+            if (this.sourceOverride !== undefined) return {text: this.sourceOverride, template: null};
             const attribute = this.getAttribute('code');
-            if (attribute !== null) return attribute;
+            if (attribute !== null) return {text: attribute, template: null};
             const script = this.querySelector('script[type="text/plain"]');
-            if (script) return script.textContent ?? '';
+            if (script) return {text: script.textContent ?? '', template: null};
             const template = this.querySelector('template');
-            if (template instanceof HTMLTemplateElement) return template.content.textContent ?? '';
-            return this.textContent ?? '';
+            if (template instanceof HTMLTemplateElement) {
+                return {text: template.content.textContent ?? '', template: template.content};
+            }
+            return {text: this.textContent ?? '', template: null};
         }
         set code(source: string) { this.sourceOverride = source; this.render(); }
         connectedCallback(): void {
-            this.observer.observe(this, {childList: true, characterData: true, subtree: true});
+            this.observer.observe(this, {childList: true, characterData: true, subtree: true,
+                attributes: true, attributeFilter: ['type']});
             this.render();
         }
-        disconnectedCallback(): void { this.observer.disconnect(); }
+        disconnectedCallback(): void {
+            this.observer.disconnect();
+            this.templateObserver.disconnect();
+            this.observedTemplate = null;
+        }
         attributeChangedCallback(): void { this.render(); }
         private render(): void {
+            const source = this.readSource();
+            const template = this.isConnected ? source.template : null;
+            if (template !== this.observedTemplate) {
+                this.templateObserver.disconnect();
+                this.observedTemplate = template;
+                if (template) this.templateObserver.observe(template,
+                    {childList: true, characterData: true, subtree: true});
+            }
             this.titleElement.textContent = this.getAttribute('title') ?? 'Code';
             this.copyButton.hidden = this.getAttribute('show-copy') === 'false';
-            this.codeElement.innerHTML = highlightAeon(this.code);
+            this.codeElement.innerHTML = highlightAeon(source.text);
             this.status.textContent = '';
         }
         private async copySource(): Promise<void> {

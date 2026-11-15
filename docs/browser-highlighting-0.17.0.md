@@ -95,3 +95,16 @@ The inherited JSON helper’s quoted-string regex was replaced with a bounded
 string walk, with escaped-quote/key-spacing/malformed-tail regressions. This
 separate JSON presentation helper does not tokenize AEON. No guard, security
 query or target check is suppressed.
+
+## QA-2026-0072 remediation
+
+The initial component did not observe the selected template's separate content
+fragment. The real-browser lifecycle fixture reproduces the reviewed head with
+3/11 passing controls and 8 stale-display failures. The fix watches the selected
+fragment, changes that watch when source priority/selection changes, observes
+script type changes, and disconnects both observers when detached. All 11 browser
+cases pass against a freshly installed local tarball, including ordinary text,
+script, empty-attribute and property controls. Getter/display source consistency
+is verified; no real clipboard write or full browser matrix is claimed. Node
+renderer/API tests and TypeScript build/typecheck still pass. The shared runtime,
+reference/target guards and performance budgets are unchanged.

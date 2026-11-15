@@ -36,7 +36,7 @@ document.body.append(block);
 `code` property overrides the `code` attribute; otherwise source comes from a
 nested `script[type="text/plain"]`, a template's content, or text content. Empty
 attributes are respected. Source is not trimmed. For arbitrary source use the
-property rather than interpolating HTML. Light-DOM edits update the display;
+property rather than interpolating HTML. Light-DOM edits and edits within the selected template content update the display;
 disconnecting the element disconnects its observer. `show-copy="false"` hides
 the copy button. Register only one implementation per tag; a foreign existing
 definition is rejected rather than assumed to support this API. Copy uses the browser clipboard API following a button click;
@@ -71,3 +71,14 @@ pnpm --filter @altopelago/aeon-highlight... test
 
 The [consumer migration checklist](../../../../docs/browser-highlighting-0.17.0.md)
 keeps adoption separate from package preparation and PR #197.
+
+### Browser lifecycle regression
+
+`test/browser/element-lifecycle.html` and its module execute real DOM mutation
+cases, including selected-template edits/replacement, source precedence, script
+type changes and disconnect/reconnect. Copy both files into the root of a local
+packed consumer alongside `node_modules`, serve that root over loopback, open the
+page and press **Run lifecycle tests**. The import map uses the installed package
+and lexer; it has no workspace fallback. This browser fixture is separate from
+the Node-only test command above. Clipboard permissions and the browser-engine
+matrix remain release qualification checks.

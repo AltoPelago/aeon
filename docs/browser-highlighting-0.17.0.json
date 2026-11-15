@@ -69,5 +69,49 @@
     "securityQueriesSuppressed": false,
     "newHeadCI": "pending"
   },
-  "existingCoreRuntimeOrFixtureChanges": false
+  "existingCoreRuntimeOrFixtureChanges": false,
+  "qa0072": {
+    "reviewedHead": "1760aba7db795394c807d002a2142a0dc0892c44",
+    "before": {
+      "results": [
+        "FAIL template text edits update display and getter: display differs: x=1",
+        "FAIL template child replacement and nested edits update display: display differs: x=1",
+        "FAIL replacing the selected template tracks the new fragment: display differs: x=3",
+        "FAIL removing the selected template selects and watches its successor: display differs: x=3",
+        "FAIL code attribute overrides template and removal restores observation: display differs: x=2",
+        "PASS empty code attribute overrides template until removed",
+        "PASS property source overrides template mutations",
+        "FAIL plain-text script takes precedence and template resumes after removal: display differs: x=2",
+        "FAIL changing script type refreshes selected source observation: display differs: x=8",
+        "PASS ordinary descendant text remains live",
+        "FAIL disconnect releases observation and reconnect uses latest template text: display differs: x=2"
+      ],
+      "summary": "3/11 passed"
+    },
+    "after": {
+      "results": [
+        "PASS template text edits update display and getter",
+        "PASS template child replacement and nested edits update display",
+        "PASS replacing the selected template tracks the new fragment",
+        "PASS removing the selected template selects and watches its successor",
+        "PASS code attribute overrides template and removal restores observation",
+        "PASS empty code attribute overrides template until removed",
+        "PASS property source overrides template mutations",
+        "PASS plain-text script takes precedence and template resumes after removal",
+        "PASS changing script type refreshes selected source observation",
+        "PASS ordinary descendant text remains live",
+        "PASS disconnect releases observation and reconnect uses latest template text"
+      ],
+      "summary": "11/11 passed"
+    },
+    "browser": "real in-app browser; installed local package; same lifecycle fixture before/after",
+    "artifactSha256": "ff3b36bff88336fb54180889fe89b971dde76a16b2e3a4d99cc4057ea79a502b",
+    "nodeTests": 15,
+    "buildAndTypecheck": true,
+    "clipboardWritten": false,
+    "allBrowserEngines": false,
+    "remoteCI": "pending",
+    "versionReleasePolicyTests": 35,
+    "installedRuntimeMatchesFinalArtifact": true
+  }
 }
