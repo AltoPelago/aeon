@@ -1,0 +1,14 @@
+/* Local shell; the editor, panels and composer use the website's original CSS. */
+.local-header { min-height: 64px; display: flex; align-items: center; gap: 24px; padding: 12px 22px; border-bottom: 1px solid #bfc2b7; background: #f3efe5; }
+.local-header strong { font: 700 20px/1 Georgia, serif; letter-spacing: -.04em; white-space: nowrap; }
+.local-header strong span { font-weight: 400; }
+.local-source-badge { font: 12px/1.3 system-ui, sans-serif; color: #4c6556; }
+.local-source-badge.is-error { color: #9b2828; }
+.local-header nav { margin-left: auto; }
+.local-header a { color: #354b3d; font: 12px/1.3 system-ui, sans-serif; }
+.page--playground { height: calc(100dvh - 64px); }
+@media (max-width: 760px) {
+  .local-header { gap: 12px; padding: 12px; flex-wrap: wrap; }
+  .local-header nav { display: none; }
+  .page--playground { height: auto; min-height: calc(100dvh - 88px); overflow: visible; }
+}

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="/tools/playground/">
+<title>AEON source playground</title><link rel="stylesheet" href="./site.css"><link rel="stylesheet" href="./local.css">
+<script type="importmap">__PLAYGROUND_IMPORTS__</script>
+<script>window.AeonPlaygroundExamples = __PLAYGROUND_EXAMPLES__;</script>
+</head><body>
+<header class="local-header"><strong>AEON <span>Playground</span></strong><span class="local-source-badge" data-local-build role="status">Local TypeScript</span><nav><a href="https://github.com/AltoPelago/aeon" target="_blank" rel="noopener">Repository ↗</a></nav></header>
+<main class="page page--playground" id="main-content">
+<section class="playground-app-shell reveal-item" data-playground-shell>
+        <h1 class="visually-hidden">AEON Playground</h1>
+
+        <div class="playground-toolbar">
+            <div class="playground-toolbar-groups playground-toolbar-primary">
+                <button class="playground-examples-button" type="button" data-examples-open aria-controls="playground-examples-modal" aria-expanded="false">Examples</button>
+                <button class="playground-examples-button playground-composer-button" type="button" data-source-builder-open aria-controls="source-builder-modal" aria-expanded="false"><span class="playground-composer-icon" aria-hidden="true">&#9998;</span><span>AEON Composer</span></button>
+                <div class="playground-toggle-group" role="group" aria-label="Validation mode">
+                    <button class="playground-toggle is-active" type="button" data-mode="transport" data-tooltip="Transport mode keeps the broader transport-friendly surface. AEOS schemas are not applied here." title="Transport mode keeps the broader transport-friendly surface. AEOS schemas are not applied here." aria-pressed="true">Transport</button>
+                    <button class="playground-toggle" type="button" data-mode="custom" data-tooltip="Custom mode allows ecosystem-defined custom datatypes. AEOS schemas are not applied here." title="Custom mode allows ecosystem-defined custom datatypes. AEOS schemas are not applied here." aria-pressed="false">Custom</button>
+                    <button class="playground-toggle" type="button" data-mode="strict" data-tooltip="Strict mode enforces the reserved strict language surface, not the GP schema." title="Strict mode enforces the reserved strict language surface, not the GP schema." aria-pressed="false">Strict</button>
+                </div>
+                <span class="playground-schema-note">GP profile · no schema</span>
+            </div>
+            <div class="playground-toggle-group playground-output-toggle-group" role="group" aria-label="Output view">
+                <button class="playground-toggle" type="button" data-output-view="aes" data-tooltip="Show the Assignment Event Stream emitted from the current source." title="Show the Assignment Event Stream emitted from the current source." aria-pressed="false">AES</button>
+                <button class="playground-toggle is-active" type="button" data-output-view="finalized" data-tooltip="Show the finalized data for the current source." title="Show the finalized data for the current source." aria-pressed="true">Data</button>
+                <button class="playground-toggle" type="button" data-output-view="annotations" data-tooltip="Show the annotation stream emitted from the current source." title="Show the annotation stream emitted from the current source." aria-pressed="false">Annotation Stream</button>
+                <button class="playground-toggle" type="button" data-output-view="canonical" data-tooltip="Show the canonical AEON rendering of the current source." title="Show the canonical AEON rendering of the current source." aria-pressed="false">Canonical</button>
+            </div>
+        </div>
+        <section class="panel playground-pane playground-source-pane">
+            <div class="panel-head">
+                <h2 id="playground-source-title">AEON source</h2>
+            </div>
+            <div class="highlight-editor walkthrough-editor" data-aeon-editor>
+                <pre class="highlight-backdrop" aria-hidden="true"><code></code></pre>
+                <textarea spellcheck="false" data-playground-source aria-labelledby="playground-source-title">//# Playground source
+//# Use AEON Composer above when you want help adding bindings,
+//# attributes, comments, and values.
+//# You can also edit the source directly; the output updates as you type.
+contact:object = {
+  name:string = &quot;Bob&quot;
+  occupation:string = &quot;patissier&quot;
+}
+
+status:boolean = true
+measurements:list&lt;number&gt; = [3, 4, 5]
+summary:prose = &gt;`
+  Hello
+  from
+  AEON
+`</textarea>
+            </div>
+        </section>
+        <section class="panel playground-pane playground-output-pane">
+            <div class="panel-head">
+                <h2 id="playground-output-title"><span data-playground-output-title>Data</span> <span class="playground-loading" data-playground-loading hidden>Loading...</span></h2>
+            </div>
+            <div class="walkthrough-code-frame playground-output-frame" role="region" aria-labelledby="playground-output-title" tabindex="0">
+                <pre class="walkthrough-code playground-output" data-playground-output></pre>
+            </div>
+        </section>
+        <section class="panel playground-pane playground-errors-pane">
+            <div class="panel-head">
+                <h2 id="playground-errors-title">Diagnostics</h2>
+            </div>
+            <pre class="playground-errors" data-playground-errors role="status" aria-live="polite" aria-atomic="true" aria-labelledby="playground-errors-title">No errors detected.</pre>
+        </section>
+        <div class="playground-modal" id="playground-examples-modal" data-examples-modal hidden>
+            <button class="playground-modal-backdrop" type="button" data-examples-close aria-label="Close examples"></button>
+            <section class="playground-modal-panel" role="dialog" aria-modal="true" aria-labelledby="playground-examples-title" tabindex="-1">
+                <div class="playground-modal-head">
+                    <h2 id="playground-examples-title">Examples</h2>
+                    <button class="playground-modal-close" type="button" data-examples-close aria-label="Close examples"></button>
+                </div>
+                <div class="playground-example-tabs" role="group" aria-label="Example source">
+                    <button class="playground-example-tab is-active" type="button" data-example-key="transport" aria-pressed="true">Transport</button>
+<button class="playground-example-tab" type="button" data-example-key="custom" aria-pressed="false">Custom</button>
+<button class="playground-example-tab" type="button" data-example-key="strict" aria-pressed="false">Strict</button>
+<button class="playground-example-tab" type="button" data-example-key="full" aria-pressed="false">Full strict</button>
+<button class="playground-example-tab" type="button" data-example-key="symbols" aria-pressed="false">Symbols</button>
+<button class="playground-example-tab" type="button" data-example-key="temporal" aria-pressed="false">Temporal claims</button>
+<button class="playground-example-tab" type="button" data-example-key="identities" aria-pressed="false">Identities + references</button>
+<button class="playground-example-tab" type="button" data-example-key="empty-keys" aria-pressed="false">Empty keys + Unicode</button>
+                </div>
+                <div class="walkthrough-code-frame playground-example-frame">
+                    <pre class="walkthrough-code"><code data-example-code></code></pre>
+                </div>
+                <div class="playground-modal-actions">
+                    <button class="button-link button-link-primary" type="button" data-example-load>Load example</button>
+                    <button class="button-link" type="button" data-examples-close>Close</button>
+                </div>
+            </section>
+        </div>
+        <div class="playground-modal source-builder-modal" id="source-builder-modal" data-source-builder-modal hidden>
+            <button class="playground-modal-backdrop" type="button" data-source-builder-close aria-label="Close AEON Composer"></button>
+            <section class="playground-modal-panel source-builder-panel" role="dialog" aria-modal="true" aria-labelledby="source-builder-title" tabindex="-1">
+                <div class="playground-modal-head">
+                    <h2 id="source-builder-title">AEON Composer</h2>
+                    <button class="playground-modal-close" type="button" data-source-builder-close aria-label="Close AEON Composer"></button>
+                </div>
+                <div class="source-builder-actions">
+                    <button class="button-link" type="button" data-source-builder-add-peer>Add peer</button>
+                    <button class="button-link" type="button" data-source-builder-add-child>Add child</button>
+                    <button class="button-link" type="button" data-source-builder-add-attribute>Add attribute</button>
+                    <button class="button-link" type="button" data-source-builder-add-comment>Add comment</button>
+                    <button class="button-link" type="button" data-source-builder-remove>Remove binding</button>
+                    <button class="button-link" type="button" data-source-builder-reload>Reload from source</button>
+                </div>
+                <div class="source-builder-workspace">
+                    <div class="source-builder-tree" data-source-builder-tree></div>
+                    <form class="source-builder-detail" data-source-builder-detail></form>
+                </div>
+                <div class="playground-modal-actions">
+                    <button class="button-link button-link-primary" type="button" data-source-builder-apply>Apply source</button>
+                    <button class="button-link" type="button" data-source-builder-close>Close</button>
+                </div>
+            </section>
+        </div>
+    </section>
+    </main>
+<script defer src="./accessibility.js"></script>
+<script defer src="./local.js"></script>
+<script defer src="./aeon-highlight.js"></script>
+<script defer src="./walkthrough.js"></script>
+<script defer src="./aeon-source-composer.js"></script>
+<script defer src="./playground.js"></script>
+</body></html>

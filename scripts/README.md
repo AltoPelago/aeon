@@ -99,3 +99,10 @@ changelog prose or create Git commits and tags.
 - These scripts are implementation workflows, not language specification authority.
 - Normative behavior authority remains in `aeonite-org/aeonite-specs`.
 - Cross-implementation conformance authority remains in `aeonite-org/aeonite-cts`.
+
+## Local browser playground
+
+`npm run playground` runs `playground.mjs`: build required local TypeScript packages,
+serve the repository playground on loopback and watch package sources for changes.
+See [setup, runtime scope and flags](../tools/playground/README.md). This does not
+fetch a website bundle, change dependency pins, publish packages or deploy a site.

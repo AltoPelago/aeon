@@ -1,0 +1,52 @@
+{
+  "website": {
+    "repository": "AltoPelago/aeon-website",
+    "commit": "b2662da4a636a8b8384f5b540dc59244ae0e946e",
+    "files": [
+      {
+        "path": "html/playground.php",
+        "sha256": "2c211c83a2412dddc1d8ee9d9ae9cddf1fa85981791aee6a4070517d29046013"
+      },
+      {
+        "path": "content/playground.aeon",
+        "sha256": "3e02a5b90995eba5bd3223debd889d4f89b2542ef66952dccba5460d52988f4f"
+      },
+      {
+        "path": "html/assets/css/site.css",
+        "sha256": "1f78d1b04edc523e022acb7e529c0a11a442edb042bd9f99c62909663503ba2d"
+      },
+      {
+        "path": "html/assets/js/playground.js",
+        "sha256": "bafc79758d61eb79594a796b6d6a87933f9923591394b215f8e0df74e98147fa"
+      },
+      {
+        "path": "html/assets/js/aeon-highlight.js",
+        "sha256": "d52e79119a6ef095db14fc875a4eed54b895d2b0b45065354ed44ce2ce5fb7fa"
+      },
+      {
+        "path": "html/assets/js/walkthrough.js",
+        "sha256": "70f55344ca77f29b44172ee5baa3917f2b75782090fa843be3e4f437ae2c7448"
+      },
+      {
+        "path": "html/assets/js/aeon-source-composer.js",
+        "sha256": "9c0fcb1feb76e830730a1be6a131228ece300f33f65ff383b0d81d640f5c66ab"
+      },
+      {
+        "path": "html/assets/js/site.js",
+        "sha256": "23bdba62b306bc4b2535f6b4fada0835c57487cdc6bade1d809d051d341bc311"
+      }
+    ]
+  },
+  "accessibility": {
+    "repository": "AltoPelago/sansa",
+    "commit": "8f2976e7c71cf796f9f62701e6d2ed13451ff004",
+    "path": "tools/playground/accessibility.js"
+  },
+  "adaptations": [
+    "PHP template converted to standalone HTML with server-injected import map and shared JSON examples",
+    "Local header, build status, source-reload state and two integration examples",
+    "Website CSS, highlighter and walkthrough retained unchanged",
+    "Playground/controller and shared composer add an optional source-validation hook; local token-aware policy refuses lossy reference/SANSA rewrites",
+    "Local controller-ready event restores mode/view only after the website event handlers are installed"
+  ]
+}

@@ -23,6 +23,8 @@
     "test:version": "node --test ./test/version-tool.test.mjs",
     "test:release-workflows": "node --test ./test/npm-publish-workflow.test.mjs",
     "oracle:gen": "node stress-tests/tools/gen-oracle.mjs",
-    "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run"
+    "oracle:gen:dry-run": "node stress-tests/tools/gen-oracle.mjs --dry-run",
+    "playground": "node scripts/playground.mjs",
+    "test:playground": "node --test test/playground-server.test.mjs"
   }
 }

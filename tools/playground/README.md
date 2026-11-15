@@ -1,0 +1,46 @@
+# Local AEON playground
+
+The website's editor, AEON Composer, examples, mode controls and AES/Data/
+Annotation Stream/Canonical views, served locally against this checkout's
+TypeScript workspace. No PHP, website checkout, registry bundle or deployment is
+required. UI provenance and adaptations are recorded in `provenance.json`.
+
+From the AEON repository root, with Node 20+ and pnpm available:
+
+```sh
+pnpm --dir implementations/typescript install --frozen-lockfile
+npm run playground
+```
+
+Open <http://127.0.0.1:4175/tools/playground/>. The command builds the required
+browser packages before serving, then watches package sources and TypeScript
+configuration. A successful rebuild reloads the browser's modules, retaining the
+editor input and selected mode/view when session storage is available. Build
+failures are marked in the header; partial module outputs are not served while
+building. UI asset edits appear on browser refresh. Restart after dependency,
+package manifest or workspace layout changes.
+
+The runtime is **local TypeScript**, and SANSA is the dependency selected by this
+checkout's frozen workspace graph. Compiled modules, source maps and TypeScript
+sources are served from their actual packages; the playground does not fetch or
+replace dependency pins. It does not represent Rust, WASM or Python execution.
+The identity and empty-key examples exercise the current read-only selector and
+structural-reference boundaries; they do not introduce new selector semantics.
+The inherited Composer materializes values and cannot safely reconstruct reference
+or SANSA literals. For those sources it keeps the editor text unchanged and asks
+you to edit directly. All inspection/output views remain available.
+
+```sh
+npm run playground -- --port 4176
+npm run playground -- --no-build --no-watch
+npm run test:playground
+```
+
+`--no-build` requires existing workspace outputs. `--no-watch` disables automatic
+rebuilding; rebuild and refresh manually after source edits. Invalid sources and
+unsupported JSON projections appear in Diagnostics. Valid AEON does not always
+have a JSON representation; use AES or Canonical to inspect those values.
+
+The server binds to loopback and serves only playground assets and selected
+workspace package source/output directories. No official release, version,
+registry publication or deployment is performed by these commands.

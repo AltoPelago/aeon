@@ -64,6 +64,10 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Local source playground
+        working-directory: .
+        run: npm run test:playground
+
       - name: Typecheck
         run: pnpm typecheck
 
