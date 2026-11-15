@@ -1,0 +1,42 @@
+{
+  "transport": {
+    "label": "Transport",
+    "mode": "transport",
+    "source": "//# Transport example\nname = \"Alice\"\ncount = 3\ntags = [\"draft\", \"public\"]\n\nnote = >`\n  Transport mode can carry broad AEON-shaped data.\n`"
+  },
+  "custom": {
+    "label": "Custom",
+    "mode": "custom",
+    "source": "aeon:mode = \"custom\"\n\nlocation:geoPoint = {\n  lat:number = -37.8136\n  lon:number = 144.9631\n}\n\nstatus:trafficLight = \"green\""
+  },
+  "strict": {
+    "label": "Strict",
+    "mode": "strict",
+    "source": "aeon:mode = \"strict\"\n\ncontact:object = {\n  name:string = \"Bob\"\n  active:boolean = true\n}\n\nmeasurements:list<number> = [3, 4, 5]"
+  },
+  "full": {
+    "label": "Full strict",
+    "mode": "strict",
+    "source": "aeon:mode = \"strict\"\naeon:profile = \"example.daily.v1\"\n\nentry:object = {\n  title:string = \"Daily check\"\n  published:boolean = false\n  state:toggle = on\n  count:number = 3\n  tags:list<string> = [\"field\", \"review\"]\n  point:tuple<number, number> = (12, 42)\n  note:prose = >`\n    AEON keeps the readable source, the typed value,\n    and later interpretation visibly separate.\n  `\n}\n\ncopy:string = ~entry.title"
+  },
+  "symbols": {
+    "label": "Symbols",
+    "mode": "transport",
+    "source": "//# Symbols are atomic values distinct from strings.\nstage:symbol = |approved|\nlabel:symbol = |in review|\nescaped:symbol = |wait\\|ready|\nsameText:string = \"approved\""
+  },
+  "temporal": {
+    "label": "Temporal claims",
+    "mode": "transport",
+    "source": "//# AEON Core preserves temporal syntax and authored precision.\n//# It does not resolve timezone rules, places, leap seconds, or timescales.\n//# This playground does not apply the GP schema; use the AEOS Playground for policy validation.\nfractional:datetime = 2027-01-31T23:59:59.3400\nleapClaim:datetime = 2016-12-31T23:59:60.5Z\nunknownOffset:datetime = 2027-01-31T23:59:59-00:00\n\nmelbourneWallTime:wtc = 2027-01-31T23:59:59&Australia/Melbourne\nmelbourneInstant:wtc = 2027-01-31T23:59:59+11:00&Australia/Melbourne\nutcAnchoredMelbourne:wtc = 2027-01-31T23:59:59Z&Australia/Melbourne\nnamedPlace:wtc = 2026-01-01T09:10:00+01:00&+/Antarctica/Elisabeth\nlocalClock:wtc = 2027-01-31T23:59:59&local\n\n//# Untyped WTC syntax is inferred as wtc rather than datetime.\natomicTime = 2026-01-01T09:10:10&TAI"
+  },
+  "identities": {
+    "label": "Identities + references",
+    "mode": "transport",
+    "source": "inventory\\inventory1\\ = {\n  items = [\n    \\item1\\ = { name\\name1\\ = \"Widget\", qty = 12 }\n    \\item2\\ = { name\\name2\\ = \"Bracket\", qty = 5 }\n  ]\n}\nselection:sansa = $.inventory.items.\\item1\\.\\name1\\\nfirstName = ~inventory.items[0].name\n"
+  },
+  "empty-keys": {
+    "label": "Empty keys + Unicode",
+    "mode": "transport",
+    "source": "\"\"\\empty\\ = { \"\" = \"İ😀\" }\nselection:sansa = $.\\empty\\.[\"\"]\ncopy = ~[\"\"].[\"\"]\n\"é\" = 1\n\"é\" = 2\n"
+  }
+}

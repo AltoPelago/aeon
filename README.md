@@ -13,6 +13,21 @@ Specification website: [aeonite.org](https://aeonite.org).
 AltoPelago owns this implementation workspace. Aeonite publishes the
 specification and CTS surfaces this implementation follows.
 
+## Local playground
+
+Use the website-style editor and AEON Composer against this checkout's TypeScript
+workspace, with AES, Data, Annotation Stream and Canonical views:
+
+```sh
+pnpm --dir implementations/typescript install --frozen-lockfile
+npm run playground
+```
+
+Open <http://127.0.0.1:4175/tools/playground/>. Package source changes rebuild and
+reload the browser while preserving input; runtime failures appear in Diagnostics.
+See [playground setup and options](tools/playground/README.md). No release or
+website deployment is needed.
+
 ## Implementations
 
 | Language / runtime | Package and entry point | Documentation |
