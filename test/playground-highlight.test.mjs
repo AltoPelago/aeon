@@ -131,3 +131,15 @@ test('lexer presentation restores established key, type, tag, symbol and referen
   }
   assert.ok(!readFileSync(new URL('../tools/playground/local.css',import.meta.url),'utf8').includes('.tok-identifier'));
 });
+
+test('escaped symbolic pipes use one lexer pass for closed and unfinished literals',()=>{
+  let calls=0;
+  const h=createAeonHighlighter({...lexer,tokenize:(...args)=>{calls++;return lexer.tokenize(...args);}});
+  for(const width of [1024,2048,4096]){
+    for(const closed of [false,true]){
+      const source='value=|'+'\\|'.repeat(width)+(closed?'|':'');
+      assert.equal(plain(h.highlightAeon(source)),source);
+    }
+  }
+  assert.equal(calls,6);
+});

@@ -37,6 +37,17 @@ separate presentation helpers.
 The inherited Composer materializes values and cannot safely reconstruct reference
 or SANSA literals. For those sources it keeps the editor text unchanged and asks
 you to edit directly. All inspection/output views remain available.
+
+Composer reads the runtime's value AST and preserves binding identities, typed
+tuples, composite attribute contents and anonymous-element headers (identity,
+attributes and datatype). SANSA's selected parser/renderer classifies and builds
+its structural row paths, so a quoted body key such as `"@name"` remains a member.
+Child rows are indexed once per render/build; the obsolete fallback Composer is
+removed. Output formatting runs only for the selected view, including the padded
+AES table. Mounted Composer regressions compare canonical output before/after
+Apply through the actual runtime and canonicalizer. These UI repairs do not alter
+runtime grammar, reference admission or selector semantics.
+
 Its lexical preflight is capped at 1,048,576 UTF-16 source code units before
 tokenization. This local composer allowance does not change runtime parser limits.
 

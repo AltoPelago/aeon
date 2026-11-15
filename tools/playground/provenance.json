@@ -51,7 +51,9 @@
     "Reuse the already-hardened SANSA highlighter; escape all matched tokens explicitly at HTML boundaries to resolve copied regex/DOM alerts",
     "Replace the custom AEON scanner with workspace lexer-token rendering; retain JSON and &ND helpers as presentation only",
     "Retain the original website palette with presentation roles over lexer tokens; unclassified identifiers keep the original foreground",
-    "Match playground output font-size to the source editor at 0.78rem; scope the rule above shared walkthrough styles"
+    "Match playground output font-size to the source editor at 0.78rem; scope the rule above shared walkthrough styles",
+    "Composer preserves runtime AST metadata/composite attribute values; selected SANSA parser/renderer owns row-path syntax and member/attribute roles",
+    "Index Composer child rows per render/build; remove duplicate fallback Composer and format only the selected output view"
   ],
   "highlighterBase": {
     "repository": "AltoPelago/sansa",

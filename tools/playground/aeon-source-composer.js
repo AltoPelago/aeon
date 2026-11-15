@@ -1,3 +1,8 @@
+import {parseAddress, renderAddress} from "@altopelago/sansa";
+import {formatClarifierValue} from "@aeon/parser";
+import {createComposerPaths} from "./composer-paths.mjs";
+const composerPaths = createComposerPaths({parseAddress, renderAddress});
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -136,7 +141,7 @@ function sourceTypeForDatatype(datatype) {
   if (base === "datetime") return "DateTimeLiteral";
   if (base === "wtc") return "WTCDateTimeLiteral";
   if (base === "sep" || base === "kadot" || base === "separator") return "SeparatorLiteral";
-  if (base === "tuple" || base === "triple") return "TupleLiteral";
+  if (base === "tuple" || base === "triple") return "TupleNode";
   if (base === "list") return "ListNode";
   if (["object", "obj", "envelope", "o"].includes(base)) return "ObjectNode";
   if (base === "node") return "NodeLiteral";
@@ -190,20 +195,8 @@ function isPlainAeonKey(key) {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(key ?? ""));
 }
 
-function parseQuotedPathKey(value) {
-  try {
-    return JSON.parse(`"${value}"`);
-  } catch {
-    return value;
-  }
-}
-
 function formatSourceMemberPath(key) {
   return isPlainAeonKey(key) ? `.${key}` : `.[${JSON.stringify(String(key ?? ""))}]`;
-}
-
-function formatSourceAttributePath(key) {
-  return isPlainAeonKey(key) ? `.@.${key}` : `.@.[${JSON.stringify(String(key ?? ""))}]`;
 }
 
 function normalizeSourceRuntimePath(path) {
@@ -249,43 +242,16 @@ function sourceDisplayName(name, isAttribute = false) {
   return isPlainAeonKey(name) ? name : JSON.stringify(name);
 }
 
-function pathSegments(path) {
-  const segments = [];
-  const tokenRe = /\.([A-Za-z_][A-Za-z0-9_]*)|\["((?:\\.|[^"\\])*)"\]|\[(\d+)\]/g;
-  for (const match of String(path ?? "").matchAll(tokenRe)) {
-    if (match[1] !== undefined) {
-      segments.push(match[1]);
-    } else if (match[2] !== undefined) {
-      segments.push(parseQuotedPathKey(match[2]));
-    } else if (match[3] !== undefined) {
-      segments.push(Number.parseInt(match[3], 10));
-    }
-  }
-  return segments;
-}
-
 function sourceParentPath(path) {
-  const commentIndex = String(path).lastIndexOf("#comment");
-  if (commentIndex > -1) return path.slice(0, commentIndex);
-  const quotedSansaAttrMatch = String(path).match(/\.@\.\["((?:\\.|[^"\\])*)"\]$/);
-  if (quotedSansaAttrMatch) return path.slice(0, quotedSansaAttrMatch.index);
-  const plainSansaAttrMatch = String(path).match(/\.@\.([A-Za-z_][A-Za-z0-9_]*)$/);
-  if (plainSansaAttrMatch) return path.slice(0, plainSansaAttrMatch.index);
-  const indexMatch = String(path).match(/\[(\d+)\]$/);
-  if (indexMatch) return path.slice(0, indexMatch.index);
-  const quotedMemberMatch = String(path).match(/\.\["((?:\\.|[^"\\])*)"\]$/);
-  if (quotedMemberMatch) return quotedMemberMatch.index > 1 ? path.slice(0, quotedMemberMatch.index) : "";
-  const plainMemberMatch = String(path).match(/\.([A-Za-z_][A-Za-z0-9_]*)$/);
-  if (plainMemberMatch && plainMemberMatch.index > 0) return plainMemberMatch.index > 1 ? path.slice(0, plainMemberMatch.index) : "";
-  return "";
+  return composerPaths.describe(path).parent;
 }
 
 function sourcePathIsAttribute(path) {
-  return sourcePathName(path).startsWith("@");
+  return composerPaths.describe(path).kind === "attribute";
 }
 
 function sourcePathIsComment(path) {
-  return sourcePathName(path).startsWith("//");
+  return composerPaths.describe(path).kind === "comment";
 }
 
 function sourcePathIsDescendant(path, parent) {
@@ -293,36 +259,23 @@ function sourcePathIsDescendant(path, parent) {
 }
 
 function sourcePathName(path) {
-  const commentMatch = String(path).match(/#comment(\d+)$/);
-  if (commentMatch) return `//${commentMatch[1]}`;
-  const quotedSansaAttrMatch = String(path).match(/\.@\.\["((?:\\.|[^"\\])*)"\]$/);
-  if (quotedSansaAttrMatch) return `@${parseQuotedPathKey(quotedSansaAttrMatch[1])}`;
-  const sansaAttrMatch = String(path).match(/\.@\.([A-Za-z_][A-Za-z0-9_]*)$/);
-  if (sansaAttrMatch) return `@${sansaAttrMatch[1]}`;
-  const indexMatch = String(path).match(/\[(\d+)\]$/);
-  if (indexMatch) return `[${indexMatch[1]}]`;
-  const segments = pathSegments(path);
-  const last = segments.at(-1);
-  if (typeof last === "string") return last;
-  if (typeof last === "number") return `[${last}]`;
-  return String(path).replace(/^\$\.?/, "");
+  return composerPaths.describe(path).name;
 }
 
-function joinSourcePath(parent, name) {
-  if (!parent) return `$${formatSourceMemberPath(name)}`;
-  if (/^\[\d+\]$/.test(name)) return `${parent}${name}`;
-  if (name.startsWith("@")) return `${parent}${formatSourceAttributePath(name.replace(/^@/, ""))}`;
-  if (name.startsWith("#comment")) return `${parent}${name}`;
-  return `${parent}${formatSourceMemberPath(name)}`;
+function joinSourcePath(parent, name, kind = "member") {
+  return composerPaths.join(parent, name, kind);
 }
 
 function sourceDepth(path) {
-  return pathSegments(path).length + (sourcePathIsAttribute(path) || sourcePathIsComment(path) ? 1 : 0);
+  return composerPaths.describe(path).depth;
 }
 
 function datatypeName(datatype) {
   if (typeof datatype === "string") return datatype;
-  return datatype?.name ?? "";
+  if (!datatype) return "";
+  const generics = datatype.genericArgs?.length ? `<${datatype.genericArgs.join(", ")}>` : "";
+  const clarifiers = datatype.clarifiers?.length ? `[${datatype.clarifiers.map(formatClarifierValue).join(", ")}]` : "";
+  return `${datatype.name}${generics}${clarifiers}`;
 }
 
 function formatEventPath(path) {
@@ -405,9 +358,9 @@ function aeonAttributeSource(value) {
 
 function addSourceAttributeRows(attributes, ownerPath, rows, seen) {
   for (const [key, entry] of attributeEntries(attributes)) {
-    const path = joinSourcePath(ownerPath, `@${key}`);
+    const path = joinSourcePath(ownerPath, key, "attribute");
     if (seen.has(path)) continue;
-    const type = sourceTypeForDatatype(entry?.datatype) ?? sourceTypeForAeonValue(entry?.value);
+    const type = sourceTypeForDatatype(datatypeName(entry?.datatype)) ?? sourceTypeForAeonValue(entry?.value);
     rows.push({
       path,
       type,
@@ -422,24 +375,30 @@ function addSourceAttributeRows(attributes, ownerPath, rows, seen) {
   }
 }
 
+function addSourceValueRow(value, path, metadata, rows, seen) {
+  if (!seen.has(path)) {
+    const datatype = datatypeName(metadata?.datatype);
+    const type = sourceTypeForDatatype(datatype) ?? sourceTypeForAeonValue(value);
+    rows.push({path, type, datatype, identity:metadata?.structuralId,
+      value:sourceUiValueForAeonValue(value, type), open:true});
+    seen.add(path);
+  }
+  addSourceAttributeRows(aeonAttributeSource(metadata), path, rows, seen);
+  addSourceAttributeRowsFromValue(value, path, rows, seen);
+}
+
 function addSourceAttributeRowsFromValue(value, path, rows, seen) {
   addSourceAttributeRows(aeonAttributeSource(value), path, rows, seen);
   if (value?.type === "ObjectNode") {
     for (const binding of value.bindings ?? []) {
-      const child = joinSourcePath(path, binding.key);
-      addSourceAttributeRows(aeonAttributeSource(binding), child, rows, seen);
-      addSourceAttributeRowsFromValue(binding.value, child, rows, seen);
+      addSourceValueRow(binding.value, joinSourcePath(path, binding.key), binding, rows, seen);
     }
   }
-  if (value?.type === "ListNode" || value?.type === "TupleNode") {
-    for (const [index, element] of (value.elements ?? []).entries()) {
-      addSourceAttributeRowsFromValue(element, `${path}[${index}]`, rows, seen);
-    }
-  }
-  if (value?.type === "NodeLiteral") {
-    for (const [index, child] of (value.children ?? []).entries()) {
-      addSourceAttributeRowsFromValue(child, `${path}[${index}]`, rows, seen);
-    }
+  const elements = value?.type === "NodeLiteral" ? value.children
+    : ["ListNode", "TupleNode", "TupleLiteral"].includes(value?.type) ? value.elements : [];
+  for (const [index, element] of (elements ?? []).entries()) {
+    const typed = element.type === "TypedValue";
+    addSourceValueRow(typed ? element.value : element, joinSourcePath(path, index, "index"), typed ? element : null, rows, seen);
   }
 }
 
@@ -531,11 +490,11 @@ function addStandaloneCommentRows(text, rows) {
   const commentsByPath = parseStandaloneSemanticComments(text);
   const seen = new Set(rows.map((row) => row.path));
   for (const [ownerPath, comments] of commentsByPath) {
-    if (!rows.some((row) => row.path === ownerPath)) continue;
+    if (!seen.has(ownerPath)) continue;
     let index = 1;
     for (const comment of comments) {
-      while (seen.has(joinSourcePath(ownerPath, `#comment${index}`))) index += 1;
-      const path = joinSourcePath(ownerPath, `#comment${index}`);
+      while (seen.has(joinSourcePath(ownerPath, `#comment${index}`, "comment"))) index += 1;
+      const path = joinSourcePath(ownerPath, `#comment${index}`, "comment");
       rows.push({ path, kind: "comment", commentType: comment.type, value: comment.value, open: true });
       seen.add(path);
       index += 1;
@@ -563,39 +522,42 @@ function preservedHeaderSource(text) {
   return output.join("\n").trim();
 }
 
-function orderedSourceRows(rows) {
-  const byPath = new Map(rows.map((row) => [row.path, row]));
-  const orderedChildren = (parentPath) => rows
-    .map((row, index) => ({ row, index }))
-    .filter(({ row }) => sourceParentPath(row.path) === parentPath)
-    .sort((left, right) => {
-      const leftComment = sourcePathIsComment(left.row.path);
-      const rightComment = sourcePathIsComment(right.row.path);
-      if (leftComment !== rightComment) return leftComment ? -1 : 1;
-      const leftAttr = sourcePathIsAttribute(left.row.path);
-      const rightAttr = sourcePathIsAttribute(right.row.path);
-      if (leftAttr !== rightAttr) return leftAttr ? -1 : 1;
-      return left.index - right.index;
-    })
-    .map(({ row }) => row);
+function indexSourceRows(rows) {
+  const byPath = new Map();
+  const children = new Map();
+  const descriptions = new Map();
+  for (const row of rows) {
+    const description = composerPaths.describe(row.path);
+    byPath.set(row.path, row);
+    descriptions.set(row.path, description);
+    if (!children.has(description.parent)) children.set(description.parent, [[], [], []]);
+    const priority = description.kind === "comment" ? 0 : description.kind === "attribute" ? 1 : 2;
+    children.get(description.parent)[priority].push(row);
+  }
+  for (const [path, groups] of children) children.set(path, groups.flat());
+  return {byPath, children, descriptions};
+}
+
+function orderedSourceRows(rows, index = indexSourceRows(rows)) {
+  const roots = rows.filter(row => !index.byPath.has(index.descriptions.get(row.path).parent));
+  const stack = roots.slice().reverse();
   const output = [];
-  const visit = (row) => {
+  while (stack.length) {
+    const row = stack.pop();
     output.push(row);
-    orderedChildren(row.path).forEach(visit);
-  };
-  rows.filter((row) => !byPath.has(sourceParentPath(row.path))).forEach(visit);
+    const children = index.children.get(row.path) ?? [];
+    for (let child = children.length - 1; child >= 0; child -= 1) stack.push(children[child]);
+  }
   return output;
 }
 
-function visibleSourceRows(rows) {
-  return orderedSourceRows(rows).filter((row) => {
-    let parent = sourceParentPath(row.path);
-    while (parent) {
-      const parentRow = rows.find((candidate) => candidate.path === parent);
-      if (parentRow && parentRow.open === false) return false;
-      parent = sourceParentPath(parent);
-    }
-    return true;
+function visibleSourceRows(rows, index = indexSourceRows(rows)) {
+  const visible = new Map();
+  return orderedSourceRows(rows, index).filter(row => {
+    const parent = index.descriptions.get(row.path).parent;
+    const shown = !index.byPath.has(parent) || (visible.get(parent) && index.byPath.get(parent).open !== false);
+    visible.set(row.path, shown);
+    return shown;
   });
 }
 
@@ -666,7 +628,10 @@ function mountAeonSourceComposer(options) {
   const onError = options.onError ?? (() => {});
   const onApply = options.onApply ?? (() => {});
 
-  const sourceChildren = (path, rows = state.rows) => rows.filter((row) => sourceParentPath(row.path) === path);
+  // One index per render/build operation, shared by every recursive formatter.
+  let rowIndex = indexSourceRows(state.rows);
+  const refreshRowIndex = () => { rowIndex = indexSourceRows(state.rows); };
+  const sourceChildren = (path) => rowIndex.children.get(path) ?? [];
   const sourceValueChildren = (path, rows = state.rows) => sourceChildren(path, rows).filter((row) => !sourcePathIsAttribute(row.path) && !sourcePathIsComment(row.path));
   const sourceTypeOptionsForRow = (row, rows) => {
     if (sourceValueChildren(row.path, rows).length === 0) return sourceTypes;
@@ -684,7 +649,7 @@ function mountAeonSourceComposer(options) {
     const values = attrs.map((attr) => {
       const key = sourcePathName(attr.path).replace(/^@/, "");
       const datatype = attr.datatype ? `:${attr.datatype}` : "";
-      return `${aeonKey(key)}${sourceIdentity(attr)}${datatype} = ${renderSourceBuilderValue(attr, rows)}`;
+      return `${aeonKey(key)}${sourceIdentity(attr)}${renderSourceBuilderAttributes(attr, rows)}${datatype} = ${renderSourceBuilderValue(attr, rows)}`;
     });
     return ` @{${values.join(", ")}}`;
   }
@@ -699,6 +664,12 @@ function mountAeonSourceComposer(options) {
       .join("\n");
   }
 
+  function renderSourceBuilderElement(row, rows, depth) {
+    const datatype = row.datatype ? `:${row.datatype}` : "";
+    const header = `${sourceIdentity(row)}${renderSourceBuilderAttributes(row, rows)}${datatype}`;
+    return `${"  ".repeat(depth)}${header}${header ? " = " : ""}${renderSourceBuilderValue(row, rows, depth)}`;
+  }
+
   function renderSourceBuilderValue(row, rows, depth = 0) {
     const children = sourceValueChildren(row.path, rows);
     if (row.type === "TrimtickStringLiteral") return trimtickValue(row.value, depth);
@@ -706,7 +677,7 @@ function mountAeonSourceComposer(options) {
       const open = row.type === "TupleNode" ? "(" : "[";
       const close = row.type === "TupleNode" ? ")" : "]";
       if (children.length === 0) return `${open}${close}`;
-      const values = children.map((child) => `${"  ".repeat(depth + 1)}${sourceIdentity(child)}${child.identity ? " = " : ""}${renderSourceBuilderValue(child, rows, depth + 1)}`);
+      const values = children.map((child) => renderSourceBuilderElement(child, rows, depth + 1));
       return `${open}\n${values.join(",\n")}\n${"  ".repeat(depth)}${close}`;
     }
     if (row.type === "ObjectNode") {
@@ -716,7 +687,7 @@ function mountAeonSourceComposer(options) {
     }
     if (row.type === "NodeLiteral") {
       if (children.length === 0) return aeonScalarValue(row);
-      const values = children.map((child) => `${"  ".repeat(depth + 1)}${sourceIdentity(child)}${child.identity ? " = " : ""}${renderSourceBuilderValue(child, rows, depth + 1)}`);
+      const values = children.map((child) => renderSourceBuilderElement(child, rows, depth + 1));
       return `<${aeonKey(row.value || "node")}(\n${values.join("\n")}\n${"  ".repeat(depth)})>`;
     }
     return aeonScalarValue(row);
@@ -732,11 +703,12 @@ function mountAeonSourceComposer(options) {
   }
 
   function render() {
+    refreshRowIndex();
     const rows = state.rows;
     if (!state.selectedPath || !rows.some((row) => row.path === state.selectedPath)) {
       state.selectedPath = rows[0]?.path ?? null;
     }
-    tree.innerHTML = visibleSourceRows(rows).map((row) => {
+    tree.innerHTML = visibleSourceRows(rows, rowIndex).map((row) => {
       const selected = row.path === state.selectedPath;
       const hasChildren = sourceValueChildren(row.path, rows).length > 0;
       const name = sourcePathName(row.path);
@@ -800,7 +772,7 @@ function mountAeonSourceComposer(options) {
     detail.innerHTML = `
       <label>
         <span>Key</span>
-        <input name="name" type="text" value="${escapeHtml(sourcePathName(selected.path).replace(/^@/, "").replace(/^\[|\]$/g, ""))}" ${/^\[\d+\]$/.test(sourcePathName(selected.path)) && !isAttribute ? "disabled" : ""} />
+        <input name="name" type="text" value="${escapeHtml(isAttribute ? sourcePathName(selected.path).slice(1) : sourcePathName(selected.path))}" ${composerPaths.describe(selected.path).kind === "index" ? "disabled" : ""} />
       </label>
       <label>
         <span>Type</span>
@@ -885,6 +857,7 @@ function mountAeonSourceComposer(options) {
       }
     }
     state.selectedPath = state.rows[0]?.path ?? null;
+    refreshRowIndex();
   }
 
   async function open(trigger = openButton) {
@@ -911,7 +884,8 @@ function mountAeonSourceComposer(options) {
     const previousType = row.type;
     const previousDatatype = row.datatype;
     const type = String(data.get("type") || row.type);
-    const name = String(data.get("name") || sourcePathName(row.path)).trim();
+    const pathInfo = composerPaths.describe(row.path);
+    const name = String(data.get("name") ?? (pathInfo.kind === "attribute" ? pathInfo.name.slice(1) : pathInfo.name));
     const parent = sourceParentPath(row.path);
     const isAttribute = sourcePathIsAttribute(row.path);
     const defaultPreviousDatatype = datatypeForSourceType(previousType);
@@ -933,8 +907,8 @@ function mountAeonSourceComposer(options) {
       row.type = previousType;
       row.datatype = datatypeForSourceType(row.type);
     }
-    if (name && (!/^\[\d+\]$/.test(sourcePathName(row.path)) || isAttribute)) {
-      const nextPath = joinSourcePath(parent, isAttribute ? `@${name.replace(/^@/, "")}` : name);
+    if (pathInfo.kind !== "index") {
+      const nextPath = joinSourcePath(parent, name, isAttribute ? "attribute" : "member");
       if (nextPath !== previousPath && !state.rows.some((candidate) => candidate.path === nextPath)) {
         for (const candidate of state.rows) {
           if (candidate.path === previousPath || sourcePathIsDescendant(candidate.path, previousPath)) {
@@ -942,6 +916,7 @@ function mountAeonSourceComposer(options) {
           }
         }
         state.selectedPath = nextPath;
+        refreshRowIndex();
       }
     }
   }
@@ -972,7 +947,10 @@ function mountAeonSourceComposer(options) {
       : kind === "attribute"
         ? `@attr${attrIndex}`
         : parent?.type === "ListNode" || parent?.type === "TupleNode" || parent?.type === "NodeLiteral" ? `[${childIndex}]` : `field${childIndex + 1}`;
-    const path = joinSourcePath(base, name);
+    const pathKind = kind === "attribute" || kind === "comment" ? kind
+      : ["ListNode", "TupleNode", "NodeLiteral"].includes(parent?.type) ? "index" : "member";
+    const pathName = pathKind === "attribute" ? name.slice(1) : pathKind === "index" ? childIndex : name;
+    const path = joinSourcePath(base, pathName, pathKind);
     rows.push({
       path,
       ...(kind === "comment" ? { kind: "comment", commentType: "doc" } : {}),
@@ -1003,7 +981,8 @@ function mountAeonSourceComposer(options) {
 
   function buildSource() {
     syncDetail();
-    const rows = orderedSourceRows(state.rows);
+    refreshRowIndex();
+    const rows = orderedSourceRows(state.rows, rowIndex);
     const header = preservedHeaderSource(source.value);
     const body = rows
       .filter((row) => !sourceParentPath(row.path) && !sourcePathIsAttribute(row.path) && !sourcePathIsComment(row.path))
