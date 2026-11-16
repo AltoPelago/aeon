@@ -1843,15 +1843,16 @@ mod tests {
             ("full", vec!["head", "body"]),
         ] {
             let options = serde_json::json!({"validationMode":"loose", "finalizeScope":scope});
-            let output = process_aeon_json(source, &options.to_string()).unwrap();
-            let result: JsonValue = serde_json::from_str(&output).unwrap();
+            let output =
+                process_aeon_json(source, &options.to_string()).expect("process header scopes");
+            let result: JsonValue = serde_json::from_str(&output).expect("header scope JSON");
             assert_eq!(result["errors"], serde_json::json!([]));
             assert_eq!(
                 result["events"]
                     .as_array()
-                    .unwrap()
+                    .expect("header scope events")
                     .iter()
-                    .map(|e| e["structuralId"].as_str().unwrap())
+                    .map(|e| e["structuralId"].as_str().expect("declared identity"))
                     .collect::<Vec<_>>(),
                 identities
             );

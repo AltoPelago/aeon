@@ -1,12 +1,12 @@
 {
-  "sourceCommit": "05b8739f06be0e76d03e0d3b17ec6c403568d41e",
-  "sourceTree": "abafe7616957ce313b8eda5705ba53cac8a9b3e3",
-  "sourceBase": "60b635225e6b15333fce5b5dfa249cef74dc9a63",
+  "sourceCommit": "dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f",
+  "sourceTree": "14d48bd1a29c9392050e95025b431e43efc892a3",
+  "sourceBase": "05b8739f06be0e76d03e0d3b17ec6c403568d41e",
   "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "c0471ad59f6f0594e0ca6183ad6a292d02c208bd9cc30709bb5b27ac9e7d222b",
-  "archiveFile": "altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-c0471ad5.tgz",
-  "matchedSourceFiles": 114,
-  "contents": "Merged Unicode hardening, ordinary empty property keys and verified conformance/documentation repairs",
+  "archiveSha256": "7026ec5ccb9077062ee2995a4d8d64204dd14bd832c119580d579bc179b8e1d7",
+  "archiveFile": "altopelago-sansa-0.15.0-rc.1-properties-7026ec5c.tgz",
+  "matchedSourceFiles": 141,
+  "contents": "Merged standalone property Resolve core and Addressing with Unicode/empty-key compatibility retained",
   "publication": false,
   "registryArtifact": false
 }

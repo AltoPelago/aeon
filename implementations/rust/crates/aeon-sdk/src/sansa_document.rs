@@ -10,6 +10,9 @@ use std::sync::Arc;
 #[cfg(all(test, feature = "sansa"))]
 mod mutate_tests;
 
+#[cfg(all(test, feature = "sansa"))]
+mod property_tests;
+
 pub use aeon_core::CompileOptions;
 pub use aeon_document::{AeonDocument, DocumentError};
 use aeon_document::{DocumentNode, DocumentScope, DocumentSourcePlane, NodeId, NodeLineage};
@@ -343,6 +346,12 @@ impl AeonSansaNamespace {
 impl runtime::resolve::Namespace for AeonSansaNamespace {
     type Binding = AeonSansaBinding;
 
+    fn properties(
+        &self,
+    ) -> Option<&dyn runtime::property::PropertyAccess<Binding = Self::Binding>> {
+        Some(self)
+    }
+
     fn root(&self) -> Option<Self::Binding> {
         Some(AeonSansaNamespace::root(self))
     }
@@ -415,6 +424,135 @@ impl runtime::resolve::Namespace for AeonSansaNamespace {
 
     fn binding_address(&self, binding: &Self::Binding) -> Option<String> {
         Some(binding.address())
+    }
+}
+
+#[cfg(feature = "sansa")]
+impl AeonSansaNamespace {
+    fn owns_property_binding(&self, binding: &AeonSansaBinding) -> bool {
+        // Private binding construction already proves node validity and selected
+        // plane visibility. Do not allocate a display address to re-prove it.
+        Arc::ptr_eq(&binding.document, &self.document)
+            && binding.scope == self.scope
+            && binding.numeric_materialization == self.numeric_materialization
+    }
+
+    // Authorize by immutable graph ancestry, never by a path prefix or display name.
+    fn property_descendant(&self, binding: &AeonSansaBinding, root: &AeonSansaBinding) -> bool {
+        if !self.owns_property_binding(binding) || !self.owns_property_binding(root) {
+            return false;
+        }
+        let mut current = Some(binding.id);
+        while let Some(id) = current {
+            if id == root.id {
+                return true;
+            }
+            current = self.document.node(id).and_then(DocumentNode::parent);
+        }
+        false
+    }
+}
+
+#[cfg(feature = "sansa")]
+impl runtime::property::PropertyAccess for AeonSansaNamespace {
+    type Binding = AeonSansaBinding;
+
+    fn supports_key(&self) -> bool {
+        true
+    }
+
+    fn supports_nodes(&self) -> bool {
+        true
+    }
+
+    fn scope(
+        &self,
+        binding: &Self::Binding,
+        context: &runtime::property::PropertyAccessContext<'_, Self::Binding>,
+    ) -> Result<runtime::property::PropertyScopeRole, runtime::property::PropertyAccessError> {
+        use runtime::property::PropertyScopeRole;
+        if !self.property_descendant(binding, context.scope_root)
+            || !self.property_descendant(context.evaluation_root, context.scope_root)
+        {
+            return Ok(PropertyScopeRole::Outside);
+        }
+        if let Some(owner) = context.direct_head_of
+            && (!self.property_descendant(owner, context.scope_root)
+                || owner.node().representation_kind() != "NodeLiteral"
+                || binding.node().parent() != Some(owner.id)
+                || binding.node().representation_kind() != "NodeHead")
+        {
+            return Ok(PropertyScopeRole::Outside);
+        }
+        Ok(if binding == context.scope_root {
+            PropertyScopeRole::Root
+        } else {
+            PropertyScopeRole::Inside
+        })
+    }
+
+    fn key(
+        &self,
+        binding: &Self::Binding,
+        _context: &runtime::property::PropertyAccessContext<'_, Self::Binding>,
+    ) -> Result<Option<String>, runtime::property::PropertyAccessError> {
+        if !self.owns_property_binding(binding) {
+            return Err(runtime::property::PropertyAccessError::ScopeViolation);
+        }
+        Ok(binding.node().binding_name().map(str::to_owned))
+    }
+
+    fn node_kind(
+        &self,
+        binding: &Self::Binding,
+        _context: &runtime::property::PropertyAccessContext<'_, Self::Binding>,
+    ) -> Result<runtime::property::PropertyNodeKind, runtime::property::PropertyAccessError> {
+        use runtime::property::PropertyNodeKind;
+        if !self.owns_property_binding(binding) {
+            return Err(runtime::property::PropertyAccessError::ScopeViolation);
+        }
+        Ok(match binding.node().representation_kind() {
+            "NodeLiteral" => PropertyNodeKind::NodeLiteral,
+            "NodeHead" => PropertyNodeKind::NodeHead,
+            _ => PropertyNodeKind::Other,
+        })
+    }
+
+    fn node_tag(
+        &self,
+        binding: &Self::Binding,
+        _context: &runtime::property::PropertyAccessContext<'_, Self::Binding>,
+    ) -> Result<Option<String>, runtime::property::PropertyAccessError> {
+        if !self.owns_property_binding(binding) {
+            return Err(runtime::property::PropertyAccessError::ScopeViolation);
+        }
+        if binding.node().representation_kind() != "NodeHead" {
+            return Err(runtime::property::PropertyAccessError::InvalidMetadata);
+        }
+        Ok(binding.node().value().map(str::to_owned))
+    }
+
+    fn node_heads<'a>(
+        &'a self,
+        binding: &'a Self::Binding,
+        _context: &'a runtime::property::PropertyAccessContext<'a, Self::Binding>,
+    ) -> Result<
+        runtime::property::PropertyHeads<'a, Self::Binding>,
+        runtime::property::PropertyAccessError,
+    > {
+        if !self.owns_property_binding(binding) {
+            return Err(runtime::property::PropertyAccessError::ScopeViolation);
+        }
+        if binding.node().representation_kind() != "NodeLiteral" {
+            return Err(runtime::property::PropertyAccessError::InvalidMetadata);
+        }
+        Ok(Box::new(
+            binding
+                .node()
+                .children()
+                .iter()
+                .map(|id| Ok(binding.with_id(*id))),
+        ))
     }
 }
 

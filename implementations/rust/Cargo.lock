@@ -140,7 +140,7 @@ dependencies = [
 [[package]]
 name = "altopelago-sansa-runtime"
 version = "0.15.0-rc.1"
-source = "git+https://github.com/AltoPelago/sansa?rev=05b8739f06be0e76d03e0d3b17ec6c403568d41e#05b8739f06be0e76d03e0d3b17ec6c403568d41e"
+source = "git+https://github.com/AltoPelago/sansa?rev=dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f#dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f"
 
 [[package]]
 name = "base64ct"
