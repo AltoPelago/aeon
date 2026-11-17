@@ -66,6 +66,29 @@ This keeps the release history honest about what was actually shipped.
 
 ## Release flow
 
+### Property Resolve SDK development candidate
+
+The Rust and TypeScript SDK provider slice selects the merged SANSA source
+`dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`. The central TypeScript workspace override
+selects the retained local archive
+`altopelago-sansa-0.15.0-rc.1-properties-7026ec5c.tgz`, SHA-256
+`7026ec5ccb9077062ee2995a4d8d64204dd14bd832c119580d579bc179b8e1d7`;
+the staging helper, provenance record and lockfile must agree. Rust pins the same
+source revision. Previous archives remain available for provenance.
+
+This coordinated development selection enables authoritative standalone SDK
+key/tag Resolve only. It is not a registry artifact selection or permission to
+publish existing package versions. Before any release, select the final registry
+dependency and integrity, refresh affected consumer locks and verify the actual
+artifact combination. Do not publish an old version with these new bytes.
+
+Owning review/main verification, remaining Core/Python/native/WASM ports,
+authoritative provider/playground integration, separately admitted Query support
+and affected resource/platform qualification remain open. Keep the original
+compatibility and target-preservation checks and 1.15x latency/1.20x memory
+ceilings. Capability/profile promotion, official releases and deployment remain
+on hold; the local override grants none of them.
+
 ### Beta, release candidate, and stable stages
 
 Use `X.Y.Z-beta.N` while intended release work is still landing. A beta is an

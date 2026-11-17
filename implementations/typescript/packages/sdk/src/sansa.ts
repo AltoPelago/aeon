@@ -4,7 +4,7 @@ import {
   aeonRadixScale,
   type CompileResult,
 } from '@altopelago/aeon-core';
-import { parseAddress, type SansaResolveBinding, type SansaResolveNamespace } from '@altopelago/sansa';
+import { parseAddress, type PropertyAccess, type SansaResolveBinding, type SansaResolveNamespace } from '@altopelago/sansa';
 import {
   indexEventsByPath,
   readAeon,
@@ -181,8 +181,52 @@ export function createAeonNamespace(
     }
   }
 
+  // Capture authoritative event metadata before exposing mutable display bindings.
+  // Public field edits and lookalike handles cannot grant property authority.
+  const metadata = new Map([...byAddress.values()].map((binding) => [binding, {
+    key: binding.name,
+    kind: binding.representationKind,
+    tag: binding.representationKind === 'NodeHead' ? binding.nodeTag : undefined,
+    heads: binding.representationKind === 'NodeLiteral' ? binding.children.slice() : [],
+  }] as const));
+  const inside = (binding: AeonSansaBinding, boundary: AeonSansaBinding): boolean => {
+    if (!metadata.has(binding) || !metadata.has(boundary)) return false;
+    let current: AeonSansaBinding | undefined = binding;
+    while (current !== undefined) {
+      if (current === boundary) return true;
+      current = parents.get(current);
+    }
+    return false;
+  };
+  const observed = (binding: AeonSansaBinding) => {
+    const info = metadata.get(binding);
+    if (info === undefined) throw {type: 'SansaPropertyAccessFault', kind: 'scopeViolation'};
+    return info;
+  };
+  const properties: PropertyAccess<AeonSansaBinding> = {
+    scope(binding, context) {
+      if (!inside(binding, context.scopeRoot) || !inside(context.evaluationRoot, context.scopeRoot)) return 'outside';
+      if (context.directHeadOf !== undefined
+        && (!inside(context.directHeadOf, context.scopeRoot)
+          || observed(context.directHeadOf).kind !== 'NodeLiteral'
+          || parents.get(binding) !== context.directHeadOf
+          || observed(binding).kind !== 'NodeHead')) return 'outside';
+      return binding === context.scopeRoot ? 'root' : 'inside';
+    },
+    key: (binding) => observed(binding).key,
+    nodeKind(binding) {
+      const kind = observed(binding).kind;
+      return kind === 'NodeLiteral' || kind === 'NodeHead' ? kind : 'Other';
+    },
+    nodeTag: (binding) => observed(binding).tag,
+    *nodeHeads(binding) {
+      yield* observed(binding).heads;
+    },
+  };
+
   return {
     root,
+    properties,
     children: (binding) => binding.children,
     parent: (binding) => parents.get(binding),
     member: (binding, name) => binding.children.find((child) => child.name === name),

@@ -81,6 +81,40 @@ establish continuity. Query/address activation, mutation, Instruction and AEOS
 selector admission remain separate; clone/pointer references remain structural
 paths.
 
+#### Experimental standalone property Resolve
+
+The coordinated unreleased SANSA candidate also supports literal `&key("...")`
+and `&tag("...")` filters through this namespace's explicit `properties` facet:
+
+```ts
+const { namespace: document } = readAeonNamespace('item = <widget("hello")>');
+const selected = resolveAddress('$.*&key("item")&tag("widget")', document, {
+  maxPropertyInspections: 1000,
+});
+// The original item container is returned; its address remains '$.item'.
+```
+
+Keys come from authored member metadata, including an empty member name, and
+indices do not become keys. Tag inspection uses directly owned `NodeHead`
+occurrences, never ordinary `tag` fields or a cached container tag. A contextual
+root hides its incoming key while retaining intrinsic node tags. Attribute-space
+transitions establish boundaries; inspecting a binding outside its boundary or
+from another namespace fails without exposing foreign metadata.
+
+The adapter captures authoritative topology/metadata when it builds the namespace;
+editing public display fields cannot change that authority. This adds linear
+construction storage; scope checks follow graph ancestry and have depth-dependent
+cost. Head enumeration streams the captured direct heads without making an
+inspection-time array copy. Resolve's logical allowance is separate from those
+adapter costs: it defaults to 10,000, has portable maximum 1,000,000, and counts
+candidates and yielded direct heads, including misses and repeated occurrences.
+
+This support is limited to standalone Resolve. Query, activation, mutation,
+Instruction, AEOS rule selectors and references retain their existing admission
+rules. Python/native/WASM lexical and AST ports, playground integration and full
+provider/profile/cost qualification remain pending. No release or deployment is
+authorized by this development candidate.
+
 #### Semantics and limits
 
 - `candidateAddress` is a locator in the namespace's current structure, not a

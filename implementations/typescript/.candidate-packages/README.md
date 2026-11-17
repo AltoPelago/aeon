@@ -1,14 +1,18 @@
 # Combined SANSA development candidate
 
-The selected local archive contains ordinary empty property names and merged
-Unicode hardening from immutable SANSA source `05b8739f06be0e76d03e0d3b17ec6c403568d41e`.
+The selected local archive contains merged standalone property Addressing/Resolve,
+Unicode hardening and ordinary empty property names from immutable SANSA source
+`dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`.
 
-Archive: `altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-c0471ad5.tgz`.
-SHA-256: `c0471ad59f6f0594e0ca6183ad6a292d02c208bd9cc30709bb5b27ac9e7d222b`.
-All 114 packaged files match that source; provenance.json records the tree.
+Archive: `altopelago-sansa-0.15.0-rc.1-properties-7026ec5c.tgz`.
+SHA-256: `7026ec5ccb9077062ee2995a4d8d64204dd14bd832c119580d579bc179b8e1d7`.
+All 141 packaged files match that source; provenance.json records its tree.
 Previous archives remain unchanged for provenance. The staging helper verifies
 only the selected bytes; it never fetches, publishes or substitutes a package.
 
-This is an unreleased integration candidate. Package versions and registry
-dependencies are not advanced. Final registry integrity, platform qualification
-and release adoption remain separate; releases and deployment stay held.
+The owning SDK supplies an authoritative property facet for standalone Resolve.
+Query and AEOS rule-selector admission, Python/native/WASM lexical/AST ports,
+full experimental-profile/cost qualification and playground integration remain
+separate gates. This is an unreleased integration candidate, not registry or
+capability-profile adoption. Package versions remain unchanged. Official releases,
+stable promotion and deployment stay held.

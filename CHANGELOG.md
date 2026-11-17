@@ -8,6 +8,16 @@ repositories.
 
 ## Unreleased
 
+### Standalone SDK property Resolve
+
+- The coordinated Rust/TypeScript SDK candidates provide authoritative key/tag
+  facets for standalone SANSA Resolve, preserving original handles, direct-head
+  ownership and per-occurrence scope boundaries. The local SANSA dependency is
+  pinned to merged source `dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`. Query,
+  mutation, AEOS rule-selector and reference admission remain unchanged. Python,
+  native/WASM lexical/AST ports, playground and final profile/cost qualification
+  remain pending; no official release or deployment.
+
 ### Empty property keys
 
 - Empty quoted property and attribute keys are accepted by the TypeScript, Rust and pure Python parsers, references and portable AES paths. `"" = ""` is an ordinary unique binding; SANSA integration uses a local development candidate. Specification/CTS transition, native artifacts and release acceptance remain pending.
