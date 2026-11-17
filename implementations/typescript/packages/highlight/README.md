@@ -107,3 +107,19 @@ are cyan `#7dd3fc` and light yellow `#f5e6a8`; light-theme equivalents are
 `--aeon-symbol`. Booleans and other literals retain `--aeon-literal`. JSON
 numbers use the numeric colour too. These are presentation roles over existing
 lexer tokens and do not change parsing or reference semantics.
+
+### Custom OKLCH colours
+
+Custom properties also accept OKLCH, for example on the rendered wrapper:
+
+```css
+.aeon-highlight.my-theme {
+  --aeon-number: oklch(0.78 0.14 230.32);
+  --aeon-string: oklch(0.78 0.14 91.25);
+  --aeon-symbol: oklch(0.78 0.14 176.9);
+  --aeon-sansa: var(--aeon-symbol);
+}
+```
+
+The local source playground provides three selectable experimental presets and
+shared L/C controls. Those local presets are not additional package exports.

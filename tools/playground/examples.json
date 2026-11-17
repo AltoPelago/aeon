@@ -38,5 +38,10 @@
     "label": "Empty keys + Unicode",
     "mode": "transport",
     "source": "\"\"\\empty\\ = { \"\" = \"İ😀\" }\nselection:sansa = $.\\empty\\.[\"\"]\ncopy = ~[\"\"].[\"\"]\n\"é\" = 1\n\"é\" = 2\n"
+  },
+  "highlight-themes": {
+    "label": "Highlight themes",
+    "mode": "transport",
+    "source": "//# Compare all three highlight themes without changing source.\nlabel\\label1\\:string = \"Widget\"\nnumber:number = 12.5\nradix = %1011\ndate = 2026-11-17\ntime = 09:30:00\ntimestamp = 2026-11-17T12:00:00Z\nflag:boolean = true\nsymbol = |ready|\naddress:sansa = $.label\n"
   }
 }

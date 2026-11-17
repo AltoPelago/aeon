@@ -12,3 +12,65 @@
   .local-header nav { display: none; }
   .page--playground { height: auto; min-height: calc(100dvh - 88px); overflow: visible; }
 }
+
+/* Experimental highlight themes are scoped to code surfaces, not the site UI. */
+.local-header { position: relative; flex-wrap: wrap; }
+.local-highlight-controls { display: flex; align-items: center; gap: 14px; font: 12px/1.3 system-ui, sans-serif; }
+.local-theme-select { display: flex; align-items: center; gap: 8px; }
+.local-theme-select select { max-width: min(280px, 50vw); border: 1px solid #a6aea1; border-radius: 4px; background: #fffdf7; color: #26362c; padding: 5px; font: inherit; }
+.local-theme-settings { position: relative; }
+.local-theme-settings summary { cursor: pointer; white-space: nowrap; color: #354b3d; }
+.local-theme-settings-panel { position: absolute; z-index: 100; top: calc(100% + 14px); right: 0; width: min(300px, 85vw); padding: 16px; border: 1px solid #bcc3b7; border-radius: 6px; background: #fffdf7; color: #26362c; box-shadow: 0 8px 24px #0003; }
+.local-theme-settings-panel p { margin: 0 0 14px; font: inherit; }
+.local-theme-settings-panel label { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 12px 0; }
+.local-theme-settings-panel input { grid-column: 1 / -1; width: 100%; accent-color: #355b48; }
+.local-theme-settings-panel output { font-variant-numeric: tabular-nums; }
+.local-theme-settings-panel button { padding: 6px 10px; border: 1px solid #a6aea1; border-radius: 4px; background: #f3efe5; color: #26362c; font: inherit; cursor: pointer; }
+.local-theme-settings-panel [hidden] { display: none; }
+@media (max-width: 760px) {
+  .local-highlight-controls { flex-wrap: wrap; gap: 10px; }
+  .local-theme-settings-panel { right: auto; left: 0; }
+}
+
+/* Hues derived from the current sRGB palette. Only L and C change across presets. */
+:root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) :is(.walkthrough-code, .highlight-backdrop) {
+  --aeon-fg: oklch(var(--highlight-lightness) var(--highlight-chroma) 264.53);
+  --aeon-key: oklch(var(--highlight-lightness) var(--highlight-chroma) 258.40);
+  --aeon-type: oklch(var(--highlight-lightness) var(--highlight-chroma) 293.78);
+  --aeon-attribute: oklch(var(--highlight-lightness) var(--highlight-chroma) 335.76);
+  --aeon-attribute-punct: oklch(var(--highlight-lightness) var(--highlight-chroma) 78.46);
+  --aeon-tag: oklch(var(--highlight-lightness) var(--highlight-chroma) 92.43);
+  --aeon-string: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 91.25);
+  --aeon-literal: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 119.12);
+  --aeon-number: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 230.32);
+  --aeon-temporal: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 96.15);
+  --aeon-symbol: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 176.90);
+  --aeon-directive: oklch(var(--highlight-lightness) var(--highlight-chroma) 219.46);
+  --aeon-comment: oklch(var(--highlight-lightness) var(--highlight-chroma) 266.24);
+  --aeon-comment-doc: oklch(var(--highlight-lightness) var(--highlight-chroma) 264.23);
+  --aeon-comment-annotation: oklch(var(--highlight-lightness) var(--highlight-chroma) 210.17);
+  --aeon-comment-hint: oklch(var(--highlight-lightness) var(--highlight-chroma) 69.14);
+  --aeon-comment-host: oklch(var(--highlight-lightness) var(--highlight-chroma) 260.31);
+  --aeon-punct: oklch(var(--highlight-lightness) var(--highlight-chroma) 262.06);
+  --aeon-binding: oklch(var(--highlight-lightness) var(--highlight-chroma) 258.40);
+  --aeon-identity: oklch(var(--highlight-lightness) var(--highlight-chroma) 92.43);
+  --aeon-operator: oklch(var(--highlight-lightness) var(--highlight-chroma) 264.53);
+  --aeon-invalid: oklch(var(--highlight-lightness) var(--highlight-chroma) 20.09);
+  color: var(--aeon-fg);
+}
+:root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) .tok-identity { color: var(--aeon-identity); }
+/* Remove inherited sRGB mixes so documentation tokens obey the same L/C rule. */
+:root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) :is(.walkthrough-code, .highlight-backdrop) :is(.tok-and-list-marker, .tok-and-list-text, .tok-and-quote, .tok-and-quote-text, .tok-and-emphasis, .tok-and-link-target) { color: var(--aeon-comment-doc); }
+:root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) :is(.walkthrough-code, .highlight-backdrop) .tok-and-code { color: var(--aeon-fg); }
+:root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) :is(.walkthrough-code, .highlight-backdrop) :is(.tok-and-fence, .tok-and-extension-fence) { color: var(--aeon-attribute-punct); }
+:root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) :is(.walkthrough-code, .highlight-backdrop) .tok-and-invalid { color: var(--aeon-invalid); text-decoration-color: currentColor; }
+
+/* Let a wrapped theme toolbar consume its actual height on desktop. */
+@media (min-width: 981px) {
+  body { height: 100dvh; display: flex; flex-direction: column; }
+  .local-header { flex: none; }
+  .page--playground { height: auto; min-height: 0; flex: 1; }
+}
+@media (max-width: 980px) {
+  .page--playground { height: auto; min-height: calc(100dvh - 88px); overflow: visible; }
+}

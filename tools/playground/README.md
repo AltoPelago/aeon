@@ -78,3 +78,29 @@ Highlighting delegates to the selected workspace `@altopelago/aeon-highlight`
 package. The editor/diagnostic adapter remains local; there are no copied token
 renderers or JSON/&ND helpers in this playground. The default build includes the
 highlight package, and its public exports are served through the workspace map.
+
+## Highlight themes
+
+Use **Highlight theme** in the local header:
+
+1. **Current** keeps the existing palette exactly.
+2. **Equal lightness & chroma** keeps each role's hue, with OKLCH L=0.78 and C=0.10 for all syntax colours.
+3. **More chroma for values** keeps L=0.78, with C=0.07 for keys/types/metadata/comments/punctuation and C=0.14 for values.
+
+Values here are strings, numeric/radix literals, booleans/other literals, temporal
+values, symbols and SANSA address literals. Addresses continue to match symbols.
+JSON keys use the key role and JSON values use the corresponding value roles;
+JSON projection does not retain AEON-specific temporal/symbol token types.
+
+**Adjust OKLCH** exposes shared lightness/chroma sliders; theme 3 additionally
+exposes value chroma, kept strictly above base chroma. **Reset preset** restores
+that preset's defaults. Settings persist for the current tab across refreshes and
+source rebuilds when session storage is available. Hues are fixed, derived from
+the existing sRGB palette. These experimental overrides affect local code
+surfaces only; background and site UI colours remain unchanged. OKLCH channels
+are authored values; the browser maps them to the display's gamut.
+
+Choose **Examples → Highlight themes → Load example** to compare token roles.
+Changing themes does not read/parse/rewrite source, change validation mode or
+change results. This experiment does not change shared package defaults or ship
+new themes to the websites. Releases and deployment remain held.
