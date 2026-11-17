@@ -256,6 +256,7 @@ pub(crate) struct LexerSession<'a> {
     aborted: bool,
     quoted_string: Option<QuotedStringState>,
     comment: Option<CommentState>,
+    comment_newlines: Vec<Span>,
     number: Option<NumberState>,
     prefixed_literal: Option<PrefixedLiteralState>,
     separator_literal: Option<SeparatorLiteralState>,
@@ -332,6 +333,7 @@ impl<'a> LexerSession<'a> {
             aborted: false,
             quoted_string: None,
             comment: None,
+            comment_newlines: Vec::new(),
             number: None,
             prefixed_literal: None,
             separator_literal: None,
@@ -749,7 +751,15 @@ impl<'a> LexerSession<'a> {
                 mut payload_characters,
             } => {
                 while !self.is_at_end() {
+                    let newline_start = (self.options.include_newlines && self.peek() == '\n')
+                        .then(|| self.current_position());
                     let ch = self.advance();
+                    if let Some(start) = newline_start {
+                        self.comment_newlines.push(Span {
+                            start,
+                            end: self.current_position(),
+                        });
+                    }
                     payload_characters = payload_characters.saturating_add(1);
                     if saw_closing && ch == '/' {
                         if structured {
@@ -759,6 +769,7 @@ impl<'a> LexerSession<'a> {
                             );
                         }
                         self.maybe_push_comment(TokenKind::BlockComment, start, metadata);
+                        self.flush_comment_newlines();
                         self.comment = None;
                         return true;
                     }
@@ -778,6 +789,8 @@ impl<'a> LexerSession<'a> {
     }
 
     fn finish_comment(&mut self) {
+        // An unfinished comment remains a lexical error, not completed layout.
+        self.comment_newlines.clear();
         match self
             .comment
             .take()
@@ -1538,6 +1551,22 @@ impl<'a> LexerSession<'a> {
         if self.options.include_comments {
             let text = self.slice_from(start.offset);
             self.push_token(kind, &text, start, Some(comment), None);
+        }
+    }
+
+    fn flush_comment_newlines(&mut self) {
+        // Hold physical LF tokens across pushes until the first matching closer.
+        // Their spans point at the LF itself, not the end of the whole comment.
+        for span in std::mem::take(&mut self.comment_newlines) {
+            self.previous_token_kind = Some(TokenKind::Newline);
+            self.reserve_token_slot();
+            self.tokens.push(Token {
+                kind: TokenKind::Newline,
+                text: String::from("\n"),
+                span,
+                comment: None,
+                quote: None,
+            });
         }
     }
 
@@ -2912,6 +2941,73 @@ context = ?.name next"#;
         assert_eq!(
             result.tokens[0].comment.expect("comment metadata").channel,
             CommentChannel::Doc
+        );
+    }
+
+    #[test]
+    fn block_comment_newlines_keep_exact_spans_at_every_chunk_split() {
+        for (opener, closer) in [
+            ("/*", "*/"),
+            ("/#", "#/"),
+            ("/@", "@/"),
+            ("/?", "?/"),
+            ("/{", "}/"),
+            ("/[", "]/"),
+            ("/(", ")/"),
+        ] {
+            let source = format!("a=1 {opener}é\r\ntext\n{closer}b=2");
+            for include_comments in [false, true] {
+                let options = LexerOptions {
+                    include_newlines: true,
+                    include_comments,
+                };
+                let expected = tokenize(&source, options);
+                let newline_offsets: Vec<_> = expected
+                    .tokens
+                    .iter()
+                    .filter(|token| token.kind == TokenKind::Newline)
+                    .map(|token| {
+                        assert_eq!(
+                            &source[token.span.start.offset..token.span.end.offset],
+                            "\n"
+                        );
+                        token.span.start.offset
+                    })
+                    .collect();
+                assert_eq!(
+                    newline_offsets,
+                    source
+                        .match_indices('\n')
+                        .map(|(offset, _)| offset)
+                        .collect::<Vec<_>>()
+                );
+                for split in (0..=source.len()).filter(|split| source.is_char_boundary(*split)) {
+                    assert_eq!(
+                        tokenize_chunks_with_options([&source[..split], &source[split..]], options),
+                        expected,
+                        "{source:?}, split {split}, comments {include_comments}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn partial_block_comment_does_not_publish_pending_newlines() {
+        let mut lexer = LexerSession::new(LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        });
+        let partial = lexer.push(Cow::Borrowed("/*\n"));
+        assert!(partial.tokens.is_empty());
+        assert!(partial.errors.is_empty());
+        let finished = lexer.finish();
+        assert_eq!(finished.errors[0].code, "UNTERMINATED_BLOCK_COMMENT");
+        assert!(
+            !finished
+                .tokens
+                .iter()
+                .any(|token| token.kind == TokenKind::Newline)
         );
     }
 

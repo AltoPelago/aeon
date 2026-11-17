@@ -51,6 +51,17 @@ repositories.
 
 ### Fixed
 
+- Rust retains physical LF/CRLF from all completed block-comment channels as
+  newline layout tokens, including incremental lexer pushes. Baseline and Sofia
+  parsers now accept the adopted newline-separator behavior while preserving
+  first-closer, literal-boundary and unterminated-comment rules.
+
+- Python exposes physical LF/CRLF from completed plain and structured block comments
+  as layout tokens, matching TypeScript at every newline-separator context.
+  Single-line comments do not create separators; header bindings now enforce
+  the same explicit-delimiter requirement. Literal payloads, compact-token
+  boundaries and unterminated-comment errors retain their existing behavior.
+
 - Rust retained header fields preserve declared structural identities through portable AES and document projection, including scoped SDK/Pytonic lookups and WASM header event summaries. `HeaderFields` adds a public `structural_ids` map; existing struct-literal callers must initialize it. Reference syntax, uniqueness validation and consumer admission are unchanged.
 
 - Rust lexical canonicalization borrows LF-only, preamble-free input while preserving the historical preprocessing bytes and validation behavior.
