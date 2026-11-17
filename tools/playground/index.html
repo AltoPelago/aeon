@@ -5,7 +5,25 @@
 <script type="importmap">__PLAYGROUND_IMPORTS__</script>
 <script>window.AeonPlaygroundExamples = __PLAYGROUND_EXAMPLES__;</script>
 </head><body>
-<header class="local-header"><strong>AEON <span>Playground</span></strong><span class="local-source-badge" data-local-build role="status">Local TypeScript</span><nav><a href="https://github.com/AltoPelago/aeon" target="_blank" rel="noopener">Repository ↗</a></nav></header>
+<header class="local-header"><strong>AEON <span>Playground</span></strong><span class="local-source-badge" data-local-build role="status">Local TypeScript</span><div class="local-highlight-controls">
+<label class="local-theme-select">Highlight theme
+<select data-highlight-theme-select aria-label="Highlight theme">
+<option value="current">1 · Current</option>
+<option value="equal">2 · Equal lightness &amp; chroma</option>
+<option value="values">3 · More chroma for values</option>
+</select></label>
+<details class="local-theme-settings" data-highlight-settings hidden>
+<summary>Adjust OKLCH</summary>
+<div class="local-theme-settings-panel">
+<p>Hues stay fixed. Lightness is shared by all syntax colours.</p>
+<label for="highlight-lightness">Lightness <output aria-hidden="true" data-highlight-lightness-output for="highlight-lightness">78%</output>
+<input id="highlight-lightness" type="range" min="50" max="95" step="1" value="78" data-highlight-lightness></label>
+<label for="highlight-chroma">Chroma <output aria-hidden="true" data-highlight-chroma-output for="highlight-chroma">0.10</output>
+<input id="highlight-chroma" type="range" min="0" max="0.20" step="0.01" value="0.10" data-highlight-chroma></label>
+<label for="highlight-value-chroma" data-highlight-values-control hidden>Value chroma <output aria-hidden="true" data-highlight-value-chroma-output for="highlight-value-chroma">0.14</output>
+<input id="highlight-value-chroma" type="range" min="0.01" max="0.25" step="0.01" value="0.14" data-highlight-value-chroma></label>
+<button type="button" data-highlight-reset>Reset preset</button>
+</div></details></div><nav><a href="https://github.com/AltoPelago/aeon" target="_blank" rel="noopener">Repository ↗</a></nav></header>
 <main class="page page--playground" id="main-content">
 <section class="playground-app-shell reveal-item" data-playground-shell>
         <h1 class="visually-hidden">AEON Playground</h1>
@@ -82,6 +100,7 @@ summary:prose = &gt;`
 <button class="playground-example-tab" type="button" data-example-key="temporal" aria-pressed="false">Temporal claims</button>
 <button class="playground-example-tab" type="button" data-example-key="identities" aria-pressed="false">Identities + references</button>
 <button class="playground-example-tab" type="button" data-example-key="empty-keys" aria-pressed="false">Empty keys + Unicode</button>
+<button class="playground-example-tab" type="button" data-example-key="highlight-themes" aria-pressed="false">Highlight themes</button>
                 </div>
                 <div class="walkthrough-code-frame playground-example-frame">
                     <pre class="walkthrough-code"><code data-example-code></code></pre>
@@ -121,6 +140,7 @@ summary:prose = &gt;`
     </main>
 <script defer src="./accessibility.js"></script>
 <script defer src="./local.js"></script>
+<script type="module" src="./highlight-themes.mjs"></script>
 <script type="module" src="./aeon-highlight.js"></script>
 <script defer src="./walkthrough.js"></script>
 <script type="module" src="./aeon-source-composer.js"></script>

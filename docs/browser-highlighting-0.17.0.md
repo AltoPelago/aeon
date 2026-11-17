@@ -149,3 +149,24 @@ performance measurements. Compatibility and target-preservation checks and
 
 This changes presentation only. Existing compatibility/target-preservation checks
 and performance budgets remain unchanged. Releases and deployment stay held.
+
+## Local OKLCH theme experiment — 18 November 2026
+
+- [x] Add Current, Equal lightness/chroma and More chroma for values presets to
+  the local AEON playground; retain the current palette with a distinct blue node-tag role.
+- [x] Add bounded keyboard-accessible L/C sliders, value emphasis, reset and
+  optional per-tab persistence; keep symbol/address colours equal.
+- [x] Add a mixed-token comparison example and include theme tests in the existing
+  playground CI command. No lexer/parser, execution or target changes.
+- [x] Verify computed OKLCH channels, custom setting persistence and unchanged
+  source/output in a browser. Existing playground/release/package checks pass.
+- [ ] Complete owning CI/review/merge and resulting-main verification. Website
+  adoption and shared package theme exports are outside this experiment.
+
+Compatibility/target-preservation checks and budgets remain unchanged. No new
+performance qualification. Releases and deployment remain held.
+
+Node-colour follow-up: local node tag names use `#3DA2F3` (OKLCH hue246.77),
+with gold structural identity metadata retained. Presets2/3 apply their common
+L/C to the same blue tag hue; delimiters stay punctuation. This is local theme
+preparation only; shared package/website palettes remain unchanged.
