@@ -3,7 +3,7 @@
     "suite_id": "property-resolve",
     "lane": "sansa-properties",
     "capability": "SANSA.Resolve",
-    "profile": "sansa-properties-read-only-candidate-0.1",
+    "profile": "sansa-properties-read-only-candidate-0.2",
     "sut_protocol": "sansa-properties-preparation-v0.1",
     "spec_refs": [
       "aeonite-specs/sources/sansa/v1/property-selectors-v1.aeon"
@@ -180,7 +180,7 @@
       "input": {
         "operation": "resolve",
         "namespace": "properties",
-        "source": "$.document[0]&tag(\"catalog\")"
+        "source": "$.document[0]&headTag(\"catalog\")"
       },
       "expected": {
         "ok": true,
@@ -286,7 +286,7 @@
       "input": {
         "operation": "resolve",
         "namespace": "properties",
-        "source": "$.multi&tag(\"right\")[0]&tag(\"left\")"
+        "source": "$.multi&tag(\"right\")[0]&headTag(\"left\")"
       },
       "expected": {
         "ok": true,
@@ -1477,7 +1477,7 @@
       "input": {
         "operation": "resolve",
         "namespace": "properties",
-        "source": "$.document[0]&tag(\"catalog\")",
+        "source": "$.document[0]&headTag(\"catalog\")",
         "faults": [
           {
             "callback": "nodeTag",
@@ -2409,6 +2409,293 @@
       "covers": [
         "budget",
         "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-tag-rejects-head",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document[0]&tag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 0,
+          "nodeHeads": 0
+        }
+      },
+      "description": "Verify tag rejects head under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-head-tag-rejects-container",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&headTag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 0,
+          "nodeHeads": 0
+        }
+      },
+      "description": "Verify head tag rejects container under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-head-tag-rejects-ordinary",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary&headTag(\"product\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 0,
+          "nodeHeads": 0
+        }
+      },
+      "description": "Verify head tag rejects ordinary under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-head-tag-root",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "?&headTag(\"catalog\")",
+        "contextualRoot": "docHead"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "docHead"
+        ],
+        "addresses": [
+          "$.document[0]"
+        ],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 1,
+          "nodeHeads": 0
+        }
+      },
+      "description": "Verify head tag root under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-head-tag-one-inspection",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document[0]&headTag(\"catalog\")",
+        "options": {
+          "maxPropertyInspections": 1
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "docHead"
+        ],
+        "addresses": [
+          "$.document[0]"
+        ],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 1,
+          "nodeHeads": 0
+        }
+      },
+      "description": "Verify head tag one inspection under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-recursive-tag-containers",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document.**&tag(\"product\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "apple",
+          "orange"
+        ],
+        "addresses": [
+          "$.document[0][0]",
+          "$.document[0][2]"
+        ]
+      },
+      "description": "Verify recursive tag containers under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-recursive-head-tag-heads",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document.**&headTag(\"product\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "appleHead",
+          "orangeHead"
+        ],
+        "addresses": [
+          "$.document[0][0][0]",
+          "$.document[0][2][0]"
+        ]
+      },
+      "description": "Verify recursive head tag heads under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-head-tag-navigation",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi.*&headTag(\"right\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "right",
+          "right2"
+        ],
+        "addresses": [
+          "$.multi[1]",
+          "$.multi[2]"
+        ]
+      },
+      "description": "Verify head tag navigation under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-tag-then-head-tag-misses",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&tag(\"catalog\")&headTag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": []
+      },
+      "description": "Verify tag then head tag misses under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-head-tag-then-tag-misses",
+      "covers": [
+        "head-tag-split"
+      ],
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document[0]&headTag(\"catalog\")&tag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": []
+      },
+      "description": "Verify head tag then tag misses under the explicit container/head predicate split."
+    },
+    {
+      "id": "sansa-properties-partial-head-tag",
+      "description": "partial tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.missing&headTag(\"x\")",
+        "omit": [
+          "nodeHeads"
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_UNSUPPORTED_TAG",
+        "calls": {
+          "scope": 0,
+          "key": 0,
+          "nodeHeads": 0,
+          "children": 0
+        }
+      },
+      "covers": [
+        "head-tag-split"
+      ]
+    },
+    {
+      "id": "sansa-properties-head-tag-zero-budget",
+      "description": "zero before metadata",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document[0]&headTag(\"catalog\")",
+        "options": {
+          "maxPropertyInspections": 0
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+        "calls": {
+          "scope": 0,
+          "nodeKind": 0,
+          "nodeHeads": 0
+        },
+        "limit": 0,
+        "observed": 1,
+        "budget": "maxPropertyInspections",
+        "selectorIndex": 2
+      },
+      "covers": [
+        "head-tag-split"
       ]
     }
   ]

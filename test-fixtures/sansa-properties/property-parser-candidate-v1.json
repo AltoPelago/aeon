@@ -3,7 +3,7 @@
     "suite_id": "property-parser",
     "lane": "sansa-properties",
     "capability": "SANSA.Addressing",
-    "profile": "sansa-properties-read-only-candidate-0.1",
+    "profile": "sansa-properties-read-only-candidate-0.2",
     "sut_protocol": "sansa-properties-preparation-v0.1",
     "spec_refs": [
       "aeonite-specs/sources/sansa/v1/property-selectors-v1.aeon"
@@ -607,6 +607,98 @@
       "covers": [
         "bounds",
         "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-member-tag-head-tag",
+      "description": "member tag",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.document&headTag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.document&headTag(\"catalog\")",
+        "isExact": false
+      },
+      "covers": [
+        "head-tag-split"
+      ]
+    },
+    {
+      "id": "sansa-properties-empty-tag-head-tag",
+      "description": "empty tag",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&headTag(\"\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&headTag(\"\")",
+        "isExact": false
+      },
+      "covers": [
+        "head-tag-split"
+      ]
+    },
+    {
+      "id": "sansa-properties-unknown-headtag",
+      "description": "unknown",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&headtag(\"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+      },
+      "covers": [
+        "head-tag-split"
+      ]
+    },
+    {
+      "id": "sansa-properties-unknown-headtag-case",
+      "description": "unknown",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&HeadTag(\"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+      },
+      "covers": [
+        "head-tag-split"
+      ]
+    },
+    {
+      "id": "sansa-properties-unknown-tag-head",
+      "description": "unknown",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&tagHead(\"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+      },
+      "covers": [
+        "head-tag-split"
+      ]
+    },
+    {
+      "id": "sansa-properties-unknown-tag-children",
+      "description": "unknown",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&tagChildren(\"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+      },
+      "covers": [
+        "head-tag-split"
       ]
     }
   ]

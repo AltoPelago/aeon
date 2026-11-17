@@ -109,3 +109,20 @@ Node tag names use the blue hue from `#3DA2F3` (OKLCH approximately
 `0.691 0.151 246.77`). In presets 2/3, the tag keeps hue 246.77 and
 uses the shared structural lightness/chroma. Tag delimiters retain punctuation
 colour; identities retain their separate gold hue.
+
+## Property address literals
+
+**Examples → Property address literals** exercises the selected implementation's
+`&key("...")` / `&tag("...")` / `&headTag("...")` literal parsing, highlighting, AES representation,
+JSON string projection and canonical output. These are inert SANSA values; this
+AEON page does not evaluate selectors. The SANSA repository's source playground
+uses this SDK build for actual standalone property Resolve, with an independent
+logical property-inspection control and scope-aware examples.
+
+AEON Composer continues to refuse lossy SANSA-literal reconstruction and keeps
+source unchanged. Inspection views retain canonical scalar payloads rather than
+serializing recursive qualifier convenience aliases. The Python CLI's detailed
+compiled-AST JSON boundary remains closed for property literals; portable AES,
+Telex and annotation-only output are the supported interchange alternatives.
+These UI checks do not broaden Query/AEOS/mutation/reference admission or declare
+full-profile/platform/performance readiness. Releases and deployment remain held.

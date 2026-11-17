@@ -258,9 +258,9 @@ class ActualDocumentProperties(unittest.TestCase):
 
     def test_frozen_mirror_bytes(self):
         expected = {
-            "property-parser-candidate-v1.json": "84aac40fa4360a7fccfa16f820195edef5f0fe8938ad6d689a7c43c7477d25e0",
-            "property-resolve-candidate-v1.json": "724ea13d00ccf53c23cee502fa7f858925f2ef4b1e0e591759750e18d4290ec2",
-            "property-namespace-candidate-v1.json": "7261bc7219b49e8f8c03b2b43e931ac611fafd2fc3e48b28dd3e51f2e4072b16",
+            "property-parser-candidate-v1.json": "7549b6c501f306368ed76adf47ba3c7d8f605fd9b40338b3010dc1254eaa896b",
+            "property-resolve-candidate-v1.json": "3cafd875d3341719f4cb2b2b2fcc1d48404e2a9644c8b83ff6a8b80336690cba",
+            "property-namespace-candidate-v1.json": "867feaee7445b4bbb7d86ed84c0b8ce18523ebbc1ec76cd4f845b24aec273a83",
         }
         for name, digest in expected.items():
             self.assertEqual(hashlib.sha256((FIXTURES / name).read_bytes()).hexdigest(), digest)
@@ -452,6 +452,25 @@ class ActualDocumentProperties(unittest.TestCase):
         ns["properties"] = {"scope": lambda b, c: "root" if b is root else "inside", "key": key}
         self.assertIs(resolve_address('$.*&key("x")', ns, options)["bindings"][0], child)
         self.assertEqual(options, {"maxPropertyInspections": 1})
+
+
+
+
+class TagHeadSplit(unittest.TestCase):
+    def test_recursive_predicates_select_original_containers_heads_and_content(self):
+        fixture = json.loads((ROOT / "test-fixtures/tag-head-split.json").read_text())
+        compiled = compile_source(fixture["source"])
+        self.assertFalse(compiled.errors)
+        portable = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]
+        for namespace in [namespace_from_assignment_events(compiled.events), namespace_from_portable_records(portable)]:
+            for case in fixture["cases"]:
+                for address in [case["address"], parse_address(case["address"])["address"]]:
+                    selected = resolve_address(address, namespace)
+                    self.assertTrue(selected["ok"], selected)
+                    self.assertEqual([binding["path"] for binding in selected["bindings"]], case["paths"])
+                    self.assertEqual([binding["info"]["type"] for binding in selected["bindings"]], case["kinds"])
+                    for binding in selected["bindings"]:
+                        self.assertIs(binding, resolve_address(binding["path"], namespace)["bindings"][0])
 
 
 if __name__ == "__main__":

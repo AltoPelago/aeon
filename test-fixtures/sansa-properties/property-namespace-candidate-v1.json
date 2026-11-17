@@ -330,6 +330,7 @@
     "iterator",
     "query",
     "consumer-denial",
-    "legacy"
+    "legacy",
+    "head-tag-split"
   ]
 }

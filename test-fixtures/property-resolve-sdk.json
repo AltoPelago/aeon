@@ -45,7 +45,7 @@
       ]
     },
     {
-      "address": "$.value[0]&tag(\"tag\")",
+      "address": "$.value[0]&headTag(\"tag\")",
       "paths": [
         "$.value[0]"
       ]
@@ -144,6 +144,30 @@
       "limit": 2,
       "code": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
       "observed": 3
+    },
+    {
+      "address": "$.value[0]&tag(\"tag\")",
+      "paths": []
+    },
+    {
+      "address": "$.value&headTag(\"tag\")",
+      "paths": []
+    },
+    {
+      "address": "$.value[0]&headTag(\"tag\").*",
+      "paths": [
+        "$.value[0][0]"
+      ]
+    },
+    {
+      "address": "$.value.**&tag(\"tag\")",
+      "paths": []
+    },
+    {
+      "address": "$.value.**&headTag(\"tag\")",
+      "paths": [
+        "$.value[0]"
+      ]
     }
   ]
 }

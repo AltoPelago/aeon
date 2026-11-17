@@ -68,11 +68,11 @@ This keeps the release history honest about what was actually shipped.
 
 ### Property Resolve SDK development candidate
 
-The Rust and TypeScript SDK provider slice selects the merged SANSA source
-`dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`. The central TypeScript workspace override
+The Rust and TypeScript SDK provider slice selects the coordinated SANSA development source
+`6ffe13b7640158b0e9173eb407ca1c67a1a2d60c`. The central TypeScript workspace override
 selects the retained local archive
-`altopelago-sansa-0.15.0-rc.1-properties-7026ec5c.tgz`, SHA-256
-`7026ec5ccb9077062ee2995a4d8d64204dd14bd832c119580d579bc179b8e1d7`;
+`altopelago-sansa-0.15.0-rc.1-head-tag-fad5824f.tgz`, SHA-256
+`fad5824fec43ff29187824d73a01c47a04d32eb363258aa0f30d23d809433aba`;
 the staging helper, provenance record and lockfile must agree. Rust pins the same
 source revision. Previous archives remain available for provenance.
 
@@ -369,3 +369,9 @@ select their own implementation lexer. It loads no lexer or DOM itself. Existing
 root/element entries retain the exact matching 0.17 lexer dependency. Website
 legacy 0.16 and candidate 0.17 providers require explicit consumer compatibility
 checks; this does not upgrade or relax their runtime graphs.
+
+The unpublished 0.2 property revision separates container-only `&tag` from
+head-only `&headTag`. This exact candidate is still under owning review. Shared
+callbacks, parser/inspection ceilings and prohibited consumer admission are
+unchanged. Old head-target predicates must migrate explicitly to `&headTag`;
+no published selector contract or immutable reference/target fixture is revised.

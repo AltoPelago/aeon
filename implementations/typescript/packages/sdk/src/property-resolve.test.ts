@@ -106,3 +106,19 @@ test('SDK owning planes retain scope and closed consumer boundaries', () => {
     assert.deepEqual(mutation.errors.map(e => e.code), ['SANSA_MUTATE_NON_EXACT_TARGET']);
   }
 });
+
+test('recursive tag predicates distinguish original containers, heads and content', async () => {
+  const {default: split} = await import('../../../../../test-fixtures/tag-head-split.json', {with:{type:'json'}});
+  const namespace = readAeonNamespace(split.source).namespace;
+  for (const item of split.cases) {
+    const parsed = parseAddress(item.address);
+    assert.ok(parsed.ok);
+    for (const address of [item.address, parsed.address]) {
+      const selected = resolveAddress(address, namespace);
+      assert.equal(selected.ok, true);
+      assert.deepEqual(selected.bindings.map(binding => binding.address), item.paths);
+      assert.deepEqual(selected.bindings.map(binding => binding.representationKind), item.kinds);
+      for (const binding of selected.bindings) assert.equal(binding, resolveAddress(binding.address, namespace).bindings[0]);
+    }
+  }
+});

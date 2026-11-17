@@ -314,7 +314,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(count, 33);
+        assert_eq!(count, 39);
     }
 
     #[test]

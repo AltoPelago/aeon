@@ -7,7 +7,9 @@
     "$&tag(\"😀\")#node",
     "$&key(\"quote\\\" slash\\\\\")",
     "$&tag(\"line\\nnext\")",
-    "$&key(\"x\"):list<list<string>>"
+    "$&key(\"x\"):list<list<string>>",
+    "$.*&headTag(\"book\")",
+    "?&headTag(\"\\u{1F600}\")"
   ],
   "invalid": [
     "$&key(\"x\",\"y\")",
@@ -23,6 +25,8 @@
     "$&tag(\"😀\")#node",
     "$&key(\"quote\\\" slash\\\\\")",
     "$&tag(\"line\\nnext\")",
-    "$&key(\"x\"):list<list<string>>"
+    "$&key(\"x\"):list<list<string>>",
+    "$.*&headTag(\"book\")",
+    "?&headTag(\"😀\")"
   ]
 }
