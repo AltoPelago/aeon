@@ -113,7 +113,7 @@ colour; identities retain their separate gold hue.
 ## Property address literals
 
 **Examples → Property address literals** exercises the selected implementation's
-`&key("...")` / `&tag("...")` literal parsing, highlighting, AES representation,
+`&key("...")` / `&tag("...")` / `&headTag("...")` literal parsing, highlighting, AES representation,
 JSON string projection and canonical output. These are inert SANSA values; this
 AEON page does not evaluate selectors. The SANSA repository's source playground
 uses this SDK build for actual standalone property Resolve, with an independent

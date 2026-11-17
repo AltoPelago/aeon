@@ -448,3 +448,7 @@ before producing JSON; `--json --portable-aes`, `--telex` and annotation-only
 output remain available. Direct parser/Resolve APIs retain their plain-data AST;
 use canonical addresses or portable records for interchange rather than blindly
 JSON-serializing deep convenience graphs.
+
+In the unreleased 0.2 revision, `&tag("book")` matches NodeLiteral containers
+only; `&headTag("book")` matches NodeHead bindings only. Both use the existing
+authoritative node facet and allowance. Add `.*` explicitly to visit head children.

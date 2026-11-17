@@ -66,7 +66,7 @@ def render_property_address(address, parse_options=None):
         kind = selector["type"]
         if kind == "propertyFilter":
             property = selector.get("property")
-            if type(property) is not str or property not in {"key", "tag"}:
+            if type(property) is not str or property not in {"key", "tag", "headTag"}:
                 raise ValueError("Invalid property")
             value = string(selector.get("value"), MAX_ARGUMENT_SCALARS, "payloadScalars")
             emit("&" + property + "(" + sansa.quote_payload(value) + ")")

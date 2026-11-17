@@ -776,10 +776,10 @@ class AddressParser:
         start = self.index
         while is_identifier_continue(self.peek()):
             self.index += 1
-            if self.index - start > 3:
+            if self.index - start > 7:
                 self.fail("Unknown property selector", "SANSA_UNKNOWN_PROPERTY_SELECTOR")
         property = self.input[start:self.index]
-        if property not in {"key", "tag"}:
+        if property not in {"key", "tag", "headTag"}:
             self.fail("Unknown property selector", "SANSA_UNKNOWN_PROPERTY_SELECTOR")
         self.consume("(")
         if is_layout(self.peek()):

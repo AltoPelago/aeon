@@ -1,0 +1,8 @@
+{
+  "source": "inventory:object = { n = <tag(<book(\"yes\",\"no\")>, <chapter(\"book\")>)> }",
+  "cases": [
+    {"address":"$.inventory.n.**&tag(\"book\")","paths":["$.inventory.n[0][0]"],"kinds":["NodeLiteral"]},
+    {"address":"$.inventory.n.**&headTag(\"book\")","paths":["$.inventory.n[0][0][0]"],"kinds":["NodeHead"]},
+    {"address":"$.inventory.n.**&headTag(\"book\").*","paths":["$.inventory.n[0][0][0][0]","$.inventory.n[0][0][0][1]"],"kinds":["StringLiteral","StringLiteral"]}
+  ]
+}

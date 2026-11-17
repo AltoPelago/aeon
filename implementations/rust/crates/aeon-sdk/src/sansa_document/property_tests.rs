@@ -137,3 +137,40 @@ fn properties_preserve_closed_query_and_exact_lookup() {
     assert_eq!(result.errors[0].code, "SANSA_RESOLVE_UNSUPPORTED_SELECTOR");
     assert!(ns.at_exact("$.value&tag(\"tag\")").is_none());
 }
+
+#[test]
+fn recursive_predicates_distinguish_containers_heads_and_content() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../../test-fixtures/tag-head-split.json"
+    )))
+    .expect("tag/head fixture");
+    let ns = AeonSansaNamespace::compile(
+        fixture["source"].as_str().expect("source"),
+        CompileOptions::default(),
+        AeonSansaScope::Payload,
+        AeonNumericMaterialization::Lossless,
+    )
+    .expect("namespace");
+    for case in fixture["cases"].as_array().expect("cases") {
+        let text = case["address"].as_str().expect("address");
+        let parsed = runtime::address::parse_address(text).expect("parsed");
+        for selected in [
+            ns.resolve_address(text, &ResolveOptions::default()),
+            runtime::resolve::resolve_parsed_address(&parsed, &ns, &ResolveOptions::default()),
+        ] {
+            assert!(selected.is_ok(), "{text}: {:?}", selected.errors);
+            let paths: Vec<_> = selected.bindings.iter().map(|b| b.address()).collect();
+            let kinds: Vec<_> = selected
+                .bindings
+                .iter()
+                .map(|b| b.representation_kind())
+                .collect();
+            assert_eq!(serde_json::to_value(paths).expect("paths"), case["paths"]);
+            assert_eq!(serde_json::to_value(kinds).expect("kinds"), case["kinds"]);
+            for binding in selected.bindings {
+                assert_eq!(Some(binding.clone()), ns.at_exact(&binding.address()));
+            }
+        }
+    }
+}

@@ -235,7 +235,7 @@ test('property literal examples retain inert payloads and refuse lossy Composer 
   const result=runtime(source);
   assert.deepEqual(result.meta.errors,[]);
   const addresses=result.aes.filter(event=>event.value?.type==='TypedValue' ? event.value.value?.type==='SansaAddressLiteral' : event.value?.type==='SansaAddressLiteral');
-  assert.equal(addresses.length,3);
+  assert.equal(addresses.length,4);
   const canonical=canonicalize(source);
   assert.deepEqual(canonical.errors,[]);
   assert.equal(canonicalize(canonical.text).text,canonical.text);

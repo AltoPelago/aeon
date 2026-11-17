@@ -47,6 +47,6 @@
   "properties": {
     "label": "Property address literals",
     "mode": "transport",
-    "source": "//# Property selectors are inert address values here.\n//# Evaluate them in the SANSA playground with an authoritative namespace.\nitems = [{name=\"Widget\"}, {name=\"Bracket\"}]\nbyName:sansa = $.items.*.name&key(\"name\")\nbyTag:sansa = $.*&tag(\"widget\")\nquoted:sansa = $.[\"a&b\"]&key(\"a&b\")\n"
+    "source": "//# Property selectors are inert address values here.\n//# Evaluate them in the SANSA playground with an authoritative namespace.\nitems = [{name=\"Widget\"}, {name=\"Bracket\"}]\nbyName:sansa = $.items.*.name&key(\"name\")\nbyTag:sansa = $.*&tag(\"widget\")\nquoted:sansa = $.[\"a&b\"]&key(\"a&b\")\nbyHead:sansa = $.**&headTag(\"widget\")\n"
   }
 }

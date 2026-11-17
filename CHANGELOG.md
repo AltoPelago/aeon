@@ -8,12 +8,17 @@ repositories.
 
 ## Unreleased
 
+- The coordinated property candidate separates container-only `&tag` and
+  head-only `&headTag` across standalone SDK Resolve and Python/Core/native/WASM
+  literal parsing. Child navigation stays explicit. Existing property capabilities,
+  budgets, structural references and prohibited consumers remain unchanged.
+
 ### Standalone SDK property Resolve
 
 - The coordinated Rust/TypeScript SDK candidates provide authoritative key/tag
   facets for standalone SANSA Resolve, preserving original handles, direct-head
   ownership and per-occurrence scope boundaries. The local SANSA dependency is
-  pinned to merged source `dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`. Query,
+  pinned to development source `6ffe13b7640158b0e9173eb407ca1c67a1a2d60c`. Query,
   mutation, AEOS rule-selector and reference admission remain unchanged.
 - Pure Python adds bounded property Addressing and authoritative standalone
   document Resolve. Rust Core parses inert property literals through the same

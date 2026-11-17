@@ -115,10 +115,10 @@ def _authorize(binding, context, facet, index, property):
     return role, None
 
 
-def _tag(binding, context, facet, index):
+def _tag(binding, context, facet, index, property):
     kind = facet["nodeKind"](binding, context)
     if type(kind) is not str or kind not in {"NodeLiteral", "NodeHead", "Other"}:
-        return None, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, "tag")
+        return None, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
     return kind, None
 
 
@@ -141,14 +141,18 @@ def select(binding, context, facet, selector, index, budget):
             if value is not None and not scalar(value):
                 return False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
             return value == expected, None
-        kind, issue = _tag(binding, context, facet, index)
+        kind, issue = _tag(binding, context, facet, index, property)
         if issue is not None or kind == "Other":
             return False, issue
-        if kind == "NodeHead":
+        if property == "headTag":
+            if kind != "NodeHead":
+                return False, None
             value = facet["nodeTag"](binding, context)
             if value is not None and not scalar(value):
                 return False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
             return value == expected, None
+        if kind != "NodeLiteral":
+            return False, None
         heads = facet["nodeHeads"](binding, context)
         try:
             iterator = iter(heads)
@@ -171,7 +175,7 @@ def select(binding, context, facet, selector, index, budget):
             if issue is not None:
                 result = False, issue
                 break
-            head_kind, issue = _tag(head, head_context, facet, index)
+            head_kind, issue = _tag(head, head_context, facet, index, property)
             if issue is not None or head_kind != "NodeHead":
                 result = False, issue or error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
                 break
