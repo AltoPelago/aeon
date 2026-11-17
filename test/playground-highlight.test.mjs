@@ -143,3 +143,16 @@ test('escaped symbolic pipes use one lexer pass for closed and unfinished litera
   }
   assert.equal(calls,6);
 });
+
+test('property address literals use the implementation token and preserve quoted payload text',()=>{
+  const fixture=JSON.parse(readFileSync(new URL('../test-fixtures/property-address-literals.json',import.meta.url),'utf8'));
+  for(const address of fixture.addresses){
+    const source=`selector:sansa=${address}// outside`;
+    const lexical=lexer.tokenize(source,{includeComments:true,includeNewlines:true});
+    assert.deepEqual(lexical.errors,[],address);
+    const html=highlighter.highlightAeon(source);
+    assert.equal(plain(html),source,address);
+    assert.match(html,/tok-sansa/);
+    assert.ok(lexical.tokens.some(token=>token.type==='SansaAddressLiteral'),address);
+  }
+});

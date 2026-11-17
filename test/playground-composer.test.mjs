@@ -228,3 +228,16 @@ test('active AES preserves full cells without longest-cell times row-count paddi
   assert.ok(table.length < source.length*12, `${source.length} -> ${table.length}`);
   t.diagnostic(JSON.stringify(counts));
 });
+
+test('property literal examples retain inert payloads and refuse lossy Composer rewriting',async()=>{
+  const examples=JSON.parse(readFileSync(new URL('../tools/playground/examples.json',import.meta.url),'utf8'));
+  const source=examples.properties.source;
+  const result=runtime(source);
+  assert.deepEqual(result.meta.errors,[]);
+  const addresses=result.aes.filter(event=>event.value?.type==='TypedValue' ? event.value.value?.type==='SansaAddressLiteral' : event.value?.type==='SansaAddressLiteral');
+  assert.equal(addresses.length,3);
+  const canonical=canonicalize(source);
+  assert.deepEqual(canonical.errors,[]);
+  assert.equal(canonicalize(canonical.text).text,canonical.text);
+  await assert.rejects(mounted(source),/SANSA address literals/);
+});
