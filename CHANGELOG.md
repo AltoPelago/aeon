@@ -8,6 +8,13 @@ repositories.
 
 ## Unreleased
 
+- Rebuild the committed WASM artifact from merged Rust sources so physical LF/CRLF
+  inside all seven block-comment channels remains a binding separator in process,
+  canonical and streaming APIs. Add compiled-artifact byte-split regressions.
+- Refresh the coordinated Rust/npm SANSA selection to merged main, retaining exact
+  archive/lock/provenance agreement and prior archives. Release/deployment holds,
+  reference targets and existing performance budgets remain unchanged.
+
 - The coordinated property candidate separates container-only `&tag` and
   head-only `&headTag` across standalone SDK Resolve and Python/Core/native/WASM
   literal parsing. Child navigation stays explicit. Existing property capabilities,
@@ -18,7 +25,7 @@ repositories.
 - The coordinated Rust/TypeScript SDK candidates provide authoritative key/tag
   facets for standalone SANSA Resolve, preserving original handles, direct-head
   ownership and per-occurrence scope boundaries. The local SANSA dependency is
-  pinned to development source `6ffe13b7640158b0e9173eb407ca1c67a1a2d60c`. Query,
+  pinned to development source `da76789aff29025affe180196e79ba5749c9e0a2`. Query,
   mutation, AEOS rule-selector and reference admission remain unchanged.
 - Pure Python adds bounded property Addressing and authoritative standalone
   document Resolve. Rust Core parses inert property literals through the same
