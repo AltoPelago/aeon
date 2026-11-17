@@ -262,6 +262,8 @@ class Parser:
                     )
                 )
                 fields[field_name] = value
+            if not self.check("EOF") and not self.check("NEWLINE") and not self.check("COMMA"):
+                raise SyntaxError("Expected header binding delimiter", self.peek().span)
             self.skip_separators()
         if has_structured and has_shorthand:
             self.errors.append(HeaderConflictError(Span(start=start, end=end)))

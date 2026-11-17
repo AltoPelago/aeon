@@ -404,12 +404,19 @@ class Lexer:
             self.advance()
 
     def scan_block_comment(self, start: Position) -> None:
+        newlines: list[Token] = []
         while not self.is_at_end():
             if self.peek() == "*" and self.peek_next() == "/":
                 self.advance()
                 self.advance()
+                self.tokens.extend(newlines)
                 return
-            self.advance()
+            if self.peek() == "\n":
+                newline_start = self.current_position()
+                self.advance()
+                newlines.append(Token("NEWLINE", "\n", self.make_span(newline_start)))
+            else:
+                self.advance()
         self.errors.append(UnterminatedBlockCommentError(self.make_span(start)))
 
     def scan_line_comment(self) -> None:
@@ -424,12 +431,19 @@ class Lexer:
     def scan_slash_channel_comment(self, start: Position) -> None:
         marker = self.advance()
         closing = {"{": "}", "[": "]", "(": ")"}.get(marker, marker)
+        newlines: list[Token] = []
         while not self.is_at_end():
             if self.peek() == closing and self.peek_next() == "/":
                 self.advance()
                 self.advance()
+                self.tokens.extend(newlines)
                 return
-            self.advance()
+            if self.peek() == "\n":
+                newline_start = self.current_position()
+                self.advance()
+                newlines.append(Token("NEWLINE", "\n", self.make_span(newline_start)))
+            else:
+                self.advance()
         self.errors.append(UnterminatedBlockCommentError(self.make_span(start)))
 
     def scan_prefixed_while(self, start: Position, prefix: str, kind: str, predicate) -> None:
