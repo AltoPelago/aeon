@@ -14,9 +14,15 @@ repositories.
   facets for standalone SANSA Resolve, preserving original handles, direct-head
   ownership and per-occurrence scope boundaries. The local SANSA dependency is
   pinned to merged source `dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`. Query,
-  mutation, AEOS rule-selector and reference admission remain unchanged. Python,
-  native/WASM lexical/AST ports, playground and final profile/cost qualification
-  remain pending; no official release or deployment.
+  mutation, AEOS rule-selector and reference admission remain unchanged.
+- Pure Python adds bounded property Addressing and authoritative standalone
+  document Resolve. Rust Core parses inert property literals through the same
+  pinned SANSA source; rebuilt CPython/WASM artifacts preserve their existing
+  value and canonical-string APIs. Core's reduced Resolve namespace explicitly
+  rejects property evaluation. See the implementation READMEs for Rust AST/source
+  API changes and Python's closed detailed JSON export boundary. Owning review,
+  playground, Query and final profile/cost qualification remain pending; no
+  official release or deployment.
 
 ### Empty property keys
 

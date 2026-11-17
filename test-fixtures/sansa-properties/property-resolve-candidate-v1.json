@@ -1,0 +1,2415 @@
+{
+  "meta": {
+    "suite_id": "property-resolve",
+    "lane": "sansa-properties",
+    "capability": "SANSA.Resolve",
+    "profile": "sansa-properties-read-only-candidate-0.1",
+    "sut_protocol": "sansa-properties-preparation-v0.1",
+    "spec_refs": [
+      "aeonite-specs/sources/sansa/v1/property-selectors-v1.aeon"
+    ]
+  },
+  "id": "property-resolve",
+  "title": "Property candidate resolve",
+  "tests": [
+    {
+      "id": "sansa-properties-root-hidden",
+      "description": "root hidden",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$&key(\"outsideRootName\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "key",
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-empty-key",
+      "description": "empty key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.[\"\"]&key(\"\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "empty"
+        ],
+        "addresses": [
+          "$.[\"\"]"
+        ],
+        "calls": {
+          "scope": 1,
+          "key": 1
+        }
+      },
+      "covers": [
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-empty-identity",
+      "description": "empty identity",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.\\emptyBinding\\&key(\"\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "empty"
+        ],
+        "addresses": [
+          "$.[\"\"]"
+        ]
+      },
+      "covers": [
+        "key",
+        "order-multiplicity"
+      ]
+    },
+    {
+      "id": "sansa-properties-anonymous-key",
+      "description": "anonymous key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.list[0]&key(\"0\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "key": 1
+        }
+      },
+      "covers": [
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-key-not-tag",
+      "description": "key not tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": []
+      },
+      "covers": [
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-tag-not-key",
+      "description": "tag not key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&tag(\"document\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 2,
+          "nodeKind": 2,
+          "nodeTag": 1,
+          "nodeHeads": 1,
+          "headNext": 2,
+          "headEarlyClose": 0
+        }
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-container-tag",
+      "description": "container tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&tag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "doc"
+        ],
+        "addresses": [
+          "$.document"
+        ],
+        "calls": {
+          "scope": 2,
+          "nodeKind": 2,
+          "nodeTag": 1,
+          "nodeHeads": 1,
+          "headNext": 1,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "tag",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-head-tag",
+      "description": "head tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document[0]&tag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "docHead"
+        ],
+        "addresses": [
+          "$.document[0]"
+        ],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 1,
+          "nodeHeads": 0
+        }
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-ordinary-tag",
+      "description": "ordinary tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary&tag(\"product\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeTag": 0,
+          "nodeHeads": 0
+        }
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-multiple-matching-heads",
+      "description": "multiple matching heads",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "multi"
+        ],
+        "addresses": [
+          "$.multi"
+        ],
+        "calls": {
+          "scope": 3,
+          "nodeKind": 3,
+          "nodeTag": 2,
+          "nodeHeads": 1,
+          "headNext": 2,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "tag",
+        "iterator",
+        "order-multiplicity"
+      ]
+    },
+    {
+      "id": "sansa-properties-cached-tag",
+      "description": "cached tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"stale\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 4,
+          "nodeKind": 4,
+          "nodeTag": 3,
+          "nodeHeads": 1,
+          "headNext": 4,
+          "headEarlyClose": 0
+        }
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-not-retargeted",
+      "description": "not retargeted",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")[0]&tag(\"left\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "left"
+        ],
+        "addresses": [
+          "$.multi[0]"
+        ]
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-empty-heads",
+      "description": "empty heads",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.zero&tag(\"x\")",
+        "options": {
+          "maxPropertyInspections": 1
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeHeads": 1,
+          "headNext": 1,
+          "nodeTag": 0
+        }
+      },
+      "covers": [
+        "tag",
+        "budget"
+      ]
+    },
+    {
+      "id": "sansa-properties-empty-tag-does-not-invent-tag",
+      "description": "empty tag does not invent tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": []
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-composed",
+      "description": "unicode composed",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"\u00e9\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "unicodeA"
+        ],
+        "addresses": [
+          "$.[\"\u00e9\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-decomposed",
+      "description": "unicode decomposed",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"e\u0301\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "unicodeD"
+        ],
+        "addresses": [
+          "$.[\"e\u0301\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-casefold",
+      "description": "unicode casefold",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"i\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "lower"
+        ],
+        "addresses": [
+          "$.[\"i\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-turkish",
+      "description": "unicode turkish",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"\u0130\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "upper"
+        ],
+        "addresses": [
+          "$.[\"\u0130\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-literal-pattern",
+      "description": "unicode literal pattern",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"*?\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "wild"
+        ],
+        "addresses": [
+          "$.[\"*?\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-quoted-string",
+      "description": "unicode quoted string",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"a\\\"b\\\\c\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "escaped"
+        ],
+        "addresses": [
+          "$.[\"a\\\"b\\\\c\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-space-key",
+      "description": "unicode space key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"a b\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "space"
+        ],
+        "addresses": [
+          "$.[\"a b\"]"
+        ]
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-scope-root-key",
+      "description": "scope root key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$&key(\"document\")",
+        "rebasedRoot": "doc"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-scope-root-tag",
+      "description": "scope root tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$&tag(\"catalog\")",
+        "rebasedRoot": "doc"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "doc"
+        ],
+        "addresses": [
+          "$.document"
+        ]
+      },
+      "covers": [
+        "scope",
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-context-key",
+      "description": "context key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "?&key(\"document\")",
+        "contextualRoot": "doc"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-context-tag",
+      "description": "context tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "?&tag(\"catalog\")",
+        "contextualRoot": "doc"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "doc"
+        ],
+        "addresses": [
+          "$.document"
+        ]
+      },
+      "covers": [
+        "scope",
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-parent-escape",
+      "description": "parent escape",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "?.^&key(\"outsideRootName\")",
+        "contextualRoot": "doc",
+        "options": {
+          "allowParentFromEffectiveRoot": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION",
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-attribute-root",
+      "description": "attribute root",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document.@&key(\"fakeAttributes\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-attribute-child",
+      "description": "attribute child",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document.@.unit&key(\"unit\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "unit"
+        ],
+        "addresses": [
+          "$.document.@.unit"
+        ]
+      },
+      "covers": [
+        "scope",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-local-root",
+      "description": "local root",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document.<\"private\">&key(\"fakePrivate\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-local-child",
+      "description": "local child",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document.<\"private\">.secret&key(\"secret\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "secret"
+        ],
+        "addresses": [
+          "$.document.<\"private\">.secret"
+        ]
+      },
+      "covers": [
+        "scope",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-repeated-root",
+      "description": "repeated root",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*.^&key(\"outsideRootName\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 13,
+          "key": 0
+        }
+      },
+      "covers": [
+        "scope",
+        "order-multiplicity"
+      ]
+    },
+    {
+      "id": "sansa-properties-repeated-occurrence",
+      "description": "repeated occurrence",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*.^.document&key(\"document\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc",
+          "doc"
+        ],
+        "addresses": [
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document",
+          "$.document"
+        ],
+        "calls": {
+          "scope": 13,
+          "key": 13
+        }
+      },
+      "covers": [
+        "order-multiplicity"
+      ]
+    },
+    {
+      "id": "sansa-properties-wrong-owner",
+      "description": "wrong owner",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"catalog\")",
+        "faults": [
+          {
+            "callback": "nodeHeads",
+            "binding": "multi",
+            "action": "return",
+            "value": [
+              "docHead"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION",
+        "calls": {
+          "scope": 2,
+          "nodeTag": 0,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "scope",
+        "ownership"
+      ]
+    },
+    {
+      "id": "sansa-properties-foreign-head",
+      "description": "foreign head",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "faults": [
+          {
+            "callback": "nodeHeads",
+            "binding": "multi",
+            "action": "return",
+            "value": [
+              "foreignHead"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION",
+        "calls": {
+          "scope": 2,
+          "nodeTag": 0,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "ownership"
+      ]
+    },
+    {
+      "id": "sansa-properties-bad-key",
+      "description": "bad key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"document\")",
+        "faults": [
+          {
+            "callback": "key",
+            "binding": "doc",
+            "action": "return",
+            "value": 3
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"
+      },
+      "covers": [
+        "key",
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-bad-tag",
+      "description": "bad tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&tag(\"catalog\")",
+        "faults": [
+          {
+            "callback": "nodeTag",
+            "binding": "docHead",
+            "action": "return",
+            "value": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"
+      },
+      "covers": [
+        "tag",
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-wrong-head-kind",
+      "description": "wrong head kind",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "faults": [
+          {
+            "callback": "nodeKind",
+            "binding": "left",
+            "action": "return",
+            "value": "Other"
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"
+      },
+      "covers": [
+        "tag",
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-false-root",
+      "description": "false root",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"document\")",
+        "faults": [
+          {
+            "callback": "scope",
+            "binding": "doc",
+            "action": "return",
+            "value": "root"
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"
+      },
+      "covers": [
+        "tag",
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-false-inside",
+      "description": "false inside",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$&key(\"outsideRootName\")",
+        "faults": [
+          {
+            "callback": "scope",
+            "binding": "r",
+            "action": "return",
+            "value": "inside"
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"
+      },
+      "covers": [
+        "tag",
+        "scope"
+      ]
+    },
+    {
+      "id": "sansa-properties-callback-throw",
+      "description": "callback throw",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"document\")",
+        "faults": [
+          {
+            "callback": "key",
+            "binding": "doc",
+            "action": "throw",
+            "value": "secret exception text"
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_ADAPTER_ERROR",
+        "calls": {
+          "scope": 1,
+          "key": 1
+        }
+      },
+      "covers": [
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-iterator-throw",
+      "description": "iterator throw",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "faults": [
+          {
+            "callback": "headNext",
+            "binding": "multi",
+            "action": "throw",
+            "at": 2,
+            "value": "secret exception text"
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_ADAPTER_ERROR",
+        "calls": {
+          "scope": 2,
+          "nodeTag": 1,
+          "headNext": 2,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-no-scope",
+      "description": "no scope",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.missing&key(\"x\")",
+        "omit": [
+          "scope"
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE",
+        "calls": {
+          "scope": 0,
+          "key": 0,
+          "nodeHeads": 0,
+          "children": 0
+        }
+      },
+      "covers": [
+        "preflight"
+      ]
+    },
+    {
+      "id": "sansa-properties-no-key",
+      "description": "no key",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.missing&key(\"x\")",
+        "omit": [
+          "key"
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_UNSUPPORTED_KEY",
+        "calls": {
+          "scope": 0,
+          "key": 0,
+          "nodeHeads": 0,
+          "children": 0
+        }
+      },
+      "covers": [
+        "preflight"
+      ]
+    },
+    {
+      "id": "sansa-properties-partial-tag",
+      "description": "partial tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.missing&tag(\"x\")",
+        "omit": [
+          "nodeHeads"
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_UNSUPPORTED_TAG",
+        "calls": {
+          "scope": 0,
+          "key": 0,
+          "nodeHeads": 0,
+          "children": 0
+        }
+      },
+      "covers": [
+        "preflight"
+      ]
+    },
+    {
+      "id": "sansa-properties-capability-after-empty-filter",
+      "description": "capability after empty filter",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"absent\")&tag(\"catalog\")",
+        "omit": [
+          "nodeTag"
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_UNSUPPORTED_TAG",
+        "calls": {
+          "scope": 0,
+          "key": 0,
+          "children": 0
+        }
+      },
+      "covers": [
+        "preflight"
+      ]
+    },
+    {
+      "id": "sansa-properties-root-before-capability",
+      "description": "root before capability",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$&key(\"x\")",
+        "omit": [
+          "key"
+        ],
+        "invalidRoot": true
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_MISSING_ROOT",
+        "calls": {
+          "scope": 0,
+          "key": 0
+        }
+      },
+      "covers": [
+        "preflight"
+      ]
+    },
+    {
+      "id": "sansa-properties-invalid-limit-true",
+      "description": "invalid limit true",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary.tag",
+        "options": {
+          "maxPropertyInspections": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_LIMIT",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-invalid-limit--1",
+      "description": "invalid limit  1",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary.tag",
+        "options": {
+          "maxPropertyInspections": -1
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_LIMIT",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-invalid-limit-0-5",
+      "description": "invalid limit 0.5",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary.tag",
+        "options": {
+          "maxPropertyInspections": 0.5
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_LIMIT",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-invalid-limit-1000001",
+      "description": "invalid limit 1000001",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary.tag",
+        "options": {
+          "maxPropertyInspections": 1000001
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_LIMIT",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-supported-empty-zero",
+      "description": "supported empty zero",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.missing&key(\"x\")",
+        "options": {
+          "maxPropertyInspections": 0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 0,
+          "key": 0
+        }
+      },
+      "covers": [
+        "budget"
+      ]
+    },
+    {
+      "id": "sansa-properties-zero-before-metadata",
+      "description": "zero before metadata",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&tag(\"catalog\")",
+        "options": {
+          "maxPropertyInspections": 0
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+        "calls": {
+          "scope": 0,
+          "nodeKind": 0,
+          "nodeHeads": 0
+        },
+        "limit": 0,
+        "observed": 1,
+        "budget": "maxPropertyInspections",
+        "selectorIndex": 1
+      },
+      "covers": [
+        "budget"
+      ]
+    },
+    {
+      "id": "sansa-properties-head-budget",
+      "description": "head budget",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "options": {
+          "maxPropertyInspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+        "calls": {
+          "scope": 2,
+          "nodeKind": 2,
+          "nodeTag": 1,
+          "headNext": 2,
+          "headEarlyClose": 1
+        },
+        "limit": 2,
+        "observed": 3,
+        "budget": "maxPropertyInspections",
+        "selectorIndex": 1
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-exact-budget",
+      "description": "exact budget",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "options": {
+          "maxPropertyInspections": 3
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "multi"
+        ],
+        "addresses": [
+          "$.multi"
+        ]
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-terminal-probe",
+      "description": "terminal probe",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"missing\")",
+        "options": {
+          "maxPropertyInspections": 4
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 4,
+          "headNext": 4
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-intermediate-max-bindings",
+      "description": "intermediate max bindings",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*&key(\"document\")",
+        "options": {
+          "maxBindings": 1
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED",
+        "calls": {
+          "scope": 0,
+          "key": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-legacy-no-properties",
+      "description": "legacy no properties",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.ordinary.tag",
+        "omit": [
+          "scope",
+          "key",
+          "nodeTag"
+        ],
+        "options": {
+          "maxPropertyInspections": 0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "plainTag"
+        ],
+        "addresses": [
+          "$.ordinary.tag"
+        ],
+        "calls": {
+          "scope": 0,
+          "key": 0
+        }
+      },
+      "covers": [
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-absent-node-tag",
+      "description": "absent node tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document[0]&tag(\"catalog\")",
+        "faults": [
+          {
+            "callback": "nodeTag",
+            "binding": "docHead",
+            "action": "absent",
+            "value": null
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 1,
+          "nodeTag": 1
+        }
+      },
+      "covers": [
+        "tag"
+      ]
+    },
+    {
+      "id": "sansa-properties-invalid-key-unicode",
+      "description": "invalid key unicode",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"document\")",
+        "faults": [
+          {
+            "callback": "key",
+            "binding": "doc",
+            "action": "return",
+            "value": "\ud800"
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA",
+        "calls": {
+          "scope": 1,
+          "key": 1
+        }
+      },
+      "covers": [
+        "unicode",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-integral-float-limit",
+      "description": "integral float limit",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.document&key(\"document\")",
+        "options": {
+          "maxPropertyInspections": 1.0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "doc"
+        ],
+        "addresses": [
+          "$.document"
+        ],
+        "calls": {
+          "scope": 1,
+          "key": 1
+        }
+      },
+      "covers": [
+        "budget"
+      ]
+    },
+    {
+      "id": "sansa-properties-negative-zero-limit",
+      "description": "negative zero limit",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.missing&key(\"x\")",
+        "options": {
+          "maxPropertyInspections": -0.0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 0,
+          "key": 0
+        }
+      },
+      "covers": [
+        "budget"
+      ]
+    },
+    {
+      "id": "sansa-properties-noniterable-heads",
+      "description": "noniterable heads",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "faults": [
+          {
+            "callback": "nodeHeads",
+            "binding": "multi",
+            "action": "return",
+            "value": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_PROPERTY_METADATA",
+        "calls": {
+          "scope": 1,
+          "nodeKind": 1,
+          "nodeHeads": 1,
+          "headNext": 0
+        }
+      },
+      "covers": [
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-repeated-container-tag",
+      "description": "repeated container tag",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.*.^.multi&tag(\"right\")"
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi",
+          "multi"
+        ],
+        "addresses": [
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi",
+          "$.multi"
+        ],
+        "calls": {
+          "scope": 39,
+          "nodeTag": 26,
+          "headNext": 26,
+          "headEarlyClose": 13
+        }
+      },
+      "covers": [
+        "tag",
+        "iterator",
+        "order-multiplicity"
+      ]
+    },
+    {
+      "id": "sansa-properties-unvisited-suffix",
+      "description": "unvisited suffix",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "faults": [
+          {
+            "callback": "nodeTag",
+            "binding": "right2",
+            "action": "throw",
+            "value": "unvisited secret"
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "multi"
+        ],
+        "addresses": [
+          "$.multi"
+        ],
+        "calls": {
+          "scope": 3,
+          "nodeTag": 2,
+          "headNext": 2,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "tag",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-forged-exact",
+      "description": "ast forged exact",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "propertyFilter",
+              "property": "key",
+              "value": "document"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "doc"
+        ],
+        "addresses": [
+          "$.document"
+        ],
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast",
+        "key"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-invalid-property",
+      "description": "ast invalid property",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "propertyFilter",
+              "property": "Key",
+              "value": "document"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-invalid-value",
+      "description": "ast invalid value",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "propertyFilter",
+              "property": "key",
+              "value": 3
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-invalid-root",
+      "description": "ast invalid root",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "other"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "propertyFilter",
+              "property": "key",
+              "value": "document"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-payload-bound",
+      "description": "ast payload bound",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "generate": {
+          "kind": "payload",
+          "count": 4097,
+          "form": "ast"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "causeCode": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast",
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-cycle",
+      "description": "ast cycle",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "propertyFilter",
+              "property": "key",
+              "value": "document"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        },
+        "astFault": "cycle"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "root": 0,
+          "scope": 0
+        }
+      },
+      "covers": [
+        "ast"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-accessor",
+      "description": "ast accessor",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "propertyFilter",
+              "property": "key",
+              "value": "document"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        },
+        "astFault": "accessor"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "astGetterCalls": 0
+      },
+      "covers": [
+        "ast"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-forged-multiplicity",
+      "description": "ast forged multiplicity",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "document",
+              "quoted": false
+            },
+            {
+              "type": "position",
+              "index": 0
+            },
+            {
+              "type": "directExpansion"
+            },
+            {
+              "type": "propertyFilter",
+              "property": "tag",
+              "value": "product"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "apple",
+          "orange"
+        ],
+        "addresses": [
+          "$.document[0][0]",
+          "$.document[0][2]"
+        ],
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast",
+        "tag",
+        "order-multiplicity"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-selectors-bound",
+      "description": "ast selectors bound",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "generate": {
+          "kind": "selectors",
+          "count": 257,
+          "form": "ast"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "causeCode": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast",
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-canonical-bound",
+      "description": "ast canonical bound",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "generate": {
+          "kind": "canonical",
+          "count": 65537,
+          "form": "ast"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "causeCode": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "root": 0,
+          "scope": 0
+        },
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast",
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-increased-position",
+      "description": "ast increased position",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "ast": {
+          "type": "SansaAddress",
+          "root": {
+            "type": "root",
+            "kind": "absolute"
+          },
+          "selectors": [
+            {
+              "type": "member",
+              "name": "list",
+              "quoted": false
+            },
+            {
+              "type": "position",
+              "index": 1000001
+            },
+            {
+              "type": "propertyFilter",
+              "property": "key",
+              "value": "0"
+            }
+          ],
+          "qualifierExpression": null,
+          "canonical": "$.ordinary",
+          "isExact": true
+        },
+        "options": {
+          "parse": {
+            "maxPositionIndex": 2000000
+          }
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "inputUnchanged": true
+      },
+      "covers": [
+        "ast",
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-astral-bound-0",
+      "description": "ast astral bound 0",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "generate": {
+          "kind": "payload",
+          "count": 4096,
+          "form": "ast",
+          "scalar": "\ud83d\ude00"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "inputUnchanged": true,
+        "calls": {
+          "scope": 1,
+          "key": 0
+        }
+      },
+      "covers": [
+        "ast",
+        "bounds",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-ast-astral-bound-1",
+      "description": "ast astral bound 1",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "generate": {
+          "kind": "payload",
+          "count": 4097,
+          "form": "ast",
+          "scalar": "\ud83d\ude00"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "inputUnchanged": true,
+        "error": "SANSA_RESOLVE_INVALID_ADDRESS",
+        "causeCode": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "calls": {
+          "root": 0,
+          "scope": 0
+        }
+      },
+      "covers": [
+        "ast",
+        "bounds",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-wide-miss-64",
+      "description": "wide miss 64",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "wideHeads": {
+          "count": 64,
+          "matchAt": "none"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 65,
+          "nodeKind": 65,
+          "nodeTag": 64,
+          "headNext": 65,
+          "headEarlyClose": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-wide-last-64",
+      "description": "wide last 64",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "wideHeads": {
+          "count": 64,
+          "matchAt": "last"
+        },
+        "options": {
+          "maxPropertyInspections": 65
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "multi"
+        ],
+        "addresses": [
+          "$.multi"
+        ],
+        "calls": {
+          "scope": 65,
+          "nodeTag": 64,
+          "headNext": 64,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-wide-budget-64",
+      "description": "wide budget 64",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "wideHeads": {
+          "count": 64,
+          "matchAt": "none"
+        },
+        "options": {
+          "maxPropertyInspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+        "calls": {
+          "scope": 2,
+          "nodeTag": 1,
+          "headNext": 2,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-wide-miss-128",
+      "description": "wide miss 128",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "wideHeads": {
+          "count": 128,
+          "matchAt": "none"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [],
+        "addresses": [],
+        "calls": {
+          "scope": 129,
+          "nodeKind": 129,
+          "nodeTag": 128,
+          "headNext": 129,
+          "headEarlyClose": 0
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-wide-last-128",
+      "description": "wide last 128",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "wideHeads": {
+          "count": 128,
+          "matchAt": "last"
+        },
+        "options": {
+          "maxPropertyInspections": 129
+        }
+      },
+      "expected": {
+        "ok": true,
+        "bindings": [
+          "multi"
+        ],
+        "addresses": [
+          "$.multi"
+        ],
+        "calls": {
+          "scope": 129,
+          "nodeTag": 128,
+          "headNext": 128,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    },
+    {
+      "id": "sansa-properties-wide-budget-128",
+      "description": "wide budget 128",
+      "input": {
+        "operation": "resolve",
+        "namespace": "properties",
+        "source": "$.multi&tag(\"right\")",
+        "wideHeads": {
+          "count": 128,
+          "matchAt": "none"
+        },
+        "options": {
+          "maxPropertyInspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "bindings": [],
+        "addresses": [],
+        "error": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+        "calls": {
+          "scope": 2,
+          "nodeTag": 1,
+          "headNext": 2,
+          "headEarlyClose": 1
+        }
+      },
+      "covers": [
+        "budget",
+        "iterator"
+      ]
+    }
+  ]
+}

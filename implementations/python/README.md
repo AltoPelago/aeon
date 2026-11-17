@@ -391,3 +391,60 @@ budget. AEOS validation builds its own private identity namespace and shares the
 default 10,000 logical identity inspections across selector rules in one call.
 Schema resource policies and consumer options can set `max_identity_inspections`;
 this budget is separate from projection construction and other validation limits.
+
+## Unreleased property Addressing and standalone Resolve
+
+`aeon.sansa` parses/renders literal `&key("...")` and `&tag("...")` suffixes.
+`namespace_from_assignment_events` and `namespace_from_portable_records` supply
+an explicit `properties` facet backed by validated snapshot topology and authored
+metadata, plus parent navigation from that same graph. Empty member names remain
+keys; positional indices do not become keys. Tag selection inspects directly owned
+NodeHeads and returns the original matching container or head. Ordinary tag fields
+and edits to public presentation dictionaries do not grant authority.
+
+```python
+from aeon import compile_source
+from aeon.sansa import resolve_address
+from aeon.sansa_document import namespace_from_assignment_events
+
+compiled = compile_source('item = <widget("hello")>')
+namespace = namespace_from_assignment_events(compiled.events)
+result = resolve_address('$.*&key("item")&tag("widget")', namespace,
+                         {'maxPropertyInspections': 1000})
+# result['bindings'][0]['path'] == '$.item'
+```
+
+Other namespaces remain unsupported unless they explicitly provide `properties`.
+The facet uses `scope`, optional `key`, and all of `nodeKind`, `nodeTag`, `nodeHeads`
+for tag support. Callbacks receive an immutable mapping containing `scopeRoot`,
+`evaluationRoot` and, for direct heads, `directHeadOf`. Do not infer authorization
+from paths or legacy metadata. `SansaPropertyAccessError` in `aeon.sansa` carries
+checked `invalidMetadata`, `scopeViolation` or `adapterFailure` kinds; arbitrary
+callback/iterator exceptions become sanitized adapter diagnostics. Generators are
+closed on early success, faults and exhaustion of the logical allowance.
+
+`maxPropertyInspections` defaults to 10000, maximum 1000000. Integral finite floats
+(including negative zero) normalize to integers; bool, fractional and other values
+are rejected before root access, including property-free calls. Candidates and
+yielded heads consume the same private per-call allowance, including misses and
+repeated occurrences. Logical work excludes old navigation, snapshot construction
+and ancestry depth. No new performance acceptance is claimed.
+
+Property-bearing caller ASTs use plain data dictionaries/lists; derived canonical
+and exactness flags are recomputed. Cycles, descriptors/subclass accessors, unknown
+selectors, invalid Unicode and the fixed 256-selector / 4096-payload-scalar /
+65536-canonical-scalar bounds fail before namespace access. A deliberate standalone
+`options['parse']['maxPositionIndex']` remains effective during AST normalization.
+Qualifier parsing/rendering is iterative for these addresses. References keep the
+structural-only cursor. AEOS rules explicitly deny properties even on empty input;
+Query and other consumer admission remain separate. Native/WASM compilation uses
+its own Rust Core port, not this Python resolver. Official releases, deployment
+and stable profile claims remain on hold.
+
+Detailed CLI compiled-AST JSON (`inspect --json`) remains closed for property
+address literals. The qualifier AST's shared `parameters` convenience aliases
+would otherwise expand repeatedly in JSON. The CLI returns an explicit error
+before producing JSON; `--json --portable-aes`, `--telex` and annotation-only
+output remain available. Direct parser/Resolve APIs retain their plain-data AST;
+use canonical addresses or portable records for interchange rather than blindly
+JSON-serializing deep convenience graphs.

@@ -1508,11 +1508,14 @@ fn build_rule_index(schema: &Schema, ctx: &mut DiagContext) -> BTreeMap<String, 
         }
 
         if let Some(path) = path
-            && path.contains('\\')
+            && (path.contains('\\') || path.contains('&'))
             && parse_sansa_address(path).is_ok_and(|a| {
-                a.selectors
-                    .iter()
-                    .any(|s| matches!(s, SansaSelector::ChildIdentity { .. }))
+                a.selectors.iter().any(|s| {
+                    matches!(
+                        s,
+                        SansaSelector::ChildIdentity { .. } | SansaSelector::PropertyFilter { .. }
+                    )
+                })
             })
         {
             emit_error(
@@ -3859,6 +3862,25 @@ fn resolve_sansa_selector_path_set(
     ctx: &mut DiagContext,
     identity_state: &mut IdentitySelectorState,
 ) -> Option<BTreeSet<String>> {
+    if selector.contains('&')
+        && parse_sansa_address(selector).is_ok_and(|address| {
+            address
+                .selectors
+                .iter()
+                .any(|s| matches!(s, SansaSelector::PropertyFilter { .. }))
+        })
+    {
+        emit_error(
+            ctx,
+            ValidationDiagnostic {
+                path: Some(selector.into()),
+                code: "invalid_schema_policy".into(),
+                phase: "schema_validation".into(),
+                span: None,
+            },
+        );
+        return None;
+    }
     if selector.contains('\\')
         && parse_sansa_address(selector).is_ok_and(|a| {
             a.selectors

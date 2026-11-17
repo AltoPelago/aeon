@@ -14,6 +14,28 @@ if str(SRC) not in sys.path:
 
 
 class CliTests(unittest.TestCase):
+    def test_property_address_json_export_is_bounded_and_portable_output_remains_available(self) -> None:
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from aeon.cli import main
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = Path(tmpdir) / "properties.aeon"
+            for depth in (32, 64):
+                address = '$&key("x"):' + 'a<' * depth + 'b' + '>' * depth
+                fixture.write_text('p:sansa=' + address, encoding="utf-8")
+                out, err = StringIO(), StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    status = main(["inspect", str(fixture), "--json"])
+                self.assertEqual(status, 2)
+                self.assertEqual(out.getvalue(), "")
+                self.assertIn("Detailed JSON export", err.getvalue())
+                for flags in (["--json", "--portable-aes"], ["--telex"], ["--json", "--annotations-only"]):
+                    out, err = StringIO(), StringIO()
+                    with redirect_stdout(out), redirect_stderr(err):
+                        status = main(["inspect", str(fixture), *flags])
+                    self.assertEqual(status, 0, err.getvalue())
+                    self.assertTrue(out.getvalue())
+
     def test_inspect_exports_telex_with_opt_in_headers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "document.aeon"

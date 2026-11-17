@@ -15,6 +15,31 @@ from .portable_finalize import PortableFinalizeOptions, finalize_portable_json
 from .telex import TelexSyntaxError, canonicalize_telex, parse_telex, validate_telex_records
 
 
+def _contains_property_address(value: object) -> bool:
+    # Inspect compiled data once, without walking the qualifier convenience
+    # aliases: JSON has no alias representation and would expand them repeatedly.
+    pending = [value]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if type(current) not in (dict, list) or id(current) in visited:
+            continue
+        visited.add(id(current))
+        if type(current) is dict:
+            if current.get("type") == "SansaAddressLiteral":
+                address = current.get("address")
+                if type(address) is dict and any(
+                    type(selector) is dict and selector.get("type") == "propertyFilter"
+                    for selector in address.get("selectors", [])
+                ):
+                    return True
+                continue
+            pending.extend(current.values())
+        else:
+            pending.extend(current)
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if "--cts-validate" in args:
@@ -185,6 +210,9 @@ def inspect(args: list[str]) -> int:
             source_bytes=source_bytes if source_provenance else None,
         ))
     elif json_output:
+        if not portable_aes and not annotations_only and _contains_property_address(result.events):
+            print("Error: Detailed JSON export of property addresses is not supported; use --json --portable-aes or --telex", file=sys.stderr)
+            return 2
         if annotations_only:
             print(json.dumps({"annotations": annotations}, indent=2))
             return 0

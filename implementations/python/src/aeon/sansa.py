@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 
 from ._sansa_cursor import MAX_POSITION_INDEX, parse_dot_selector, parse_position_selector, validate_position_index
+from ._sansa_properties import SansaPropertyAccessError
+from . import _sansa_properties as _properties
+from ._sansa_property_address import has_property_ast, normalize_property_address, property_limit, render_property_address
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -11,11 +14,14 @@ QUALIFIER_NUMBER_RE = re.compile(r"^[+-]?(?:(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|\.[0-
 
 
 class SansaParseError(Exception):
-    def __init__(self, message: str, index: int, code: str = "SANSA_PARSE_ERROR") -> None:
+    def __init__(self, message: str, index: int, code: str = "SANSA_PARSE_ERROR", *, limit_kind=None, limit=None, observed=None) -> None:
         super().__init__(message)
         self.message = message
         self.index = index
         self.code = code
+        self.limit_kind = limit_kind
+        self.limit = limit
+        self.observed = observed
 
 
 def parse_address(input: str, options: dict[str, object] | None = None) -> dict[str, object]:
@@ -23,6 +29,7 @@ def parse_address(input: str, options: dict[str, object] | None = None) -> dict[
         parser = AddressParser(input, options or {})
         return {"ok": True, "address": parser.parse()}
     except SansaParseError as error:
+        details = {key: value for key, value in [("limitKind", error.limit_kind), ("limit", error.limit), ("observed", error.observed)] if value is not None}
         return {
             "ok": False,
             "errors": [
@@ -30,6 +37,7 @@ def parse_address(input: str, options: dict[str, object] | None = None) -> dict[
                     "code": error.code,
                     "message": error.message,
                     "index": error.index,
+                    **details,
                 }
             ],
         }
@@ -48,13 +56,22 @@ def resolve_address(
     namespace: dict[str, object],
     options: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    return _resolve_address(input, namespace, options)
+
+
+def resolve_consumer_address(input, namespace, options=None):
+    """Private owning-consumer path; property admission is always explicit."""
+    return _resolve_address(input, namespace, options, deny_properties=True)
+
+
+def _resolve_address(input, namespace, options=None, *, deny_properties=False):
     opts = options or {}
     parsed = parse_address(input, opts.get("parse") if isinstance(input, str) else None) if isinstance(input, str) else {"ok": True, "address": input}
     if not parsed["ok"]:
         return {"ok": False, "bindings": [], "errors": parsed["errors"]}
 
     address = parsed["address"]
-    if not isinstance(address, dict):
+    if not isinstance(address, dict) or (not isinstance(input, str) and type(address) is not dict):
         return {
             "ok": False,
             "bindings": [],
@@ -62,13 +79,25 @@ def resolve_address(
         }
 
     selectors = address.get("selectors", [])
+    if not isinstance(input, str) and (type(selectors) is not list or len(selectors) > 1024 or any(type(step) is not dict or type(step.get("type")) is not str for step in selectors)):
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Expected data-only address AST")]}
+    has_properties = has_property_ast(address)
+    if has_properties and not isinstance(input, str):
+        try:
+            address = normalize_property_address(address, opts.get("parse"))
+            selectors = address["selectors"]
+        except (ValueError, TypeError, KeyError, SansaParseError, RecursionError, UnicodeError) as cause:
+            issue = resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Invalid property address AST")
+            if type(cause) is SansaParseError:
+                issue["causeCode"] = cause.code
+            return {"ok": False, "bindings": [], "errors": [issue]}
     if not isinstance(input, str) and isinstance(selectors, list) and len(selectors) > 1024:
         return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_ADDRESS", "Caller AST selector limit exceeded")]}
     may_have_identity = not isinstance(input, str) or (not address.get("isExact") and ".\\" in input)
     has_identity = may_have_identity and isinstance(selectors, list) and any(
         isinstance(selector, dict) and selector.get("type") == "childIdentity" for selector in selectors
     )
-    if has_identity and not isinstance(input, str):
+    if has_identity and not has_properties and not isinstance(input, str):
         try:
             address = normalize_identity_address(address)
         except (ValueError, TypeError, KeyError, RecursionError, UnicodeError):
@@ -76,12 +105,22 @@ def resolve_address(
     identity_limit = opts.get("maxIdentityInspections", 10_000)
     if "maxIdentityInspections" in opts and (type(identity_limit) is not int or not 0 <= identity_limit <= 9_007_199_254_740_991):
         return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_IDENTITY_LIMIT", "Identity inspection limit must be a non-negative safe integer")]}
-    if has_identity and "maxBindings" in opts and (type(opts["maxBindings"]) is not int or not 0 <= opts["maxBindings"] <= 9_007_199_254_740_991):
+    if (has_identity or has_properties) and "maxBindings" in opts and (type(opts["maxBindings"]) is not int or not 0 <= opts["maxBindings"] <= 9_007_199_254_740_991):
         return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_BINDING_LIMIT", "Resolve maxBindings must be a non-negative safe integer")]}
 
-    root_result = resolve_root(address.get("root"), namespace, opts)
+    property_limit_value = opts.get("maxPropertyInspections", _properties.DEFAULT_INSPECTIONS)
+    if not _properties.valid_limit(property_limit_value):
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_INVALID_PROPERTY_LIMIT", "Property limit must be an integer from 0 through 1000000")]}
+    if has_properties and deny_properties:
+        return {"ok": False, "bindings": [], "errors": [resolve_error("SANSA_RESOLVE_UNSUPPORTED_SELECTOR", "Property selectors are not admitted by this consumer")]}
+    root_result = resolve_root(address.get("root"), namespace, opts, property_mode=has_properties)
     if not root_result["ok"]:
         return {"ok": False, "bindings": [], "errors": [root_result["error"]]}
+
+    if has_properties:
+        facet, issue = _properties.prepare(namespace, selectors)
+        if issue is not None:
+            return {"ok": False, "bindings": [], "errors": [issue]}
 
     if has_identity and not callable(namespace.get("identity")):
         index = next(i for i, selector in enumerate(selectors) if isinstance(selector, dict) and selector.get("type") == "childIdentity")
@@ -106,6 +145,9 @@ def resolve_address(
     }
     if has_identity:
         policy.update(identityBudget=identity_budget, maxBindings=max_bindings)
+    if has_properties:
+        policy.update(identityBudget=identity_budget, maxBindings=max_bindings)
+        return _properties.resolve(address, namespace, root_result["binding"], facet, policy, property_limit_value)
     for index, selector in enumerate(selectors):
         if not isinstance(selector, dict):
             return {
@@ -151,6 +193,14 @@ def resolve_address(
 
 
 def render_address(address: dict[str, object]) -> str:
+    if type(address) is not dict or type(address.get("selectors")) is not list or any(type(step) is not dict or type(step.get("type")) is not str for step in address["selectors"]):
+        raise ValueError("Expected data-only address AST")
+    if has_property_ast(address):
+        return render_property_address(address, {"maxPositionIndex": 9_007_199_254_740_991})
+    return _render_address(address)
+
+
+def _render_address(address: dict[str, object]) -> str:
     root = address["root"]
     output = "$" if isinstance(root, dict) and root.get("kind") == "absolute" else "?"
 
@@ -198,7 +248,7 @@ def render_address(address: dict[str, object]) -> str:
     return output
 
 
-def resolve_root(root: object, namespace: dict[str, object], options: dict[str, object]) -> dict[str, object]:
+def resolve_root(root: object, namespace: dict[str, object], options: dict[str, object], *, property_mode=False) -> dict[str, object]:
     if not isinstance(namespace, dict):
         return {"ok": False, "error": resolve_error("SANSA_RESOLVE_EXPECTED_NAMESPACE", "Expected SANSA resolve namespace")}
 
@@ -206,7 +256,8 @@ def resolve_root(root: object, namespace: dict[str, object], options: dict[str, 
     if root_kind == "contextual":
         contextual_root = options.get("contextualRoot", namespace.get("contextualRoot"))
         binding = contextual_root() if callable(contextual_root) else contextual_root
-        if binding:
+        present = binding is not None if property_mode else bool(binding)
+        if present:
             return {"ok": True, "binding": binding}
         return {
             "ok": False,
@@ -218,7 +269,8 @@ def resolve_root(root: object, namespace: dict[str, object], options: dict[str, 
 
     root_binding = namespace.get("root")
     binding = root_binding() if callable(root_binding) else root_binding
-    if binding:
+    present = binding is not None if property_mode else bool(binding)
+    if present:
         return {"ok": True, "binding": binding}
     return {
         "ok": False,
@@ -239,9 +291,9 @@ def apply_resolve_selector(
         return select_child_identity(namespace, bindings, selector, selector_index, policy)
 
     if selector_type == "member":
-        return {"ok": True, "bindings": [child for binding in bindings for child in select_member(namespace, binding, str(selector.get("name", "")))]}
+        return {"ok": True, "bindings": [child for binding in bindings for child in select_member(namespace, binding, str(selector.get("name", "")), policy.get("_propertyFrames", False))]}
     if selector_type == "position":
-        return {"ok": True, "bindings": [child for binding in bindings for child in select_position(namespace, binding, int(selector.get("index", 0)))]}
+        return {"ok": True, "bindings": [child for binding in bindings for child in select_position(namespace, binding, int(selector.get("index", 0)), policy.get("_propertyFrames", False))]}
     if selector_type == "positionRange":
         start = selector.get("start")
         end = selector.get("end")
@@ -282,7 +334,7 @@ def apply_resolve_selector(
     if selector_type == "attributeSpace":
         return select_attribute_spaces(namespace, bindings, selector_index)
     if selector_type == "localSpace":
-        return select_local_spaces(namespace, bindings, str(selector.get("name", "")), selector_index)
+        return select_local_spaces(namespace, bindings, str(selector.get("name", "")), selector_index, policy.get("_propertyFrames", False))
 
     return {
         "ok": False,
@@ -419,19 +471,19 @@ def normalize_identity_address(address):
     return normalized["address"]
 
 
-def select_member(namespace: dict[str, object], binding: object, name: str) -> list[object]:
+def select_member(namespace: dict[str, object], binding: object, name: str, allow_empty=False) -> list[object]:
     member = namespace.get("member")
     if callable(member):
         selected = member(binding, name)
-        return [selected] if selected else []
+        return [selected] if (selected is not None if allow_empty else bool(selected)) else []
     return [child for child in get_children(namespace, binding) if get_binding_name(namespace, child) == name]
 
 
-def select_position(namespace: dict[str, object], binding: object, index: int) -> list[object]:
+def select_position(namespace: dict[str, object], binding: object, index: int, allow_empty=False) -> list[object]:
     position = namespace.get("position")
     if callable(position):
         selected = position(binding, index)
-        return [selected] if selected else []
+        return [selected] if (selected is not None if allow_empty else bool(selected)) else []
     children = get_children(namespace, binding)
     for child in children:
         if get_binding_index(namespace, child) == index:
@@ -452,7 +504,7 @@ def select_position_range(namespace: dict[str, object], binding: object, start: 
     return output
 
 
-def select_parents(namespace: dict[str, object], bindings: list[object], selector_index: int, policy: dict[str, object]) -> dict[str, object]:
+def select_parents(namespace: dict[str, object], bindings: list[object], selector_index: int, policy: dict[str, object], project=None) -> dict[str, object]:
     if policy.get("parentTraversal") == "forbid":
         return {
             "ok": False,
@@ -481,14 +533,14 @@ def select_parents(namespace: dict[str, object], bindings: list[object], selecto
 
     parent = namespace.get("parent")
     if callable(parent):
-        return {"ok": True, "bindings": [selected for binding in traversable if (selected := parent(binding))]}
+        return {"ok": True, "bindings": [project(selected, index) if project else selected for index, binding in enumerate(traversable) if (selected := parent(binding)) is not None and (project is not None or bool(selected))]}
     if any(isinstance(binding, dict) and "parent" in binding for binding in traversable):
         return {
             "ok": True,
             "bindings": [
-                binding.get("parent")
-                for binding in traversable
-                if isinstance(binding, dict) and binding.get("parent") is not None
+                project(selected, index) if project else selected
+                for index, binding in enumerate(traversable)
+                if isinstance(binding, dict) and (selected := binding.get("parent")) is not None
             ],
         }
     return {
@@ -501,17 +553,23 @@ def select_parents(namespace: dict[str, object], bindings: list[object], selecto
     }
 
 
-def select_attribute_spaces(namespace: dict[str, object], bindings: list[object], selector_index: int) -> dict[str, object]:
+def select_attribute_spaces(namespace: dict[str, object], bindings: list[object], selector_index: int, project=None) -> dict[str, object]:
     attribute_space = namespace.get("attributeSpace")
     if callable(attribute_space):
-        return {"ok": True, "bindings": [selected for binding in bindings if (selected := attribute_space(binding))]}
+        return {"ok": True, "bindings": [project(selected, index) if project else selected for index, binding in enumerate(bindings) if (selected := attribute_space(binding)) is not None and (project is not None or bool(selected))]}
+
+    def space_of(binding):
+        space = binding.get("attributeSpace")
+        if project is not None:
+            return binding.get("attributes") if space is None else space
+        return space or binding.get("attributes")
 
     selected = [
-        space
-        for binding in bindings
+        project(space, index) if project else space
+        for index, binding in enumerate(bindings)
         if isinstance(binding, dict)
-        for space in [binding.get("attributeSpace") or binding.get("attributes")]
-        if space
+        for space in [space_of(binding)]
+        if (space is not None if project is not None else bool(space))
     ]
     if selected or len(bindings) == 0:
         return {"ok": True, "bindings": selected}
@@ -525,7 +583,7 @@ def select_attribute_spaces(namespace: dict[str, object], bindings: list[object]
     }
 
 
-def select_local_spaces(namespace: dict[str, object], bindings: list[object], name: str, selector_index: int) -> dict[str, object]:
+def select_local_spaces(namespace: dict[str, object], bindings: list[object], name: str, selector_index: int, allow_empty=False) -> dict[str, object]:
     local_space = namespace.get("localSpace")
     if not callable(local_space):
         return {
@@ -536,7 +594,7 @@ def select_local_spaces(namespace: dict[str, object], bindings: list[object], na
                 selector_index,
             ),
         }
-    return {"ok": True, "bindings": [selected for binding in bindings if (selected := local_space(binding, name))]}
+    return {"ok": True, "bindings": [selected for binding in bindings if (selected := local_space(binding, name)) is not None and (allow_empty or bool(selected))]}
 
 
 def get_children(namespace: dict[str, object], binding: object) -> list[object]:
@@ -650,6 +708,8 @@ class AddressParser:
         self.input = input
         self.options = options
         self.index = 0
+        self.properties = _properties.has_property_syntax(input)
+        self.property_work = 0
 
     def parse(self) -> dict[str, object]:
         if len(self.input) == 0:
@@ -665,12 +725,17 @@ class AddressParser:
 
         while not self.at_end():
             char = self.peek()
+            if self.properties and char != ":" and len(selectors) >= _properties.MAX_SELECTORS:
+                raise property_limit("selectors", _properties.MAX_SELECTORS, self.index)
             if char == ":":
                 self.index += 1
                 if self.at_end():
                     self.fail("Expected qualifier expression", "SANSA_EXPECTED_QUALIFIER")
-                qualifier_expression = self.parse_qualifier_expression()
+                qualifier_expression = self.parse_property_qualifiers() if self.properties else self.parse_qualifier_expression()
                 break
+            if char == "&":
+                selectors.append(self.parse_property_selector())
+                continue
             if char == ".":
                 selectors.append(self.parse_dot_selector())
                 continue
@@ -697,8 +762,73 @@ class AddressParser:
             "qualifierExpression": qualifier_expression,
             "isExact": all(is_exact_selector(selector) for selector in selectors),
         }
-        address["canonical"] = render_address(address)
+        address["canonical"] = render_property_address(address, self.options) if self.properties else _render_address(address)
         return address
+
+    def charge_property(self, count):
+        if self.properties:
+            self.property_work += count
+            if self.property_work > _properties.MAX_CANONICAL_SCALARS:
+                raise property_limit("canonicalScalars", _properties.MAX_CANONICAL_SCALARS, self.index)
+
+    def parse_property_selector(self):
+        self.consume("&")
+        start = self.index
+        while is_identifier_continue(self.peek()):
+            self.index += 1
+            if self.index - start > 3:
+                self.fail("Unknown property selector", "SANSA_UNKNOWN_PROPERTY_SELECTOR")
+        property = self.input[start:self.index]
+        if property not in {"key", "tag"}:
+            self.fail("Unknown property selector", "SANSA_UNKNOWN_PROPERTY_SELECTOR")
+        self.consume("(")
+        if is_layout(self.peek()):
+            self.fail("Whitespace is not allowed inside a SANSA address", "SANSA_UNEXPECTED_WHITESPACE")
+        if self.peek() != '"':
+            self.fail("Expected quoted property argument", "SANSA_EXPECTED_PROPERTY_ARGUMENT")
+        value = self.parse_quoted_payload(_properties.MAX_ARGUMENT_SCALARS)
+        self.consume(")")
+        return {"type": "propertyFilter", "property": property, "value": value}
+
+    def parse_property_qualifiers(self):
+        def make():
+            self.charge_property(1)
+            return {"term": {"type": "QualifierTerm", "name": self.parse_identifier("qualifier type name"), "parameters": [], "parameterGroups": [], "arguments": []}, "group": None}
+        terms, stack = [], [make()]
+        while stack:
+            current = stack[-1]
+            if current["group"] is not None:
+                if self.peek() == "|":
+                    self.fail("Nested qualifier unions are not supported", "SANSA_INVALID_QUALIFIER")
+                if self.match(","):
+                    stack.append(make())
+                    continue
+                self.consume(">")
+                current["term"]["parameterGroups"].append(current["group"])
+                current["term"]["parameters"].extend(current["group"])
+                current["group"] = None
+                continue
+            if self.match("<"):
+                current["group"] = []
+                stack.append(make())
+                continue
+            if self.match("["):
+                current["term"]["arguments"].append(self.parse_qualifier_argument())
+                while self.match(","):
+                    current["term"]["arguments"].append(self.parse_qualifier_argument())
+                self.consume("]")
+                if self.peek() == "[":
+                    self.fail("Qualifier clarifiers must use a single bracketed list", "SANSA_INVALID_QUALIFIER")
+            if self.peek() and self.peek() not in {"|", ",", ">"}:
+                self.fail("Unexpected character in qualifier expression", "SANSA_INVALID_QUALIFIER")
+            term = stack.pop()["term"]
+            if stack:
+                stack[-1]["group"].append(term)
+            else:
+                terms.append(term)
+                if self.match("|"):
+                    stack.append(make())
+        return {"type": "QualifierExpression", "terms": terms}
 
     def parse_dot_selector(self) -> dict[str, object]:
         # Identity syntax belongs only to standalone addresses, never the shared
@@ -715,6 +845,7 @@ class AddressParser:
             if self.index == start:
                 self.fail("Expected structural identity name", "SANSA_EXPECTED_IDENTITY")
             identity = self.input[start:self.index]
+            self.charge_property(len(identity))
             self.index += 1
             return {"type": "childIdentity", "identity": identity}
         return parse_dot_selector(self)
@@ -735,7 +866,8 @@ class AddressParser:
         if self.index == start:
             return None
         raw = self.input[start:self.index]
-        return validate_position_index(raw, lambda message, code: self.fail(message, code, start))
+        maximum = self.options.get("maxPositionIndex", MAX_POSITION_INDEX) if self.properties else MAX_POSITION_INDEX
+        return validate_position_index(raw, lambda message, code: self.fail(message, code, start), maximum)
 
     def parse_qualifier_expression(self, stop_char: str = "") -> dict[str, object]:
         terms = [self.parse_qualifier_term(stop_char)]
@@ -789,9 +921,12 @@ class AddressParser:
         start = self.index
         while not self.at_end() and self.peek() not in {"]", ","}:
             self.index += 1
+            if self.properties and self.index - start > _properties.MAX_CANONICAL_SCALARS:
+                raise property_limit("canonicalScalars", _properties.MAX_CANONICAL_SCALARS, self.index)
         if self.index == start:
             self.fail("Expected qualifier argument", "SANSA_EXPECTED_QUALIFIER_ARGUMENT")
         value = self.input[start:self.index]
+        self.charge_property(len(value))
         if not QUALIFIER_NUMBER_RE.fullmatch(value):
             self.fail("Invalid qualifier argument", "SANSA_INVALID_QUALIFIER_ARGUMENT")
         return {"kind": "number", "value": value}
@@ -804,9 +939,12 @@ class AddressParser:
         self.index += 1
         while is_identifier_continue(self.peek()):
             self.index += 1
+            if self.properties and self.index - start > _properties.MAX_CANONICAL_SCALARS:
+                raise property_limit("canonicalScalars", _properties.MAX_CANONICAL_SCALARS, self.index)
+        self.charge_property(self.index - start)
         return self.input[start:self.index]
 
-    def parse_quoted_payload(self) -> str:
+    def parse_quoted_payload(self, maximum=None) -> str:
         self.consume('"')
         output = ""
         while not self.at_end():
@@ -818,9 +956,15 @@ class AddressParser:
                 self.fail("Quoted payloads must not contain raw newlines", "SANSA_RAW_NEWLINE_IN_QUOTED_PAYLOAD")
             if char == "\\":
                 output += self.parse_escape()
-                continue
-            output += char
-            self.index += 1
+            else:
+                if self.properties and 0xD800 <= ord(char) <= 0xDFFF:
+                    self.fail("Unicode scalar required", "SANSA_INVALID_UNICODE_SCALAR")
+                output += char
+                self.index += 1
+            if self.properties:
+                if maximum is not None and len(output) > maximum:
+                    raise property_limit("payloadScalars", maximum, self.index)
+                self.charge_property(1)
         self.fail("Unterminated quoted payload", "SANSA_UNTERMINATED_QUOTED_PAYLOAD")
 
     def parse_escape(self) -> str:

@@ -1,0 +1,335 @@
+{
+  "schemaVersion": "0.1",
+  "namespace": {
+    "id": "properties",
+    "root": "r",
+    "properties": {
+      "scope": true,
+      "key": true,
+      "nodeKind": true,
+      "nodeTag": true,
+      "nodeHeads": true
+    },
+    "bindings": [
+      {
+        "id": "r",
+        "address": "$",
+        "nodeKind": "Other",
+        "children": [
+          "doc",
+          "multi",
+          "zero",
+          "ordinary",
+          "empty",
+          "unicodeA",
+          "unicodeD",
+          "upper",
+          "lower",
+          "wild",
+          "escaped",
+          "space",
+          "list"
+        ],
+        "key": "outsideRootName"
+      },
+      {
+        "id": "doc",
+        "address": "$.document",
+        "nodeKind": "NodeLiteral",
+        "children": [
+          "docHead"
+        ],
+        "key": "document",
+        "heads": [
+          "docHead"
+        ],
+        "attributeSpace": "attrs",
+        "localSpaces": {
+          "private": "private"
+        }
+      },
+      {
+        "id": "docHead",
+        "address": "$.document[0]",
+        "nodeKind": "NodeHead",
+        "children": [
+          "apple",
+          "note",
+          "orange"
+        ],
+        "tag": "catalog"
+      },
+      {
+        "id": "apple",
+        "address": "$.document[0][0]",
+        "nodeKind": "NodeLiteral",
+        "children": [
+          "appleHead"
+        ],
+        "heads": [
+          "appleHead"
+        ]
+      },
+      {
+        "id": "appleHead",
+        "address": "$.document[0][0][0]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "product"
+      },
+      {
+        "id": "note",
+        "address": "$.document[0][1]",
+        "nodeKind": "NodeLiteral",
+        "children": [
+          "noteHead"
+        ],
+        "heads": [
+          "noteHead"
+        ]
+      },
+      {
+        "id": "noteHead",
+        "address": "$.document[0][1][0]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "note"
+      },
+      {
+        "id": "orange",
+        "address": "$.document[0][2]",
+        "nodeKind": "NodeLiteral",
+        "children": [
+          "orangeHead"
+        ],
+        "heads": [
+          "orangeHead"
+        ]
+      },
+      {
+        "id": "orangeHead",
+        "address": "$.document[0][2][0]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "product"
+      },
+      {
+        "id": "multi",
+        "address": "$.multi",
+        "nodeKind": "NodeLiteral",
+        "children": [
+          "left",
+          "right",
+          "right2"
+        ],
+        "key": "multi",
+        "cachedTag": "stale",
+        "tag": "stale",
+        "heads": [
+          "left",
+          "right",
+          "right2"
+        ]
+      },
+      {
+        "id": "left",
+        "address": "$.multi[0]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "left"
+      },
+      {
+        "id": "right",
+        "address": "$.multi[1]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "right"
+      },
+      {
+        "id": "right2",
+        "address": "$.multi[2]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "right"
+      },
+      {
+        "id": "zero",
+        "address": "$.zero",
+        "nodeKind": "NodeLiteral",
+        "children": [],
+        "key": "zero",
+        "heads": []
+      },
+      {
+        "id": "ordinary",
+        "address": "$.ordinary",
+        "nodeKind": "Other",
+        "children": [
+          "plainTag"
+        ],
+        "key": "ordinary",
+        "cachedTag": "product",
+        "tag": "product"
+      },
+      {
+        "id": "plainTag",
+        "address": "$.ordinary.tag",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "tag",
+        "value": "product"
+      },
+      {
+        "id": "empty",
+        "address": "$.[\"\"]",
+        "nodeKind": "Other",
+        "children": [
+          "emptyChild"
+        ],
+        "key": "",
+        "identity": "emptyBinding"
+      },
+      {
+        "id": "emptyChild",
+        "address": "$.[\"\"].[\"\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "",
+        "value": "\u0130\ud83d\ude00"
+      },
+      {
+        "id": "unicodeA",
+        "address": "$.[\"\u00e9\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "\u00e9"
+      },
+      {
+        "id": "unicodeD",
+        "address": "$.[\"e\u0301\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "e\u0301"
+      },
+      {
+        "id": "upper",
+        "address": "$.[\"\u0130\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "\u0130"
+      },
+      {
+        "id": "lower",
+        "address": "$.[\"i\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "i"
+      },
+      {
+        "id": "wild",
+        "address": "$.[\"*?\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "*?"
+      },
+      {
+        "id": "escaped",
+        "address": "$.[\"a\\\"b\\\\c\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "a\"b\\c"
+      },
+      {
+        "id": "space",
+        "address": "$.[\"a b\"]",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "a b"
+      },
+      {
+        "id": "list",
+        "address": "$.list",
+        "nodeKind": "Other",
+        "children": [
+          "position"
+        ],
+        "key": "list"
+      },
+      {
+        "id": "position",
+        "address": "$.list[0]",
+        "nodeKind": "Other",
+        "children": [],
+        "index": 0,
+        "legacyName": "0"
+      },
+      {
+        "id": "attrs",
+        "address": "$.document.@",
+        "nodeKind": "Other",
+        "children": [
+          "unit"
+        ],
+        "key": "fakeAttributes"
+      },
+      {
+        "id": "unit",
+        "address": "$.document.@.unit",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "unit"
+      },
+      {
+        "id": "private",
+        "address": "$.document.<\"private\">",
+        "nodeKind": "Other",
+        "children": [
+          "secret"
+        ],
+        "key": "fakePrivate"
+      },
+      {
+        "id": "secret",
+        "address": "$.document.<\"private\">.secret",
+        "nodeKind": "Other",
+        "children": [],
+        "key": "secret"
+      },
+      {
+        "id": "foreign",
+        "address": "$.foreign",
+        "nodeKind": "NodeLiteral",
+        "children": [
+          "foreignHead"
+        ],
+        "heads": [
+          "foreignHead"
+        ]
+      },
+      {
+        "id": "foreignHead",
+        "address": "$.foreign[0]",
+        "nodeKind": "NodeHead",
+        "children": [],
+        "tag": "right"
+      }
+    ]
+  },
+  "coverageRequirements": [
+    "syntax",
+    "unicode",
+    "ast",
+    "bounds",
+    "key",
+    "tag",
+    "scope",
+    "ownership",
+    "order-multiplicity",
+    "preflight",
+    "budget",
+    "iterator",
+    "query",
+    "consumer-denial",
+    "legacy"
+  ]
+}

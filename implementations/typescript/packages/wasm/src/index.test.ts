@@ -14,6 +14,7 @@ import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.jso
 import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
 import gpAttributeFixtures from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
 import gpTagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers.json' with { type: 'json' };
+import propertyLiterals from '../../../../../test-fixtures/property-address-literals.json' with { type: 'json' };
 
 import {
   loadAeonWasm,
@@ -25,6 +26,69 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+test('generated WASM preserves inert property address payloads through process, canonical and Telex APIs', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const [index, address] of propertyLiterals.addresses.entries()) {
+    const expected = propertyLiterals.canonical[index]!;
+    const source = `p:sansa=${address}// outside\nx=1`;
+    const result = runtime.processAeon(source, {validationMode: 'loose'});
+    assert.deepEqual(result.errors, [], address);
+    assert.equal(result.events[0]?.valueType, 'SansaAddressLiteral');
+    assert.equal((result.finalized.document as {p: string}).p, expected);
+    const canonical = runtime.canonicalize(source);
+    assert.deepEqual(canonical.errors, []);
+    assert.deepEqual(runtime.canonicalize(canonical.text), canonical);
+    assert.equal((runtime.processAeon(canonical.text, {validationMode: 'loose'}).finalized.document as {p: string}).p, expected);
+    const payload = Array.from(expected, scalar => `\\u{${scalar.codePointAt(0)!.toString(16).padStart(6, '0')}}`).join('');
+    const telex = `telex.aes=1\n\npath=$.p\nkind=SansaAddressLiteral\nvalue=${payload}\n`;
+    assert.equal(runtime.validateTelex(telex).valid, true);
+    const normalized = runtime.canonicalizeTelex(telex);
+    assert.equal(runtime.canonicalizeTelex(normalized), normalized);
+    assert.equal((runtime.materializeTelex(normalized).document as {p: string}).p, expected);
+  }
+});
+
+test('generated WASM streams property quoted payloads at every UTF-8 byte boundary', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const address of propertyLiterals.addresses) {
+    const source = `p:sansa=${address}/* outside */\nx=1`;
+    const expected = runtime.processAeon(source, {validationMode: 'loose', finalize: false});
+    assert.deepEqual(expected.errors, []);
+    const bytes = new TextEncoder().encode(source);
+    for (let split = 0; split <= bytes.length; split++) {
+      const stream = runtime.createAeonStream({validationMode: 'loose'});
+      assert.equal(stream.push(bytes.slice(0, split)).accepted, true);
+      assert.equal(stream.push(bytes.slice(split)).accepted, true);
+      assert.equal(stream.finish().accepted, true);
+      const events: EventSummary[] = [];
+      while (true) {
+        const batch = stream.pullBatch();
+        if (batch === null) break;
+        events.push(...batch.events);
+      }
+      const terminal = stream.takeTerminal();
+      assert.equal(terminal.status, 'accepted', `${address} split=${split}`);
+      assert.deepEqual(terminal.errors, []);
+      assert.deepEqual(events, expected.events);
+    }
+  }
+});
+
+test('generated WASM rejects malformed properties and keeps references structural', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const source of [
+    ...propertyLiterals.invalid.map(address => `p:sansa=${address}`),
+    ...propertyLiterals.addresses.flatMap(address => ['~', '~>'].map(marker => `copy=${marker}${address}`)),
+  ]) {
+    const result = runtime.processAeon(source, {validationMode: 'none'});
+    assert.ok(result.errors.length > 0, source);
+    assert.deepEqual(result.events, []);
+    const canonical = runtime.canonicalize(source);
+    assert.ok(canonical.errors.length > 0);
+    assert.equal(canonical.text, '');
+  }
+});
 
 test('WASM header summaries preserve declared IDs in the selected plane', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));

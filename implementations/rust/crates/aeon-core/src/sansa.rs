@@ -3,6 +3,8 @@ use crate::sansa_path::{
     MemberContext, PositionIndexError, StructuralCursor, StructuralStep, parse_dot_step,
     parse_position_index, parse_position_step,
 };
+mod property_address;
+pub use sansa_runtime::address::PropertyName as SansaPropertyName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SansaAddress {
@@ -21,6 +23,10 @@ pub enum SansaRoot {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SansaSelector {
+    PropertyFilter {
+        property: SansaPropertyName,
+        value: String,
+    },
     ChildIdentity {
         identity: String,
     },
@@ -58,12 +64,77 @@ pub struct QualifierExpression {
     pub terms: Vec<QualifierTerm>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct QualifierTerm {
     pub name: String,
     pub parameters: Vec<QualifierTerm>,
     pub parameter_groups: Vec<Vec<QualifierTerm>>,
     pub arguments: Vec<QualifierArgument>,
+}
+
+impl Clone for QualifierTerm {
+    fn clone(&self) -> Self {
+        let mut nodes = vec![(self, Vec::<usize>::new(), Vec::<Vec<usize>>::new())];
+        let mut next = 0;
+        while next < nodes.len() {
+            let source = nodes[next].0;
+            let mut parameters = Vec::new();
+            for child in &source.parameters {
+                parameters.push(nodes.len());
+                nodes.push((child, Vec::new(), Vec::new()));
+            }
+            let mut groups = Vec::new();
+            for group in &source.parameter_groups {
+                let mut children = Vec::new();
+                for child in group {
+                    children.push(nodes.len());
+                    nodes.push((child, Vec::new(), Vec::new()));
+                }
+                groups.push(children);
+            }
+            nodes[next].1 = parameters;
+            nodes[next].2 = groups;
+            next += 1;
+        }
+        let mut built: Vec<Option<Self>> = (0..nodes.len()).map(|_| None).collect();
+        for (index, (source, parameters, groups)) in nodes.into_iter().enumerate().rev() {
+            built[index] = Some(Self {
+                name: source.name.clone(),
+                parameters: parameters
+                    .into_iter()
+                    .map(|id| built[id].take().expect("cloned parameter"))
+                    .collect(),
+                parameter_groups: groups
+                    .into_iter()
+                    .map(|group| {
+                        group
+                            .into_iter()
+                            .map(|id| built[id].take().expect("cloned child"))
+                            .collect()
+                    })
+                    .collect(),
+                arguments: source.arguments.clone(),
+            });
+        }
+        built[0].take().expect("cloned root")
+    }
+}
+
+// Property addresses can contain deeply nested, canonically bounded qualifiers.
+// Release their owned edges iteratively, including the legacy parameters field.
+impl Drop for QualifierTerm {
+    fn drop(&mut self) {
+        let mut pending = std::mem::take(&mut self.parameters);
+        for group in std::mem::take(&mut self.parameter_groups) {
+            pending.extend(group);
+        }
+        while let Some(mut term) = pending.pop() {
+            pending.append(&mut term.parameters);
+            for group in std::mem::take(&mut term.parameter_groups) {
+                pending.extend(group);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,11 +144,34 @@ pub enum QualifierArgument {
     Quoted(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SansaParseError {
     pub code: String,
     pub message: String,
     pub index: usize,
+    pub limit_kind: Option<&'static str>,
+    pub limit: Option<usize>,
+    pub observed: Option<usize>,
+}
+
+impl std::fmt::Debug for SansaParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut fields = f.debug_struct("SansaParseError");
+        fields
+            .field("code", &self.code)
+            .field("message", &self.message)
+            .field("index", &self.index);
+        if self.limit_kind.is_some() {
+            fields.field("limit_kind", &self.limit_kind);
+        }
+        if self.limit.is_some() {
+            fields.field("limit", &self.limit);
+        }
+        if self.observed.is_some() {
+            fields.field("observed", &self.observed);
+        }
+        fields.finish()
+    }
 }
 
 impl SansaParseError {
@@ -86,6 +180,9 @@ impl SansaParseError {
             code: code.into(),
             message: message.into(),
             index,
+            limit_kind: None,
+            limit: None,
+            observed: None,
         }
     }
 }
@@ -204,6 +301,13 @@ pub fn render_address(address: &SansaAddress) -> String {
 
     for selector in &address.selectors {
         match selector {
+            SansaSelector::PropertyFilter { property, value } => {
+                output.push('&');
+                output.push_str(property.as_str());
+                output.push('(');
+                output.push_str(&quote_payload(value));
+                output.push(')');
+            }
             SansaSelector::ChildIdentity { identity } => {
                 output.push_str(".\\");
                 output.push_str(identity);
@@ -279,29 +383,41 @@ pub fn render_qualifier_expression(expression: &QualifierExpression) -> String {
 
 #[must_use]
 pub fn render_qualifier_term(term: &QualifierTerm) -> String {
-    let mut output = term.name.clone();
-    for group in &term.parameter_groups {
-        output.push('<');
-        output.push_str(
-            &group
-                .iter()
-                .map(render_qualifier_term)
-                .collect::<Vec<_>>()
-                .join(","),
-        );
-        output.push('>');
+    enum Part<'a> {
+        Term(&'a QualifierTerm),
+        Argument(&'a QualifierArgument),
+        Text(&'static str),
     }
-    if !term.arguments.is_empty() {
-        output.push('[');
-        output.push_str(
-            &term
-                .arguments
-                .iter()
-                .map(render_qualifier_argument)
-                .collect::<Vec<_>>()
-                .join(","),
-        );
-        output.push(']');
+    let mut output = String::new();
+    let mut pending = vec![Part::Term(term)];
+    while let Some(part) = pending.pop() {
+        match part {
+            Part::Text(text) => output.push_str(text),
+            Part::Argument(argument) => output.push_str(&render_qualifier_argument(argument)),
+            Part::Term(term) => {
+                output.push_str(&term.name);
+                if !term.arguments.is_empty() {
+                    pending.push(Part::Text("]"));
+                    for (index, argument) in term.arguments.iter().enumerate().rev() {
+                        pending.push(Part::Argument(argument));
+                        if index > 0 {
+                            pending.push(Part::Text(","));
+                        }
+                    }
+                    pending.push(Part::Text("["));
+                }
+                for group in term.parameter_groups.iter().rev() {
+                    pending.push(Part::Text(">"));
+                    for (index, child) in group.iter().enumerate().rev() {
+                        pending.push(Part::Term(child));
+                        if index > 0 {
+                            pending.push(Part::Text(","));
+                        }
+                    }
+                    pending.push(Part::Text("<"));
+                }
+            }
+        }
     }
     output
 }
@@ -316,6 +432,9 @@ pub fn render_qualifier_argument(argument: &QualifierArgument) -> String {
 }
 
 pub fn parse_address(input: &str) -> Result<SansaAddress, SansaParseError> {
+    if property_address::has_syntax(input) {
+        return property_address::parse(input);
+    }
     AddressParser::new(input).parse()
 }
 
@@ -336,8 +455,8 @@ pub fn resolve_address(
                 index: Some(error.index),
                 selector_index: None,
                 identity: None,
-                limit: None,
-                observed: None,
+                limit: error.limit,
+                observed: error.observed,
             }],
             diagnostics: Vec::new(),
         },
@@ -350,6 +469,23 @@ pub fn resolve_parsed_address(
     namespace: &SansaResolveNamespace,
     options: &SansaResolveOptions,
 ) -> SansaResolveOutput {
+    if property_address::has_selector(address) {
+        if !property_address::bounded(address) {
+            return identity_failure(
+                "SANSA_RESOLVE_INVALID_ADDRESS",
+                "Invalid property address AST",
+                None,
+            );
+        }
+        let Ok(normalized) = parse_address(&render_address(address)) else {
+            return identity_failure(
+                "SANSA_RESOLVE_INVALID_ADDRESS",
+                "Invalid property address AST",
+                None,
+            );
+        };
+        return resolve_valid_address(&normalized, namespace, options);
+    }
     let normalized;
     let has_identity = address
         .selectors
@@ -384,6 +520,29 @@ fn resolve_valid_address(
     namespace: &SansaResolveNamespace,
     options: &SansaResolveOptions,
 ) -> SansaResolveOutput {
+    if let Some(index) = address
+        .selectors
+        .iter()
+        .position(|s| matches!(s, SansaSelector::PropertyFilter { .. }))
+    {
+        // This legacy reduced namespace has no authoritative facet. Check its
+        // root without cloning the graph, then deny before any navigation.
+        if address.root == SansaRoot::Contextual
+            && options.contextual_root.is_none()
+            && namespace.contextual_root.is_none()
+        {
+            return identity_failure(
+                "SANSA_RESOLVE_UNSUPPORTED_CONTEXTUAL_ROOT",
+                "Contextual root requires a contextualRoot binding",
+                None,
+            );
+        }
+        return identity_failure(
+            "SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE",
+            "Legacy namespace does not expose authoritative properties",
+            Some(index),
+        );
+    }
     let has_identity = address
         .selectors
         .iter()
@@ -498,6 +657,11 @@ fn apply_resolve_selector(
     inspected: &mut usize,
 ) -> Result<Vec<SansaResolveBinding>, SansaResolveDiagnostic> {
     match selector {
+        SansaSelector::PropertyFilter { .. } => Err(resolve_error(
+            "SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE",
+            "Legacy namespace has no property facet",
+            Some(selector_index),
+        )),
         SansaSelector::ChildIdentity { identity } => {
             let mut out = Vec::new();
             for parent in bindings {

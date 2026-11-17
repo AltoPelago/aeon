@@ -5,7 +5,7 @@ import re
 
 from ._compat import dataclass
 from ._radix import resolve_radix_base_from_datatype
-from .sansa import parse_address as parse_sansa_address, resolve_address as resolve_sansa_address
+from .sansa import parse_address as parse_sansa_address, resolve_consumer_address as resolve_sansa_address
 
 
 KNOWN_CONSTRAINT_KEYS = {
@@ -742,10 +742,10 @@ def build_rule_index(schema: dict[str, object], ctx: DiagContext) -> dict[str, d
         if has_selector and "[*]" in selector:
             emit_error(ctx, create_diag(selector, None, f"Legacy indexed wildcard selectors are not supported; use SANSA .* instead: {selector}", ERROR_CODES["invalid_schema_policy"]))
             continue
-        if has_path and "\\" in path:
+        if has_path and ("\\" in path or "&" in path):
             parsed_path = parse_sansa_address(path)
-            if parsed_path.get("ok") and any(s.get("type") == "childIdentity" for s in parsed_path["address"]["selectors"]):
-                emit_error(ctx, create_diag(path, None, "Child identity selectors are not admitted in AEOS path rules", ERROR_CODES["invalid_schema_policy"]))
+            if parsed_path.get("ok") and any(s.get("type") in {"childIdentity", "propertyFilter"} for s in parsed_path["address"]["selectors"]):
+                emit_error(ctx, create_diag(path, None, "Non-structural selectors are not admitted in AEOS path rules", ERROR_CODES["invalid_schema_policy"]))
                 continue
         if path in index:
             emit_error(ctx, create_diag(path, None, f"Duplicate rule for path: {path}", ERROR_CODES["duplicate_rule_path"]))
@@ -1530,7 +1530,10 @@ def expand_selector_rules(
 
 
 def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext, identity_state: dict) -> set[str] | None:
-    parsed = parse_sansa_address(selector) if "\\" in selector else {}
+    parsed = parse_sansa_address(selector) if "\\" in selector or "&" in selector else {}
+    if parsed.get("ok") and any(s.get("type") == "propertyFilter" for s in parsed["address"]["selectors"]):
+        emit_error(ctx, create_diag(selector, None, "Property selectors are not admitted in AEOS rules", ERROR_CODES["invalid_schema_policy"]))
+        return None
     has_identity = parsed.get("ok") and any(s.get("type") == "childIdentity" for s in parsed["address"]["selectors"])
     if has_identity and selector in identity_state["cache"]:
         return identity_state["cache"][selector]

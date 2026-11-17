@@ -82,7 +82,14 @@ publish existing package versions. Before any release, select the final registry
 dependency and integrity, refresh affected consumer locks and verify the actual
 artifact combination. Do not publish an old version with these new bytes.
 
-Owning review/main verification, remaining Core/Python/native/WASM ports,
+The next candidate adds pure Python standalone document Resolve and Core property
+Addressing with rebuilt native/WASM inert-value representation. It does not add a
+native/WASM standalone Resolve API. Core's reduced namespace rejects evaluation;
+Python's detailed CLI AST JSON export remains closed for property literals.
+Core qualifier ownership and public Rust source changes are documented in its
+README. These development ports do not establish stable profile support.
+
+Owning review/main verification of these ports, remaining tooling JSON export,
 authoritative provider/playground integration, separately admitted Query support
 and affected resource/platform qualification remain open. Keep the original
 compatibility and target-preservation checks and 1.15x latency/1.20x memory
