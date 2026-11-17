@@ -1,0 +1,28 @@
+{
+  "addresses": [
+    "$&key(\"\")",
+    "$.*&tag(\"a b // # : | , ] ) >\")",
+    "$.[\"a&b\"]&key(\"a&b\")",
+    "?&key(\"\\u{1F600}\")",
+    "$&tag(\"😀\")#node",
+    "$&key(\"quote\\\" slash\\\\\")",
+    "$&tag(\"line\\nnext\")",
+    "$&key(\"x\"):list<list<string>>"
+  ],
+  "invalid": [
+    "$&key(\"x\",\"y\")",
+    "$&tag(3)",
+    "$&unknown(\"x\")",
+    "$&key(\"\\uD800\")"
+  ],
+  "canonical": [
+    "$&key(\"\")",
+    "$.*&tag(\"a b // # : | , ] ) >\")",
+    "$.[\"a&b\"]&key(\"a&b\")",
+    "?&key(\"😀\")",
+    "$&tag(\"😀\")#node",
+    "$&key(\"quote\\\" slash\\\\\")",
+    "$&tag(\"line\\nnext\")",
+    "$&key(\"x\"):list<list<string>>"
+  ]
+}

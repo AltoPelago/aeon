@@ -106,6 +106,7 @@ name = "altopelago-aeon-core"
 version = "0.16.0"
 dependencies = [
  "altopelago-aes-telex",
+ "altopelago-sansa-runtime",
  "serde_json",
  "sha2",
 ]

@@ -51,6 +51,7 @@ def namespace_from_portable_records(
             "type": record["kind"],
             "datatype": record.get("datatype"),
             "structuralId": record.get("identity"),
+            "nodeTag": record.get("value") if record["kind"] == "NodeHead" else None,
         }
         for record in items if address_field in record
     }
@@ -81,6 +82,7 @@ def namespace_from_portable_records(
     # Object members retain their first represented occurrence order.
     pending = [namespace["root"]]
     owned = {}
+    parents = {id(namespace["root"]): None}
     while pending:
         binding = pending.pop()
         owned[id(binding)] = binding
@@ -90,11 +92,58 @@ def namespace_from_portable_records(
         if children and all("index" in child for child in children):
             children.sort(key=lambda child: child["index"])
         pending.extend(children)
+        for child in children:
+            parents[id(child)] = binding
         if "attributeSpace" in binding:
+            parents[id(binding["attributeSpace"])] = binding
             pending.append(binding["attributeSpace"])
     namespace["identityScope"] = lambda binding: owned.get(id(binding)) is binding
     namespace["identity"] = lambda binding: binding.get("info", {}).get("structuralId")
     namespace["root"]["info"] = {"type": "ObjectNode"}
+    # Retain authored metadata independently of mutable presentation dictionaries.
+    metadata = {key: (binding.get("name"), binding["info"].get("type"), binding["info"].get("nodeTag"),
+                      tuple(binding["children"]) if binding["info"].get("type") == "NodeLiteral" else ())
+                for key, binding in owned.items()}
+
+    def inside(binding, root):
+        if owned.get(id(binding)) is not binding or owned.get(id(root)) is not root:
+            return False
+        current = binding
+        while current is not None:
+            if current is root:
+                return True
+            current = parents[id(current)]
+        return False
+
+    def scope_role(binding, context):
+        if not inside(binding, context["scopeRoot"]) or not inside(context["evaluationRoot"], context["scopeRoot"]):
+            return "outside"
+        owner = context.get("directHeadOf")
+        if owner is not None and (not inside(owner, context["scopeRoot"])
+                                  or metadata[id(owner)][1] != "NodeLiteral"
+                                  or parents[id(binding)] is not owner
+                                  or metadata[id(binding)][1] != "NodeHead"):
+            return "outside"
+        return "root" if binding is context["scopeRoot"] else "inside"
+
+    def observed(binding):
+        from .sansa import SansaPropertyAccessError
+        if owned.get(id(binding)) is not binding:
+            raise SansaPropertyAccessError("scopeViolation")
+        return metadata[id(binding)]
+
+    def node_kind(binding, context):
+        kind = observed(binding)[1]
+        return kind if kind in {"NodeLiteral", "NodeHead"} else "Other"
+
+    namespace["parent"] = lambda binding: parents.get(id(binding)) if owned.get(id(binding)) is binding else None
+    namespace["properties"] = {
+        "scope": scope_role,
+        "key": lambda binding, context: observed(binding)[0],
+        "nodeKind": node_kind,
+        "nodeTag": lambda binding, context: observed(binding)[2],
+        "nodeHeads": lambda binding, context: iter(observed(binding)[3]),
+    }
     return namespace
 
 

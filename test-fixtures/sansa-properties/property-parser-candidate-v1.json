@@ -1,0 +1,613 @@
+{
+  "meta": {
+    "suite_id": "property-parser",
+    "lane": "sansa-properties",
+    "capability": "SANSA.Addressing",
+    "profile": "sansa-properties-read-only-candidate-0.1",
+    "sut_protocol": "sansa-properties-preparation-v0.1",
+    "spec_refs": [
+      "aeonite-specs/sources/sansa/v1/property-selectors-v1.aeon"
+    ]
+  },
+  "id": "property-parser",
+  "title": "Property candidate parser",
+  "tests": [
+    {
+      "id": "sansa-properties-root-key",
+      "description": "root key",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&key(\"\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-member-tag",
+      "description": "member tag",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.document&tag(\"catalog\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.document&tag(\"catalog\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-chained",
+      "description": "chained",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.document&key(\"document\")&tag(\"catalog\")[0]"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.document&key(\"document\")&tag(\"catalog\")[0]",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-escape",
+      "description": "unicode escape",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"\\u{1F600}\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&key(\"\ud83d\ude00\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-unicode-codepoint",
+      "description": "unicode codepoint",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"\u00e9\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&key(\"\u00e9\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-literal-wildcards",
+      "description": "literal wildcards",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"*?\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&key(\"*?\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-argument-spaces",
+      "description": "argument spaces",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"a b\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&key(\"a b\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-escape-quote",
+      "description": "escape quote",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"a\\\"b\\\\c\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&key(\"a\\\"b\\\\c\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-empty-tag",
+      "description": "empty tag",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&tag(\"\")"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$&tag(\"\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-unknown",
+      "description": "unknown",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&Key(\"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-unknown-position",
+      "description": "unknown position",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.*&first"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-missing-argument",
+      "description": "missing argument",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key()"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_PROPERTY_ARGUMENT"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-numeric-argument",
+      "description": "numeric argument",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(1)"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_PROPERTY_ARGUMENT"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-single-quote",
+      "description": "single quote",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key('x')"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_PROPERTY_ARGUMENT"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-extra-argument",
+      "description": "extra argument",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&tag(\"x\",\"y\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_TOKEN"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-unfinished-call",
+      "description": "unfinished call",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"x\""
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_TOKEN"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-unfinished-string",
+      "description": "unfinished string",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"x"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNTERMINATED_QUOTED_PAYLOAD"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-bad-escape",
+      "description": "bad escape",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"\\q\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_INVALID_ESCAPE"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-surrogate",
+      "description": "surrogate",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key(\"\\uD800\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_INVALID_UNICODE_SCALAR"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-outside-space",
+      "description": "outside space",
+      "input": {
+        "operation": "parse-address",
+        "source": "$&key( \"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_UNEXPECTED_WHITESPACE"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-standalone-current",
+      "description": "standalone current",
+      "input": {
+        "operation": "parse-address",
+        "source": ".&key(\"x\")"
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_EXPECTED_ROOT"
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-quoted-ampersand",
+      "description": "quoted ampersand",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.[\"&key(\\\"x\\\")\"]"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.[\"&key(\\\"x\\\")\"]",
+        "isExact": true
+      },
+      "covers": [
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-ordinary-qualifier",
+      "description": "ordinary qualifier",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.item:thing[\"&tag\"]"
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.item:thing[\"&tag\"]",
+        "isExact": true
+      },
+      "covers": [
+        "legacy"
+      ]
+    },
+    {
+      "id": "sansa-properties-payload-bound-0",
+      "description": "payload bound 0",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "payload",
+          "count": 4096,
+          "form": "text"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "isExact": false
+      },
+      "covers": [
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-payload-bound-1",
+      "description": "payload bound 1",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "payload",
+          "count": 4097,
+          "form": "text"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "limitKind": "payloadScalars",
+        "limit": 4096,
+        "observed": 4097
+      },
+      "covers": [
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-selectors-bound-0",
+      "description": "selectors bound 0",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "selectors",
+          "count": 256,
+          "form": "text"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "isExact": false
+      },
+      "covers": [
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-selectors-bound-1",
+      "description": "selectors bound 1",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "selectors",
+          "count": 257,
+          "form": "text"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "limitKind": "selectors",
+        "limit": 256,
+        "observed": 257
+      },
+      "covers": [
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-canonical-bound-0",
+      "description": "canonical bound 0",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "canonical",
+          "count": 65536,
+          "form": "text"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "isExact": false
+      },
+      "covers": [
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-canonical-bound-1",
+      "description": "canonical bound 1",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "canonical",
+          "count": 65537,
+          "form": "text"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "limitKind": "canonicalScalars",
+        "limit": 65536,
+        "observed": 65537
+      },
+      "covers": [
+        "bounds"
+      ]
+    },
+    {
+      "id": "sansa-properties-increased-position",
+      "description": "increased position",
+      "input": {
+        "operation": "parse-address",
+        "source": "$.items[1000001]&key(\"x\")",
+        "options": {
+          "parse": {
+            "maxPositionIndex": 2000000
+          }
+        }
+      },
+      "expected": {
+        "ok": true,
+        "canonical": "$.items[1000001]&key(\"x\")",
+        "isExact": false
+      },
+      "covers": [
+        "syntax"
+      ]
+    },
+    {
+      "id": "sansa-properties-astral-bound-raw-0",
+      "description": "astral bound raw 0",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "payload",
+          "count": 4096,
+          "form": "text",
+          "scalar": "\ud83d\ude00",
+          "encoding": "raw"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "isExact": false
+      },
+      "covers": [
+        "bounds",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-astral-bound-raw-1",
+      "description": "astral bound raw 1",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "payload",
+          "count": 4097,
+          "form": "text",
+          "scalar": "\ud83d\ude00",
+          "encoding": "raw"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "limitKind": "payloadScalars",
+        "limit": 4096,
+        "observed": 4097
+      },
+      "covers": [
+        "bounds",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-astral-bound-escaped-0",
+      "description": "astral bound escaped 0",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "payload",
+          "count": 4096,
+          "form": "text",
+          "scalar": "\ud83d\ude00",
+          "encoding": "escaped"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "isExact": false
+      },
+      "covers": [
+        "bounds",
+        "unicode"
+      ]
+    },
+    {
+      "id": "sansa-properties-astral-bound-escaped-1",
+      "description": "astral bound escaped 1",
+      "input": {
+        "operation": "parse-address",
+        "generate": {
+          "kind": "payload",
+          "count": 4097,
+          "form": "text",
+          "scalar": "\ud83d\ude00",
+          "encoding": "escaped"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "SANSA_PROPERTY_LIMIT_EXCEEDED",
+        "limitKind": "payloadScalars",
+        "limit": 4096,
+        "observed": 4097
+      },
+      "covers": [
+        "bounds",
+        "unicode"
+      ]
+    }
+  ]
+}

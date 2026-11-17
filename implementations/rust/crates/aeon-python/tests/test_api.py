@@ -10,6 +10,40 @@ from altopelago.aeon import _native, pytonic
 
 
 class CompileTests(unittest.TestCase):
+    def test_property_address_literals_keep_native_kind_payload_and_wire(self) -> None:
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
+        for address, expected in zip(fixture["addresses"], fixture["canonical"]):
+            with self.subTest(address=address):
+                source = f'p:sansa={address}// outside\nx=1'
+                compiled = aeon.compile(source)
+                self.assertTrue(compiled.ok)
+                self.assertEqual(compiled.events[0].value_type, "SansaAddressLiteral")
+                document = pytonic.loads(source)
+                self.assertEqual(document["p"].value.kind, "SansaAddressLiteral")
+                self.assertEqual(document["p"].value.canonical, expected)
+                self.assertEqual(document["p"].value.decoded, expected)
+                canonical = aeon.canonicalize(source)
+                self.assertEqual(aeon.canonicalize(canonical), canonical)
+                self.assertEqual(pytonic.loads(canonical)["p"].value.canonical, expected)
+                wire = aeon.compile_to_telex(source)
+                self.assertEqual(aeon.canonicalize_telex(aeon.canonicalize_telex(wire)), aeon.canonicalize_telex(wire))
+                self.assertEqual(aeon.load_telex_text(wire, mode="loose").require_ok().document["p"], expected)
+                denied = document.query('from $.*&key("p")\nselect .')
+                self.assertFalse(denied.ok)
+                self.assertEqual(denied.errors[0].code, "SANSA_RESOLVE_UNSUPPORTED_SELECTOR")
+
+    def test_property_literals_do_not_admit_native_reference_targets(self) -> None:
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
+        sources = [f'p:sansa={address}' for address in fixture["invalid"]]
+        sources += [f'copy={marker}{address}' for address in fixture["addresses"] for marker in ["~", "~>"]]
+        for source in sources:
+            with self.subTest(source=source):
+                compiled = aeon.compile(source)
+                self.assertFalse(compiled.ok)
+                self.assertEqual(compiled.events, ())
+                with self.assertRaises(aeon.CompileError):
+                    aeon.canonicalize(source)
+
     def test_transport_generic_boundaries(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/transport-generic-arguments.json").read_text())
         for datatype in fixtures["invalid_datatypes"]:

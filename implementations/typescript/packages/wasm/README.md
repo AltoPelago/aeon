@@ -230,3 +230,16 @@ script synchronizes `pkg/package.json` to the TypeScript wrapper version; the
 wrapper and Rust crate can therefore remain separate release units. A Rust
 toolchain or generator-version change is a reviewed build-input change and must
 regenerate the committed `pkg/` artifacts.
+
+## Unreleased property address literals
+
+The generated Rust Core binary accepts inert SANSA `&key("...")` / `&tag("...")`
+values through existing process, canonicalization and Telex operations. Quoted
+arguments reuse SANSA's decoder and emitter; comments, spaces and punctuation in
+them do not terminate the value. The existing SansaAddressLiteral value shape and
+canonical address representation are retained. References remain structural.
+
+This does not add a WASM standalone Resolve/Query API or property callback bridge.
+Use the separately capable TypeScript SDK for standalone Resolve. New profile or
+platform support, browser/playground workflows and affected resource/performance
+qualification remain separate. Releases and deployment stay on hold.

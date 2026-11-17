@@ -48,8 +48,8 @@ pub use radix::{
 };
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
-    SansaParseError, SansaResolveBinding, SansaResolveDiagnostic, SansaResolveNamespace,
-    SansaResolveOptions, SansaResolveOutput, SansaRoot, SansaSelector,
+    SansaParseError, SansaPropertyName, SansaResolveBinding, SansaResolveDiagnostic,
+    SansaResolveNamespace, SansaResolveOptions, SansaResolveOutput, SansaRoot, SansaSelector,
     parse_address as parse_sansa_address, resolve_address as resolve_sansa_address,
     resolve_parsed_address as resolve_parsed_sansa_address,
 };

@@ -222,3 +222,18 @@ module is not an embedded-Python executable. The repository's `ci:rust` task
 still checks and lints this crate and sets `PYO3_BUILD_EXTENSION_MODULE=1` when
 Cargo is explicitly asked to build every test target. Behavioral tests run
 against an installed wheel.
+
+## Unreleased property address literals
+
+The Core port accepts `&key("...")` / `&tag("...")` in inert SANSA values through
+the existing native compile, canonicalization and Telex entry points. It reuses
+the pinned standalone SANSA Addressing engine. Escapes, quoted whitespace/comment
+characters, canonical payloads and SansaAddressLiteral kinds survive the existing
+native event/value ABI. Clone/pointer targets remain structural paths.
+
+This is a representation port, not a new native Resolve API. Pytonic Query and
+address activation still deny property evaluation; no Python callback facet or
+new public counter/session is marshalled into Rust. The separate pure Python
+`aeon.sansa` resolver supplies its own explicitly capable namespaces. Profile,
+platform and affected cost qualification, official release and deployment remain
+separate gates. Existing package versions and capability manifests are unchanged.

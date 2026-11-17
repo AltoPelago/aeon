@@ -14,6 +14,7 @@ include = ["src/**", "tests/fixtures/**", "README.md", "LICENSE"]
 [dependencies]
 aes-telex.workspace = true
 sha2.workspace = true
+sansa-runtime.workspace = true
 
 [features]
 sofia = []
