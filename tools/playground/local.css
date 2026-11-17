@@ -32,6 +32,9 @@
   .local-theme-settings-panel { right: auto; left: 0; }
 }
 
+/* Node tag names are distinct from structural identity metadata. */
+.walkthrough-code, .highlight-backdrop { --aeon-tag: #3DA2F3; }
+
 /* Hues derived from the current sRGB palette. Only L and C change across presets. */
 :root:is([data-highlight-theme="equal"], [data-highlight-theme="values"]) :is(.walkthrough-code, .highlight-backdrop) {
   --aeon-fg: oklch(var(--highlight-lightness) var(--highlight-chroma) 264.53);
@@ -39,7 +42,7 @@
   --aeon-type: oklch(var(--highlight-lightness) var(--highlight-chroma) 293.78);
   --aeon-attribute: oklch(var(--highlight-lightness) var(--highlight-chroma) 335.76);
   --aeon-attribute-punct: oklch(var(--highlight-lightness) var(--highlight-chroma) 78.46);
-  --aeon-tag: oklch(var(--highlight-lightness) var(--highlight-chroma) 92.43);
+  --aeon-tag: oklch(var(--highlight-lightness) var(--highlight-chroma) 246.77);
   --aeon-string: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 91.25);
   --aeon-literal: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 119.12);
   --aeon-number: oklch(var(--highlight-lightness) var(--highlight-value-chroma) 230.32);

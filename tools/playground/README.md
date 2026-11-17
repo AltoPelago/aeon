@@ -83,7 +83,7 @@ highlight package, and its public exports are served through the workspace map.
 
 Use **Highlight theme** in the local header:
 
-1. **Current** keeps the existing palette exactly.
+1. **Current** keeps the current palette, with blue node tag names (`#3DA2F3`) distinct from gold structural identities.
 2. **Equal lightness & chroma** keeps each role's hue, with OKLCH L=0.78 and C=0.10 for all syntax colours.
 3. **More chroma for values** keeps L=0.78, with C=0.07 for keys/types/metadata/comments/punctuation and C=0.14 for values.
 
@@ -104,3 +104,8 @@ Choose **Examples → Highlight themes → Load example** to compare token roles
 Changing themes does not read/parse/rewrite source, change validation mode or
 change results. This experiment does not change shared package defaults or ship
 new themes to the websites. Releases and deployment remain held.
+
+Node tag names use the blue hue from `#3DA2F3` (OKLCH approximately
+`0.691 0.151 246.77`). In presets 2/3, the tag keeps hue 246.77 and
+uses the shared structural lightness/chroma. Tag delimiters retain punctuation
+colour; identities retain their separate gold hue.
