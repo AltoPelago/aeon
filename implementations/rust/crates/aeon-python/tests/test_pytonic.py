@@ -227,6 +227,45 @@ select { sku = .sku stage = .stage }
         self.assertTrue(document.query('from $.x\nselect .&key("x")').ok)
         self.assertTrue(document.query('from $.x\nselect .&key("x")').ok)
 
+    def test_property_query_numeric_limits_normalize_without_host_coercion(self) -> None:
+        document = pytonic.loads('x=1')
+        for value, expected in [(1.0, True), (-0.0, False), (0.0, False), (1000000.0, True)]:
+            with self.subTest(value=value):
+                result=document.query('from $.x\nselect .&key("x")',max_property_inspections=value)
+                self.assertEqual(result.ok,expected)
+                if expected:
+                    self.assertEqual(result.results[0].value,(document["x"],))
+                else:
+                    self.assertEqual(result.errors[0].code,"SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED")
+                    self.assertEqual(result.errors[0].limit,0)
+                    self.assertEqual(result.errors[0].observed,1)
+        class Coercion:
+            calls=0
+            def __index__(self):
+                self.calls+=1
+                return 1
+            def __float__(self):
+                self.calls+=1
+                return 1.0
+        class ThrowingIndex(Coercion):
+            def __index__(self):
+                self.calls+=1
+                raise RuntimeError("must not execute")
+        class IntSubclass(int):
+            calls=0
+            def __index__(self):
+                type(self).calls+=1
+                raise RuntimeError("must not execute")
+        class FloatSubclass(float):
+            calls=0
+            def __float__(self):
+                type(self).calls+=1
+                raise RuntimeError("must not execute")
+        for value in [Coercion(),ThrowingIndex(),IntSubclass(1),FloatSubclass(1),float('nan'),float('inf'),-float('inf')]:
+            with self.subTest(type=type(value).__name__), self.assertRaises(ValueError):
+                document.query('from $.missing\nselect .&key("x")',max_property_inspections=value)
+            if hasattr(value,"calls"):self.assertEqual(value.calls,0)
+
     def test_query_child_identities_preserve_occurrences_and_structural_paths(self) -> None:
         document = pytonic.loads('items=[\\a\\={name\\n1\\="B"}, \\b\\={name\\n2\\="A"}]')
         for _ in range(2):

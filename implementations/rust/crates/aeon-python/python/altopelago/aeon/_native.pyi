@@ -431,7 +431,7 @@ class Document:
         max_where_candidates: int | None = None,
         max_order_candidates: int | None = None,
         max_result_records: int | None = None,
-        max_property_inspections: int | None = None,
+        max_property_inspections: int | float | None = None,
         activation_roots: tuple[str, ...] | list[str] | None = None,
         activation_selectors: tuple[str, ...] | list[str] | None = None,
         allow_contextual_activation: bool = False,

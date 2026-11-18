@@ -250,9 +250,11 @@ node containers, `&headTag` selects heads, and results retain immutable original
 binding views and structural addresses. Pure Python has no Query evaluator;
 WASM gains no new Query API.
 
-`max_property_inspections` is an optional integer keyword (default/None:10,000;
-range0..1,000,000). Booleans, fractions, negative/out-of-range values and non-integers
-raise `ValueError` before execution. The allowance is shared across all clauses;
+`max_property_inspections` accepts finite integer-valued Python ints/floats
+(default/None:10,000; range0..1,000,000). Integral1.0 and signed zero normalize
+to1 and0. Booleans, non-finite/fractional/negative/out-of-range values, strings
+and arbitrary objects raise `ValueError` before execution, without invoking
+conversion hooks. The allowance is shared across all clauses;
 separate public calls receive fresh state. Checked Query failures return no
 partial records. `SansaDiagnostic.property`, selector index, budget, limit and
 observed fields retain property failure accounting. Literal activation, mutation,

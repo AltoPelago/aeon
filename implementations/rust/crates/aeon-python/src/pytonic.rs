@@ -15,7 +15,7 @@ use aeon_sdk::sansa_document::{
 use aes_telex::{ClarifierKind, DatatypeClarifier, GenericArgument};
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBool, PyModule, PyTuple};
+use pyo3::types::{PyAny, PyBool, PyFloat, PyInt, PyModule, PyTuple};
 
 use super::python_diagnostic;
 
@@ -184,7 +184,7 @@ impl PyDocument {
 
         let property_limit_error = || {
             PyValueError::new_err(
-                "max_property_inspections must be an integer from 0 through 1000000",
+                "max_property_inspections must be a finite integer-valued number from 0 through 1000000",
             )
         };
         let property_limit = match max_property_inspections {
@@ -194,7 +194,26 @@ impl PyDocument {
                 if value.is_instance_of::<PyBool>() {
                     return Err(property_limit_error());
                 }
-                value.extract::<u32>().map_err(|_| property_limit_error())?
+                // Inspect primitive storage only. Generic extraction on an
+                // arbitrary object may invoke its __index__/__float__ hooks.
+                if value.is_exact_instance_of::<PyInt>() {
+                    value.extract::<u32>().map_err(|_| property_limit_error())?
+                } else if value.is_exact_instance_of::<PyFloat>() {
+                    let number = value
+                        .cast::<PyFloat>()
+                        .map_err(|_| property_limit_error())?
+                        .value();
+                    if !number.is_finite()
+                        || number < 0.0
+                        || number > f64::from(runtime::property::MAX_PROPERTY_INSPECTIONS)
+                        || number.fract() != 0.0
+                    {
+                        return Err(property_limit_error());
+                    }
+                    number as u32
+                } else {
+                    return Err(property_limit_error());
+                }
             }
         };
         if property_limit > runtime::property::MAX_PROPERTY_INSPECTIONS {
