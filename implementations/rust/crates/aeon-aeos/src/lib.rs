@@ -4,6 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sansa_runtime::property::{
+    PropertyAccess, PropertyAccessContext, PropertyAccessError, PropertyHeads, PropertyNodeKind,
+    PropertyScopeRole,
+};
+
+#[cfg(test)]
+mod property_selector_tests;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -209,6 +216,7 @@ struct ResourcePolicy {
     max_reference_resolution_steps: usize,
     max_selector_expansions: usize,
     max_identity_inspections: usize,
+    max_property_inspections: usize,
     max_string_length_default: usize,
     max_container_children_default: usize,
 }
@@ -224,6 +232,7 @@ impl Default for ResourcePolicy {
             max_reference_resolution_steps: 64,
             max_selector_expansions: 100_000,
             max_identity_inspections: 10_000,
+            max_property_inspections: 10_000,
             max_string_length_default: 10_000_000,
             max_container_children_default: 1_000_000,
         }
@@ -260,6 +269,23 @@ fn normalize_resource_policy(
         return;
     };
     for (key, value) in map {
+        if key == "max_property_inspections" {
+            if let Some(number) = value.as_f64()
+                && number.is_finite()
+                && number.fract() == 0.0
+                && (0.0..=1_000_000.0).contains(&number)
+            {
+                policy.max_property_inspections = number as usize;
+            } else {
+                emit_resource_error(
+                    ctx,
+                    "$",
+                    "max_property_inspections must be an integer in0..1000000".into(),
+                    None,
+                );
+            }
+            continue;
+        }
         let Some(number) = value.as_u64() else {
             emit_resource_error(
                 ctx,
@@ -736,7 +762,12 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
 
 #[must_use]
 pub fn validate(envelope: &ValidationEnvelope) -> ResultEnvelope {
-    validate_inner(&envelope.aes, envelope.schema.as_ref(), &envelope.options)
+    validate_inner(
+        &envelope.aes,
+        envelope.schema.as_ref(),
+        &envelope.options,
+        false,
+    )
 }
 
 /// Decode and validate Telex before applying an AEOS schema to its body plane.
@@ -789,11 +820,7 @@ pub fn validate_telex_records(
     options: ValidationOptions,
 ) -> ResultEnvelope {
     let aes = portable_records_to_aeos(records);
-    validate(&ValidationEnvelope {
-        aes,
-        schema,
-        options,
-    })
+    validate_inner(&aes, schema.as_ref(), &options, true)
 }
 
 fn failing_telex_envelope(code: &'static str) -> ResultEnvelope {
@@ -1127,6 +1154,7 @@ fn validate_inner(
     aes: &[AesEvent],
     schema: Option<&Schema>,
     options: &ValidationOptions,
+    property_topology: bool,
 ) -> ResultEnvelope {
     let mut ctx = DiagContext::default();
     let resource_policy = resolve_resource_policy(
@@ -1336,7 +1364,11 @@ fn validate_inner(
     if ctx.errors.len() > error_count_before_schema_index {
         return finalize_result(ctx, &bound_paths, &events_by_path);
     }
-    let mut identity_state = IdentitySelectorState::new(resource_policy.max_identity_inspections);
+    let mut identity_state = IdentitySelectorState::new(
+        resource_policy.max_identity_inspections,
+        resource_policy.max_property_inspections,
+        property_topology,
+    );
     let mut expansion_budget = 0usize;
     let expanded_rule_index = expand_selector_rules(
         &rule_index,
@@ -3755,18 +3787,26 @@ struct IdentitySelectorState {
     limit: usize,
     namespace: Option<IdentitySelectorNamespace>,
     cache: BTreeMap<String, Option<BTreeSet<String>>>,
+    property_namespace: Option<IdentitySelectorNamespace>,
+    property_topology: bool,
+    property_limit: usize,
 }
 impl IdentitySelectorState {
-    fn new(limit: usize) -> Self {
+    fn new(limit: usize, property_limit: usize, property_topology: bool) -> Self {
         Self {
             limit,
             namespace: None,
             cache: BTreeMap::new(),
+            property_namespace: None,
+            property_topology,
+            property_limit,
         }
     }
 }
 #[derive(Default)]
 struct IdentitySelectorRow {
+    parent: Option<usize>,
+    tag: Option<JsonValue>,
     address: Option<String>,
     name: Option<String>,
     index: Option<usize>,
@@ -3779,26 +3819,30 @@ struct IdentitySelectorRow {
 struct IdentitySelectorNamespace {
     rows: Vec<IdentitySelectorRow>,
     inspections: Cell<usize>,
+    property_inspections: Cell<usize>,
+    properties_enabled: bool,
 }
 impl IdentitySelectorNamespace {
     fn new(root: SansaResolveBinding) -> Self {
         let mut rows = vec![IdentitySelectorRow::default()];
-        let mut pending = vec![(0, root)];
-        while let Some((index, node)) = pending.pop() {
+        let mut pending = vec![(0, None, root)];
+        while let Some((index, parent, node)) = pending.pop() {
             let mut children = Vec::new();
             for child in node.children {
                 let i = rows.len();
                 rows.push(IdentitySelectorRow::default());
                 children.push(i);
-                pending.push((i, child));
+                pending.push((i, Some(index), child));
             }
             let attribute_space = node.attribute_space.map(|attr| {
                 let i = rows.len();
                 rows.push(IdentitySelectorRow::default());
-                pending.push((i, *attr));
+                pending.push((i, Some(index), *attr));
                 i
             });
             rows[index] = IdentitySelectorRow {
+                parent,
+                tag: None,
                 address: node.address,
                 name: node.name,
                 index: node.index,
@@ -3812,11 +3856,121 @@ impl IdentitySelectorNamespace {
         Self {
             rows,
             inspections: Cell::new(0),
+            property_inspections: Cell::new(0),
+            properties_enabled: false,
         }
+    }
+
+    fn with_properties(root: SansaResolveBinding, events: &BTreeMap<String, EventInfo>) -> Self {
+        let mut namespace = Self::new(root);
+        namespace.properties_enabled = true;
+        for index in 0..namespace.rows.len() {
+            let row = &mut namespace.rows[index];
+            row.tag = row
+                .address
+                .as_ref()
+                .and_then(|path| events.get(path))
+                .filter(|_| row.kind.as_deref() == Some("NodeHead"))
+                .and_then(|info| info.value.clone());
+            let mut children = std::mem::take(&mut row.children);
+            children.sort_by_key(|child| namespace.rows[*child].index);
+            namespace.rows[index].children = children;
+        }
+        namespace
+    }
+
+    fn inside(&self, binding: usize, boundary: usize) -> bool {
+        if self.rows.get(binding).is_none() || self.rows.get(boundary).is_none() {
+            return false;
+        }
+        let mut current = Some(binding);
+        while let Some(index) = current {
+            if index == boundary {
+                return true;
+            }
+            current = self.rows[index].parent;
+        }
+        false
+    }
+}
+impl PropertyAccess for IdentitySelectorNamespace {
+    type Binding = usize;
+    fn supports_key(&self) -> bool {
+        true
+    }
+    fn supports_nodes(&self) -> bool {
+        true
+    }
+    fn scope(
+        &self,
+        binding: &usize,
+        context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<PropertyScopeRole, PropertyAccessError> {
+        self.property_inspections
+            .set(self.property_inspections.get() + 1);
+        if !self.inside(*binding, *context.scope_root)
+            || !self.inside(*context.evaluation_root, *context.scope_root)
+        {
+            return Ok(PropertyScopeRole::Outside);
+        }
+        if let Some(owner) = context.direct_head_of
+            && (!self.inside(*owner, *context.scope_root)
+                || self.rows[*owner].kind.as_deref() != Some("NodeLiteral")
+                || self.rows[*binding].parent != Some(*owner)
+                || self.rows[*binding].kind.as_deref() != Some("NodeHead"))
+        {
+            return Ok(PropertyScopeRole::Outside);
+        }
+        Ok(if binding == context.scope_root {
+            PropertyScopeRole::Root
+        } else {
+            PropertyScopeRole::Inside
+        })
+    }
+    fn key(
+        &self,
+        binding: &usize,
+        _context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<Option<String>, PropertyAccessError> {
+        Ok(self.rows[*binding].name.clone())
+    }
+    fn node_kind(
+        &self,
+        binding: &usize,
+        _context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<PropertyNodeKind, PropertyAccessError> {
+        Ok(match self.rows[*binding].kind.as_deref() {
+            Some("NodeLiteral") => PropertyNodeKind::NodeLiteral,
+            Some("NodeHead") => PropertyNodeKind::NodeHead,
+            _ => PropertyNodeKind::Other,
+        })
+    }
+    fn node_tag(
+        &self,
+        binding: &usize,
+        _context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<Option<String>, PropertyAccessError> {
+        match &self.rows[*binding].tag {
+            None => Ok(None),
+            Some(JsonValue::String(tag)) => Ok(Some(tag.clone())),
+            _ => Err(PropertyAccessError::InvalidMetadata),
+        }
+    }
+    fn node_heads<'a>(
+        &'a self,
+        binding: &'a usize,
+        _context: &'a PropertyAccessContext<'a, usize>,
+    ) -> Result<PropertyHeads<'a, usize>, PropertyAccessError> {
+        Ok(Box::new(
+            self.rows[*binding].children.iter().copied().map(Ok),
+        ))
     }
 }
 impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
     type Binding = usize;
+    fn properties(&self) -> Option<&dyn PropertyAccess<Binding = usize>> {
+        self.properties_enabled.then_some(self)
+    }
     fn identity_children<'a>(&'a self, b: &'a usize) -> Box<dyn Iterator<Item = usize> + 'a> {
         Box::new(self.rows[*b].children.iter().copied())
     }
@@ -3862,14 +4016,14 @@ fn resolve_sansa_selector_path_set(
     ctx: &mut DiagContext,
     identity_state: &mut IdentitySelectorState,
 ) -> Option<BTreeSet<String>> {
-    if selector.contains('&')
+    let has_property = selector.contains('&')
         && parse_sansa_address(selector).is_ok_and(|address| {
             address
                 .selectors
                 .iter()
                 .any(|s| matches!(s, SansaSelector::PropertyFilter { .. }))
-        })
-    {
+        });
+    if has_property && !identity_state.property_topology {
         emit_error(
             ctx,
             ValidationDiagnostic {
@@ -3881,6 +4035,63 @@ fn resolve_sansa_selector_path_set(
         );
         return None;
     }
+    if has_property && !ctx.errors.is_empty() {
+        return None;
+    }
+    if has_property {
+        if let Some(paths) = identity_state.cache.get(selector) {
+            return paths.clone();
+        }
+        let used_identity = identity_state
+            .namespace
+            .as_ref()
+            .map_or(0, |ns| ns.inspections.get())
+            + identity_state
+                .property_namespace
+                .as_ref()
+                .map_or(0, |ns| ns.inspections.get());
+        let namespace = identity_state.property_namespace.get_or_insert_with(|| {
+            IdentitySelectorNamespace::with_properties(
+                build_aeos_sansa_resolve_tree(events_by_path),
+                events_by_path,
+            )
+        });
+        let result = sansa_runtime::resolve::resolve_address(
+            selector,
+            namespace,
+            &sansa_runtime::resolve::ResolveOptions {
+                max_identity_inspections: identity_state.limit.saturating_sub(used_identity),
+                max_property_inspections: identity_state
+                    .property_limit
+                    .saturating_sub(namespace.property_inspections.get())
+                    as u32,
+                ..sansa_runtime::resolve::ResolveOptions::default()
+            },
+        );
+        let paths = if result.is_ok() {
+            Some(
+                result
+                    .bindings
+                    .iter()
+                    .filter_map(|binding| namespace.rows[*binding].address.clone())
+                    .filter(|path| events_by_path.contains_key(path))
+                    .collect(),
+            )
+        } else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.into()),
+                    code: "invalid_schema_policy".into(),
+                    phase: "schema_validation".into(),
+                    span: None,
+                },
+            );
+            None
+        };
+        identity_state.cache.insert(selector.into(), paths.clone());
+        return paths;
+    }
     if selector.contains('\\')
         && parse_sansa_address(selector).is_ok_and(|a| {
             a.selectors
@@ -3891,6 +4102,10 @@ fn resolve_sansa_selector_path_set(
         if let Some(paths) = identity_state.cache.get(selector) {
             return paths.clone();
         }
+        let property_identity = identity_state
+            .property_namespace
+            .as_ref()
+            .map_or(0, |ns| ns.inspections.get());
         let ns = identity_state.namespace.get_or_insert_with(|| {
             IdentitySelectorNamespace::new(build_aeos_sansa_resolve_tree(events_by_path))
         });
@@ -3898,7 +4113,9 @@ fn resolve_sansa_selector_path_set(
             selector,
             ns,
             &sansa_runtime::resolve::ResolveOptions {
-                max_identity_inspections: identity_state.limit.saturating_sub(ns.inspections.get()),
+                max_identity_inspections: identity_state
+                    .limit
+                    .saturating_sub(ns.inspections.get() + property_identity),
                 ..sansa_runtime::resolve::ResolveOptions::default()
             },
         );

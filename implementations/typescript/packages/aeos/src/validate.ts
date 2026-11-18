@@ -24,6 +24,7 @@ import {
     parseAddress,
     resolveAddress,
     type SansaResolveNamespace,
+    type PropertyAccess,
 } from '@altopelago/sansa';
 import {
     formatDatatypeDescriptor,
@@ -73,6 +74,7 @@ type AttributeInfo = {
 };
 
 type EventInfo = {
+    nodeTag?: unknown;
     identity?: string;
     type: string;
     raw: string;
@@ -98,6 +100,10 @@ type IdentitySelectorState = {
     inspections: number;
     cache: Map<string, ReadonlySet<string> | null>;
     namespace?: SansaResolveNamespace<AeosSansaResolveBinding>;
+    propertyNamespace?: SansaResolveNamespace<AeosSansaResolveBinding>;
+    propertyTopology: boolean;
+    propertyLimit: number;
+    propertyInspections: number;
 };
 
 function formatQuotedMemberSegment(key: unknown): string {
@@ -145,6 +151,7 @@ const DEFAULT_RESOURCE_POLICY: Required<ResourcePolicyV1> = {
     max_reference_resolution_steps: 64,
     max_selector_expansions: 100_000,
     max_identity_inspections: 10_000,
+    max_property_inspections: 10_000,
     max_string_length_default: 10_000_000,
     max_container_children_default: 1_000_000,
 };
@@ -171,6 +178,10 @@ function normalizeResourcePolicy(
             continue;
         }
         if (value !== undefined) {
+            if (key === 'max_property_inspections' && value > 1_000_000) {
+                emitResourceError(ctx, '$', `${source} resource policy max_property_inspections exceeds 1000000`);
+                continue;
+            }
             normalized[key] = value;
         }
     }
@@ -305,6 +316,19 @@ export function validate(
     aes: AES,
     schema: SchemaV1,
     options: ValidateOptions = {}
+): ResultEnvelope {
+    return validateBody(aes, schema, options, false);
+}
+
+/** Internal bridge for explicit decoded portable AES/Telex entry points. */
+export function validatePortableAes(
+    aes: readonly PortableAesBodyEvent[], schema: SchemaV1, options: ValidateOptions = {},
+): ResultEnvelope {
+    return validateBody(aes, schema, options, true);
+}
+
+function validateBody(
+    aes: AES, schema: SchemaV1, options: ValidateOptions, propertyTopology: boolean,
 ): ResultEnvelope {
     const trailingSeparatorPolicy = options.trailingSeparatorDelimiterPolicy ?? 'off';
     // Phase 0 guardrail: inputs are readonly, we never mutate
@@ -481,6 +505,7 @@ export function validate(
                 const datatype = portableDatatype(event);
                 const info: EventInfo = {
                     ...(typeof event.identity === 'string' ? { identity: event.identity } : {}),
+                    ...(event.kind === 'NodeHead' ? {nodeTag: event.value} : {}),
                     type: event.kind,
                     raw: value,
                     value,
@@ -573,7 +598,7 @@ export function validate(
     if (ctx.errors.length > errorCountBeforeSchemaIndex) {
         return createFailingEnvelope(ctx.errors, ctx.warnings, {});
     }
-    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map()};
+    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map(), propertyTopology, propertyLimit: resourcePolicy.max_property_inspections, propertyInspections: 0};
     const selectorExpansionBudget = { count: 0 };
     const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget, identityState);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
@@ -958,14 +983,27 @@ function resolveSansaSelectorPathSet(
     ctx: ReturnType<typeof createDiagContext>,
     identityState: IdentitySelectorState,
 ): ReadonlySet<string> | null {
-    const parsed = selector.includes('\\') ? parseAddress(selector) : undefined;
+    const parsed = selector.includes('\\') || selector.includes('&') ? parseAddress(selector) : undefined;
     const hasIdentity = parsed?.ok === true && parsed.address.selectors.some(s => s.type === 'childIdentity');
-    if (hasIdentity && identityState.cache.has(selector)) return identityState.cache.get(selector)!;
-    const namespace = hasIdentity
+    const hasProperty = parsed?.ok === true && parsed.address.selectors.some(s => s.type === 'propertyFilter');
+    if (hasProperty && !identityState.propertyTopology) {
+        emitError(ctx, createDiag(selector, null, 'Property selectors require the portable AES/Telex validation entry point', ErrorCodes.INVALID_SCHEMA_POLICY));
+        return null;
+    }
+    // A failed validation cannot gain guarantees; stop further new property work.
+    // Syntax and resource-policy preflight has already run for the whole schema.
+    if (hasProperty && ctx.errors.length > 0) return null;
+    const cached = hasIdentity || hasProperty;
+    if (cached && identityState.cache.has(selector)) return identityState.cache.get(selector)!;
+    const namespace = hasProperty
+        ? (identityState.propertyNamespace ??= createAeosSansaResolveNamespace(eventsByPath, identityState, true))
+        : hasIdentity
         ? (identityState.namespace ??= createAeosSansaResolveNamespace(eventsByPath, identityState))
         : createAeosSansaResolveNamespace(eventsByPath);
-    const result = resolveAddress(selector, namespace, hasIdentity
-        ? {maxIdentityInspections: Math.max(0, identityState.limit - identityState.inspections)} : undefined);
+    const result = resolveAddress(selector, namespace, cached ? {
+        maxIdentityInspections: Math.max(0, identityState.limit - identityState.inspections),
+        maxPropertyInspections: Math.max(0, identityState.propertyLimit - identityState.propertyInspections),
+    } : undefined);
     if (!result.ok) {
         const first = result.errors[0];
         emitError(ctx, createDiag(
@@ -974,22 +1012,60 @@ function resolveSansaSelectorPathSet(
             first ? `Invalid or unsupported SANSA selector: ${first.message}` : `Invalid or unsupported SANSA selector: ${selector}`,
             ErrorCodes.INVALID_SCHEMA_POLICY,
         ));
-        if (hasIdentity) identityState.cache.set(selector, null);
+        if (cached) identityState.cache.set(selector, null);
         return null;
     }
 
     const paths = new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path)));
-    if (hasIdentity) identityState.cache.set(selector, paths);
+    if (cached) identityState.cache.set(selector, paths);
     return paths;
 }
 
 function createAeosSansaResolveNamespace(
     eventsByPath: ReadonlyMap<string, EventInfo>,
     identityState?: IdentitySelectorState,
+    withProperties = false,
 ): SansaResolveNamespace<AeosSansaResolveBinding> {
     const root = buildAeosSansaResolveTree(eventsByPath);
+    let properties: PropertyAccess<AeosSansaResolveBinding> | undefined;
+    if (withProperties && identityState) {
+        const parents = new Map<AeosSansaResolveBinding, AeosSansaResolveBinding | undefined>([[root, undefined]]);
+        const pending = [root];
+        while (pending.length) {
+            const binding = pending.pop()!;
+            // Canonical positional order is established once during namespace construction.
+            binding.children.sort((a, b) => a.index !== undefined && b.index !== undefined ? a.index - b.index : 0);
+            for (const child of binding.children) { parents.set(child, binding); pending.push(child); }
+            if (binding.attributeSpace) { parents.set(binding.attributeSpace, binding); pending.push(binding.attributeSpace); }
+        }
+        const inside = (binding: AeosSansaResolveBinding, boundary: AeosSansaResolveBinding): boolean => {
+            if (!parents.has(binding) || !parents.has(boundary)) return false;
+            let current: AeosSansaResolveBinding | undefined = binding;
+            while (current) { if (current === boundary) return true; current = parents.get(current); }
+            return false;
+        };
+        properties = {
+            scope(binding, context) {
+                identityState.propertyInspections += 1;
+                if (!inside(binding, context.scopeRoot) || !inside(context.evaluationRoot, context.scopeRoot)) return 'outside';
+                if (context.directHeadOf !== undefined && (!inside(context.directHeadOf, context.scopeRoot)
+                    || context.directHeadOf.info?.type !== 'NodeLiteral' || parents.get(binding) !== context.directHeadOf
+                    || binding.info?.type !== 'NodeHead')) return 'outside';
+                return binding === context.scopeRoot ? 'root' : 'inside';
+            },
+            key: binding => binding.name,
+            nodeKind: binding => binding.info?.type === 'NodeLiteral' ? 'NodeLiteral' : binding.info?.type === 'NodeHead' ? 'NodeHead' : 'Other',
+            nodeTag(binding) {
+                const tag = binding.info?.nodeTag;
+                if (tag !== undefined && typeof tag !== 'string') throw {type:'SansaPropertyAccessFault', kind:'invalidMetadata'};
+                return tag;
+            },
+            *nodeHeads(binding) { yield* binding.children; },
+        };
+    }
     return {
         root,
+        ...(properties ? {properties} : {}),
         ...(identityState ? {identity: (binding: AeosSansaResolveBinding) => { identityState.inspections += 1; return binding.identity; }} : {}),
         children: (binding) => binding.children,
         member: (binding, name) => binding.children.find((child) => child.name === name),

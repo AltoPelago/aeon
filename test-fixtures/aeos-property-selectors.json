@@ -1,0 +1,5584 @@
+{
+  "id": "aeos-properties-v1",
+  "version": "aeos-properties-0.1",
+  "status": "experimental-development",
+  "tests": [
+    {
+      "id": "container-tag",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.*&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "head-tag",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.*.*&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0][0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recursive-containers-only",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.**&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recursive-heads-only",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.**&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0][0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "head-is-not-container",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0][0]&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "text-is-not-head",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[1][0][0]&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "ordinary-tag-field",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.plain&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "empty-key",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.empty.*&key(\"\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.empty.[\"\"]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "literal-pattern-key",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.empty.*&key(\"a*\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.empty.[\"a*\"]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "unicode-key",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.empty.*&key(\"😀\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.empty.[\"😀\"]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "position-is-not-key",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.*&key(\"0\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "head-tag-is-not-key",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0][0]&key(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "root-key-hidden",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$&key(\"items\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "attribute-empty-key",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.reading.@.*&key(\"\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.reading.@.[\"\"]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "attribute-scope-root-key-hidden",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.reading.@&key(\"reading\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "identity-and-property",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\item1\\&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "identity-and-head",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\item1\\[0]&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0][0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "zero-budget-empty-branch",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing.*&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "zero-budget-root",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$&key(\"items\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 0
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$&key(\"items\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tag-needs-container-and-head",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.items[0]&tag(\"book\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tag-exact-budget",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "repeated-predicate-shares-budget",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 3
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.items[0]&tag(\"book\")&tag(\"book\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "repeated-predicate-exact-budget",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 4
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[0]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "primitive-float-limit",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing.*&key(\"x\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1.0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "signed-zero-limit",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing.*&key(\"x\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": -0.0
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "invalid-limit-bool",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-limit-negative",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": -1
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-limit-fraction",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1.5
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-limit-too-large",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1000001
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-limit-string",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": "2"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-limit-null",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": null
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid-overridden-schema-limit",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1000001
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$"
+          }
+        ]
+      },
+      "options": {
+        "resourcePolicy": {
+          "max_property_inspections": 2
+        }
+      }
+    },
+    {
+      "id": "legacy-native-entrypoint-closed",
+      "entrypoint": "legacy",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.missing&key(\"x\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.missing&key(\"x\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "structural-path-closed",
+      "entrypoint": "portable",
+      "records": [],
+      "schema": {
+        "rules": [
+          {
+            "path": "$.missing&key(\"x\")",
+            "constraints": {}
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.missing&key(\"x\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quoted-property-marker-is-member",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.[\"&tag(\\\"book\\\")\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.[\"&tag(\\\"book\\\")\"]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"&tag(\\\"book\\\")\"]"
+          }
+        ]
+      }
+    },
+    {
+      "id": "distinct-rules-budget-3",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items[1]&tag(\"chapter\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 3
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.items[1]&tag(\"chapter\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "distinct-rules-budget-4",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items[1]&tag(\"chapter\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 4
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "identical-rule-cache",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "stop-property-work-after-expansion-failure",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral"
+            }
+          },
+          {
+            "selector": "$.items[1]&tag(\"chapter\")",
+            "constraints": {
+              "type": "NodeLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_selector_expansions": 0,
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.items[0]&tag(\"book\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "closed-world-reuses-resolution",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.**",
+            "constraints": {}
+          },
+          {
+            "selector": "$.items[0]&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        },
+        "world": "closed"
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "closed-world-attribute-declaration-retained",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "path": "$.reading",
+            "constraints": {
+              "attributes": {
+                "": {}
+              }
+            }
+          },
+          {
+            "selector": "$.reading.@.*&key(\"\")",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1
+        },
+        "world": "closed"
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "identity-budget-shared-across-namespaces-3",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\item1\\&tag(\"book\")",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items.\\item2\\",
+            "constraints": {
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_identity_inspections": 3
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.items.\\item2\\"
+          }
+        ]
+      }
+    },
+    {
+      "id": "identity-first-property-budget-3",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\item2\\",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items.\\item1\\&tag(\"book\")",
+            "constraints": {
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_identity_inspections": 3
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.items.\\item1\\&tag(\"book\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "identity-budget-shared-across-namespaces-4",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\item1\\&tag(\"book\")",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items.\\item2\\",
+            "constraints": {
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_identity_inspections": 4
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "identity-first-property-budget-4",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[0]",
+          "kind": "NodeLiteral",
+          "identity": "item1"
+        },
+        {
+          "path": "$.items[0][0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.items[0][0][0]",
+          "kind": "StringLiteral",
+          "value": "hello"
+        },
+        {
+          "path": "$.items[1]",
+          "kind": "NodeLiteral",
+          "identity": "item2"
+        },
+        {
+          "path": "$.items[1][0]",
+          "kind": "NodeHead",
+          "value": "chapter"
+        },
+        {
+          "path": "$.items[1][0][0]",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.plain",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.plain.tag",
+          "kind": "StringLiteral",
+          "value": "book"
+        },
+        {
+          "path": "$.empty",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.empty.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "empty"
+        },
+        {
+          "path": "$.empty.[\"a*\"]",
+          "kind": "StringLiteral",
+          "value": "literal"
+        },
+        {
+          "path": "$.empty.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "Unicode"
+        },
+        {
+          "path": "$.reading",
+          "kind": "NumberLiteral",
+          "value": "42"
+        },
+        {
+          "path": "$.reading.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "unit"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items.\\item2\\",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "selector": "$.items.\\item1\\&tag(\"book\")",
+            "constraints": {
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_identity_inspections": 4
+        }
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    },
+    {
+      "id": "fresh-validation-snapshot-a",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.a",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.a[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.a"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fresh-validation-snapshot-b",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.b",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.b[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.b"
+          }
+        ]
+      }
+    },
+    {
+      "id": "wide-64-first-head-stops",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[63]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[62]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[61]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[60]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[59]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[58]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[57]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[56]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[55]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[54]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[53]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[52]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[51]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[50]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[49]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[48]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[47]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[46]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[45]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[44]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[43]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[42]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[41]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[40]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[39]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[38]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[37]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[36]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[35]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[34]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[33]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[32]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[31]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[30]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[29]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[28]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[27]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[26]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[25]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[24]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[23]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[22]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[21]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[20]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[19]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[18]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[17]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[16]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[15]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[14]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[13]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[12]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[11]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[10]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[9]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[8]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[7]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[6]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[5]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[4]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[3]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[2]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "wide-64-miss-budget",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[63]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[62]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[61]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[60]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[59]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[58]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[57]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[56]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[55]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[54]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[53]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[52]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[51]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[50]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[49]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[48]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[47]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[46]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[45]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[44]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[43]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[42]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[41]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[40]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[39]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[38]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[37]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[36]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[35]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[34]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[33]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[32]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[31]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[30]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[29]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[28]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[27]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[26]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[25]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[24]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[23]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[22]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[21]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[20]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[19]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[18]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[17]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[16]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[15]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[14]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[13]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[12]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[11]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[10]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[9]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[8]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[7]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[6]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[5]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[4]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[3]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[2]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"missing\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.n&tag(\"missing\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "wide-128-first-head-stops",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[127]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[126]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[125]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[124]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[123]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[122]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[121]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[120]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[119]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[118]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[117]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[116]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[115]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[114]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[113]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[112]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[111]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[110]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[109]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[108]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[107]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[106]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[105]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[104]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[103]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[102]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[101]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[100]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[99]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[98]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[97]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[96]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[95]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[94]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[93]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[92]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[91]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[90]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[89]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[88]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[87]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[86]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[85]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[84]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[83]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[82]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[81]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[80]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[79]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[78]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[77]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[76]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[75]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[74]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[73]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[72]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[71]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[70]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[69]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[68]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[67]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[66]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[65]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[64]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[63]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[62]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[61]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[60]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[59]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[58]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[57]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[56]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[55]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[54]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[53]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[52]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[51]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[50]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[49]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[48]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[47]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[46]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[45]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[44]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[43]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[42]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[41]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[40]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[39]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[38]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[37]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[36]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[35]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[34]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[33]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[32]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[31]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[30]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[29]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[28]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[27]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[26]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[25]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[24]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[23]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[22]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[21]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[20]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[19]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[18]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[17]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[16]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[15]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[14]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[13]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[12]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[11]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[10]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[9]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[8]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[7]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[6]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[5]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[4]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[3]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[2]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "wide-128-miss-budget",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[127]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[126]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[125]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[124]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[123]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[122]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[121]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[120]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[119]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[118]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[117]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[116]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[115]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[114]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[113]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[112]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[111]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[110]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[109]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[108]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[107]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[106]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[105]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[104]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[103]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[102]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[101]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[100]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[99]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[98]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[97]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[96]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[95]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[94]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[93]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[92]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[91]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[90]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[89]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[88]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[87]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[86]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[85]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[84]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[83]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[82]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[81]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[80]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[79]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[78]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[77]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[76]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[75]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[74]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[73]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[72]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[71]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[70]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[69]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[68]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[67]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[66]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[65]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[64]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[63]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[62]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[61]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[60]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[59]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[58]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[57]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[56]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[55]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[54]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[53]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[52]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[51]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[50]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[49]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[48]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[47]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[46]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[45]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[44]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[43]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[42]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[41]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[40]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[39]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[38]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[37]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[36]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[35]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[34]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[33]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[32]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[31]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[30]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[29]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[28]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[27]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[26]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[25]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[24]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[23]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[22]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[21]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[20]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[19]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[18]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[17]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[16]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[15]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[14]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[13]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[12]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[11]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[10]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[9]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[8]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[7]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[6]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[5]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[4]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[3]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[2]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "other"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"missing\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.n&tag(\"missing\")"
+          }
+        ]
+      }
+    },
+    {
+      "id": "references-not-followed",
+      "entrypoint": "portable",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.ref",
+          "kind": "PointerReference",
+          "value": "$.n"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.ref&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      }
+    }
+  ]
+}

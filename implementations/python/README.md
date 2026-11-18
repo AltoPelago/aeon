@@ -436,8 +436,11 @@ selectors, invalid Unicode and the fixed 256-selector / 4096-payload-scalar /
 65536-canonical-scalar bounds fail before namespace access. A deliberate standalone
 `options['parse']['maxPositionIndex']` remains effective during AST normalization.
 Qualifier parsing/rendering is iterative for these addresses. References keep the
-structural-only cursor. AEOS rules explicitly deny properties even on empty input;
-Query and other consumer admission remain separate. Native/WASM compilation uses
+structural-only cursor. Legacy native-event AEOS rules explicitly deny properties
+even on empty input. The separately selected portable AES/Telex validation profile
+admits properties through `validate_telex_records` / `validate_telex`; see
+[the consumer profile](../../docs/aeos-property-selectors.md). Pure Python Query
+and other consumer admission remain separate. Native/WASM compilation uses
 its own Rust Core port, not this Python resolver. Official releases, deployment
 and stable profile claims remain on hold.
 

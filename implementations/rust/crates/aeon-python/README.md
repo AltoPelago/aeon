@@ -29,6 +29,17 @@ validate during the same native operation, or its path through `schema_file=`.
 `load_telex_file()` provide the equivalent Telex path, while
 `canonicalize_telex()` normalises a stream without materialising it.
 
+The development AEOS property-selector profile is available through
+`load_telex_text(..., schema=...)` and `load_telex_file(..., schema=...)`.
+Inspect the returned `.validation` separately from finalisation, especially for
+node values outside the strict JSON profile. Native-source `load_text` and
+`load_file` retain their property-selector denial. The portable profile uses
+explicit node-head paths and a private validation-wide inspection allowance;
+see the [profile and target boundaries](../../../../docs/aeos-property-selectors.md).
+The loader's existing schema-contract format retains its resource-policy
+restriction, so this API uses the default allowance.
+No new native Query or WASM API is implied.
+
 Materialisation deliberately uses AEON's JSON output profile. Values that are
 not losslessly representable in JSON (including symbols) fail in `mode="strict"`
 and become strings with retained warnings in `mode="loose"`. The package does

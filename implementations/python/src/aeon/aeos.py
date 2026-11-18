@@ -6,6 +6,9 @@ import re
 from ._compat import dataclass
 from ._radix import resolve_radix_base_from_datatype
 from .sansa import parse_address as parse_sansa_address, resolve_consumer_address as resolve_sansa_address
+from .sansa import resolve_address as resolve_property_address
+from ._sansa_properties import valid_limit as valid_property_limit
+from ._sansa_properties import SansaPropertyAccessError
 
 
 KNOWN_CONSTRAINT_KEYS = {
@@ -57,6 +60,7 @@ RESOURCE_POLICY_KEYS = {
     "max_reference_resolution_steps",
     "max_selector_expansions",
     "max_identity_inspections",
+    "max_property_inspections",
     "max_string_length_default",
     "max_container_children_default",
 }
@@ -69,6 +73,7 @@ DEFAULT_RESOURCE_POLICY = {
     "max_reference_resolution_steps": 64,
     "max_selector_expansions": 100_000,
     "max_identity_inspections": 10_000,
+    "max_property_inspections": 10_000,
     "max_string_length_default": 10_000_000,
     "max_container_children_default": 1_000_000,
 }
@@ -242,6 +247,10 @@ class DiagContext:
 
 
 def validate(aes: list[dict[str, object]], schema: dict[str, object], options: dict[str, object] | None = None) -> dict[str, object]:
+    return _validate(aes, schema, options, False)
+
+
+def _validate(aes, schema, options, property_topology):
     opts = options or {}
     trailing_policy = str(opts.get("trailingSeparatorDelimiterPolicy", "off"))
     ctx = DiagContext(errors=[], warnings=[])
@@ -278,6 +287,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
             value = event.get("value")
             if isinstance(value, dict) and isinstance(value.get("type"), str):
                 info = {
+                    "property_tag": value.get("value") if value.get("type") == "NodeHead" else None,
                     "type": value.get("type"),
                     "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
@@ -336,7 +346,9 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     rule_index = build_rule_index(schema, ctx)
     if len(ctx.errors) > error_count_before_schema_index:
         return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
-    identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None}
+    identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None,
+                      "property_topology": property_topology, "property_limit": resource_policy["max_property_inspections"],
+                      "property_counter": {"inspections": 0}, "property_namespace": None}
     expansion_budget = {"count": 0}
     expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget, identity_state)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
@@ -447,7 +459,7 @@ def validate_telex_records(
 ) -> dict[str, object]:
     """Apply AEOS to decoded portable AES records without reparsing AEON."""
 
-    return validate(portable_records_to_aeos(records), schema, options)
+    return _validate(portable_records_to_aeos(records), schema, options, True)
 
 
 def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -648,6 +660,12 @@ def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> 
     for key, value in policy.items():
         if key not in RESOURCE_POLICY_KEYS:
             emit_resource_error(ctx, "$", f"Unknown {source} resource policy key: {key}")
+            continue
+        if key == "max_property_inspections":
+            if not valid_property_limit(value):
+                emit_resource_error(ctx, "$", f"{source} resource policy max_property_inspections must be an integer in0..1000000")
+                continue
+            normalized[str(key)] = int(value)
             continue
         if not isinstance(value, int) or value < 0 or key == "max_identity_inspections" and (type(value) is not int or value > 9_007_199_254_740_991):
             emit_resource_error(ctx, "$", f"{source} resource policy {key} must be a non-negative integer")
@@ -1531,26 +1549,37 @@ def expand_selector_rules(
 
 def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext, identity_state: dict) -> set[str] | None:
     parsed = parse_sansa_address(selector) if "\\" in selector or "&" in selector else {}
-    if parsed.get("ok") and any(s.get("type") == "propertyFilter" for s in parsed["address"]["selectors"]):
-        emit_error(ctx, create_diag(selector, None, "Property selectors are not admitted in AEOS rules", ERROR_CODES["invalid_schema_policy"]))
+    has_property = parsed.get("ok") and any(s.get("type") == "propertyFilter" for s in parsed["address"]["selectors"])
+    if has_property and not identity_state["property_topology"]:
+        emit_error(ctx, create_diag(selector, None, "Property selectors require the portable AES/Telex validation entry point", ERROR_CODES["invalid_schema_policy"]))
+        return None
+    if has_property and ctx.errors:
         return None
     has_identity = parsed.get("ok") and any(s.get("type") == "childIdentity" for s in parsed["address"]["selectors"])
-    if has_identity and selector in identity_state["cache"]:
+    cached = has_identity or has_property
+    if cached and selector in identity_state["cache"]:
         return identity_state["cache"][selector]
-    if has_identity:
+    if has_property:
+        if identity_state["property_namespace"] is None:
+            identity_state["property_namespace"] = create_aeos_sansa_resolve_namespace(events, identity_state, True)
+        namespace = identity_state["property_namespace"]
+    elif has_identity:
         if identity_state["namespace"] is None:
             identity_state["namespace"] = create_aeos_sansa_resolve_namespace(events, identity_state)
         namespace = identity_state["namespace"]
     else:
         namespace = create_aeos_sansa_resolve_namespace(events)
-    result = resolve_sansa_address(selector, namespace, {"maxIdentityInspections": max(0, identity_state["limit"] - identity_state["counter"]["inspections"])} if has_identity else None)
+    options = {"maxIdentityInspections": max(0, identity_state["limit"] - identity_state["counter"]["inspections"]),
+               "maxPropertyInspections": max(0, identity_state["property_limit"] - identity_state["property_counter"]["inspections"])} if cached else None
+    resolver = resolve_property_address if has_property else resolve_sansa_address
+    result = resolver(selector, namespace, options)
     if not result.get("ok"):
         errors = result.get("errors")
         first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else None
         message = first.get("message") if isinstance(first, dict) else None
         detail = f"Invalid or unsupported SANSA selector: {message}" if isinstance(message, str) else f"Invalid or unsupported SANSA selector: {selector}"
         emit_error(ctx, create_diag(selector, None, detail, ERROR_CODES["invalid_schema_policy"]))
-        if has_identity:
+        if cached:
             identity_state["cache"][selector] = None
         return None
     bindings = result.get("bindings")
@@ -1564,18 +1593,18 @@ def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, o
         if isinstance(path, str) and path in events
     }
 
-    if has_identity:
+    if cached:
         identity_state["cache"][selector] = paths
     return paths
 
 
-def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], identity_state: dict | None = None) -> dict[str, object]:
+def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], identity_state: dict | None = None, with_properties=False) -> dict[str, object]:
     counter = identity_state["counter"] if identity_state is not None else None
     def identity(binding):
         if counter is not None:
             counter["inspections"] += 1
         return binding.get("info", {}).get("structuralId")
-    return {
+    namespace = {
         **({"identity": identity} if identity_state is not None else {}),
         "root": build_aeos_sansa_resolve_tree(events),
         "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
@@ -1601,6 +1630,56 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
         "semanticType": lambda binding: (binding.get("info") or {}).get("datatype") if isinstance(binding, dict) else None,
         "representationKind": lambda binding: (binding.get("info") or {}).get("type") if isinstance(binding, dict) else None,
     }
+    if with_properties:
+        parents = {id(namespace["root"]): None}
+        pending = [namespace["root"]]
+        while pending:
+            binding = pending.pop()
+            children = binding.get("children", [])
+            if children and all(type(child.get("index")) is int for child in children):
+                children.sort(key=lambda child: child["index"])
+            for child in children:
+                parents[id(child)] = binding
+                pending.append(child)
+            attributes = binding.get("attributeSpace")
+            if attributes is not None:
+                parents[id(attributes)] = binding
+                pending.append(attributes)
+
+        def inside(binding, boundary):
+            if id(binding) not in parents or id(boundary) not in parents:
+                return False
+            while binding is not None:
+                if binding is boundary:
+                    return True
+                binding = parents[id(binding)]
+            return False
+
+        def scope(binding, context):
+            identity_state["property_counter"]["inspections"] += 1
+            boundary = context["scopeRoot"]
+            if not inside(binding, boundary) or not inside(context["evaluationRoot"], boundary):
+                return "outside"
+            owner = context.get("directHeadOf")
+            if owner is not None and (not inside(owner, boundary) or (owner.get("info") or {}).get("type") != "NodeLiteral"
+                                      or parents[id(binding)] is not owner or (binding.get("info") or {}).get("type") != "NodeHead"):
+                return "outside"
+            return "root" if binding is boundary else "inside"
+
+        def tag(binding, context):
+            value = (binding.get("info") or {}).get("property_tag")
+            if value is not None and type(value) is not str:
+                raise SansaPropertyAccessError("invalidMetadata")
+            return value
+
+        namespace["properties"] = {
+            "scope": scope,
+            "key": lambda binding, context: binding.get("name"),
+            "nodeKind": lambda binding, context: (binding.get("info") or {}).get("type") if (binding.get("info") or {}).get("type") in {"NodeLiteral", "NodeHead"} else "Other",
+            "nodeTag": tag,
+            "nodeHeads": lambda binding, context: iter(binding.get("children", [])),
+        }
+    return namespace
 
 
 def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]]) -> dict[str, object]:
@@ -1644,6 +1723,9 @@ def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dic
             current = attribute_space
         else:
             return
+    # Preserve the actual indexed event path, including literal Unicode spelling.
+    # Constructed intermediate spellings are navigation details, not event keys.
+    current["path"] = path
     current["info"] = info
 
 

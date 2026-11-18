@@ -25,6 +25,20 @@ It decodes Telex, validates event-local and declared-profile requirements, then
 applies the same schema engine to body records. Header-plane records remain
 control-plane metadata and are not treated as schema bindings.
 
+For already decoded, event-locally valid portable AES or Telex records, use:
+
+```ts
+validateTelexRecords(records, schema, options?)
+```
+
+Both portable entry points admit the development `key`, `tag` and `headTag`
+property-selector profile in `rules[].selector`. Native-event `validate` and
+structural `path` fields retain their property denial. The private validation-wide
+`resource_policy.max_property_inspections` allowance defaults to 10,000 and accepts
+0 through 1,000,000; programmatic callers can override it through
+`options.resourcePolicy`. See the [profile, caching and target boundaries](../../../aeos-property-selectors.md).
+This is development support and does not establish released conformance.
+
 `SchemaV1` rules target AES bindings with exactly one of:
 
 - `path`: an exact SANSA path string
@@ -76,6 +90,7 @@ exact values outside machine-number ranges.
 interface ValidateOptions {
   readonly strict?: boolean;
   readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
+  readonly resourcePolicy?: SchemaV1['resource_policy'];
 }
 ```
 
