@@ -241,6 +241,8 @@ class SansaDiagnostic:
     def limit(self) -> int | None: ...
     @property
     def observed(self) -> int | None: ...
+    @property
+    def property(self) -> str | None: ...
 
 @final
 class SansaCapabilities:
@@ -429,6 +431,7 @@ class Document:
         max_where_candidates: int | None = None,
         max_order_candidates: int | None = None,
         max_result_records: int | None = None,
+        max_property_inspections: int | None = None,
         activation_roots: tuple[str, ...] | list[str] | None = None,
         activation_selectors: tuple[str, ...] | list[str] | None = None,
         allow_contextual_activation: bool = False,

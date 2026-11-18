@@ -109,10 +109,10 @@ inspection-time array copy. Resolve's logical allowance is separate from those
 adapter costs: it defaults to 10,000, has portable maximum 1,000,000, and counts
 candidates and yielded direct heads, including misses and repeated occurrences.
 
-This support is limited to standalone Resolve. Query, activation, mutation,
-Instruction, AEOS rule selectors and references retain their existing admission
-rules. Python/native/WASM lexical and AST ports, playground integration and full
-provider/profile/cost qualification remain pending. No release or deployment is
+Direct read-only Query is also admitted in the coordinated candidate (see below).
+Activation, mutation, Instruction, AEOS rule selectors and references retain their
+existing admission rules. Python/native/WASM literal ports and source-playground
+integration are delivered; full provider/profile/cost qualification remains pending. No release or deployment is
 authorized by this development candidate.
 
 #### Semantics and limits

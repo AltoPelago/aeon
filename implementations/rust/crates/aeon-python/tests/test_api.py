@@ -28,9 +28,10 @@ class CompileTests(unittest.TestCase):
                 wire = aeon.compile_to_telex(source)
                 self.assertEqual(aeon.canonicalize_telex(aeon.canonicalize_telex(wire)), aeon.canonicalize_telex(wire))
                 self.assertEqual(aeon.load_telex_text(wire, mode="loose").require_ok().document["p"], expected)
-                denied = document.query('from $.*&key("p")\nselect .')
-                self.assertFalse(denied.ok)
-                self.assertEqual(denied.errors[0].code, "SANSA_RESOLVE_UNSUPPORTED_SELECTOR")
+                selected = document.query('from $.*&key("p")\nselect .')
+                self.assertTrue(selected.ok, selected.errors)
+                self.assertEqual(selected.results[0].candidate, document["p"])
+                self.assertEqual(selected.results[0].value, (document["p"],))
 
     def test_property_literals_do_not_admit_native_reference_targets(self) -> None:
         fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
