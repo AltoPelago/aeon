@@ -27,6 +27,89 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+test('structured-comment stream limits preserve exact bounds and rejection precedence', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const channels = [['/#', '#/'], ['/@', '@/'], ['/?', '?/'], ['/{', '}/'], ['/[', ']/'], ['/(', ')/']];
+  for (const [open, close] of channels) {
+    for (const payload of ['', '\n', '\n'.repeat(8), '\n' + close![0], 'é\r\n']) {
+      const source = `a=1${payload ? ' ' : '\n'}${open}${payload}${close}b=2`;
+      const options = {validationMode: 'loose' as const, maxStructuredCommentCharacters: [...payload].length};
+      const expected = runtime.processAeon(source, {...options, finalize: false});
+      assert.deepEqual(expected.errors, [], source);
+      const bytes = new TextEncoder().encode(source);
+      for (let split = 0; split <= bytes.length; split++) {
+        const stream = runtime.createAeonStream(options);
+        assert.equal(stream.push(bytes.slice(0, split)).accepted, true);
+        assert.equal(stream.push(bytes.slice(split)).accepted, true);
+        assert.equal(stream.finish().accepted, true);
+        const events: EventSummary[] = [];
+        while (true) {
+          const batch = stream.pullBatch();
+          if (batch === null) break;
+          events.push(...batch.events);
+        }
+        const terminal = stream.takeTerminal();
+        assert.equal(terminal.status, 'accepted', `${source} split=${split}`);
+        assert.deepEqual(terminal.errors, []);
+        assert.deepEqual(events, expected.events);
+      }
+    }
+    for (const width of [4096, 8192]) {
+      for (const closed of [false, true]) {
+        const stream = runtime.createAeonStream({validationMode: 'loose', maxInputBytes: 32768,
+          maxStructuredCommentCharacters: 8, maxEvents: 1, maxBatchEvents: 1, maxPendingBatches: 1});
+        assert.equal(stream.push(new TextEncoder().encode(open)).accepted, true);
+        for (let offset = 0; offset < width; offset += 16) {
+          assert.equal(stream.push(new TextEncoder().encode('\n'.repeat(16))).accepted, true);
+        }
+        if (closed) assert.equal(stream.push(new TextEncoder().encode(close)).accepted, true);
+        assert.equal(stream.finish().accepted, true);
+        const terminal = stream.takeTerminal();
+        assert.equal(terminal.status, 'invalidated');
+        assert.equal(terminal.errors[0]?.code, closed
+          ? 'MAX_STRUCTURED_COMMENT_CHARACTERS_EXCEEDED' : 'UNTERMINATED_BLOCK_COMMENT');
+        assert.equal(terminal.exposedEventCount, 0);
+      }
+    }
+  }
+});
+
+test('committed WASM retains physical block-comment newlines across APIs and byte splits', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const control = runtime.canonicalize('a=1\nb=2');
+  assert.deepEqual(control.errors, []);
+  for (const [open, close] of [['/*', '*/'], ['/#', '#/'], ['/@', '@/'], ['/?', '?/'], ['/{', '}/'], ['/[', ']/'], ['/(', ')/']]) {
+    for (const newline of ['\n', '\r\n']) {
+      const source = `a=1 ${open}é${newline}${close}b=2`;
+      const expected = runtime.processAeon(source, {validationMode: 'loose', finalize: false});
+      assert.deepEqual(expected.errors, [], source);
+      assert.deepEqual(runtime.canonicalize(source), control, source);
+      const bytes = new TextEncoder().encode(source);
+      for (let split = 0; split <= bytes.length; split++) {
+        const stream = runtime.createAeonStream({validationMode: 'loose'});
+        assert.equal(stream.push(bytes.slice(0, split)).accepted, true);
+        assert.equal(stream.push(bytes.slice(split)).accepted, true);
+        assert.equal(stream.finish().accepted, true);
+        const events: EventSummary[] = [];
+        while (true) {
+          const batch = stream.pullBatch();
+          if (batch === null) break;
+          events.push(...batch.events);
+        }
+        const terminal = stream.takeTerminal();
+        assert.equal(terminal.status, 'accepted', `${source} split=${split}`);
+        assert.deepEqual(terminal.errors, []);
+        assert.deepEqual(events, expected.events);
+      }
+    }
+    for (const payload of ['', '\r', String.raw`\n`, '\u2028', '\u2029']) {
+      const source = `a=1 ${open}${payload}${close}b=2`;
+      assert.ok(runtime.processAeon(source, {validationMode: 'loose'}).errors.length > 0, source);
+      assert.ok(runtime.canonicalize(source).errors.length > 0, source);
+    }
+  }
+});
+
 test('generated WASM preserves inert property address payloads through process, canonical and Telex APIs', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   for (const [index, address] of propertyLiterals.addresses.entries()) {

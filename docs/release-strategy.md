@@ -68,21 +68,30 @@ This keeps the release history honest about what was actually shipped.
 
 ### Property Resolve SDK development candidate
 
+The combined-main preparation also rebuilds committed WASM from the merged Rust
+block-comment newline fix. Compile/process, canonical and byte-stream parity must
+pass against that generated artifact as well as source. Oversized structured
+comments retain at most one newline layout witness after certain overflow,
+release excess metadata capacity, and preserve closing/lexical error precedence.
+The source allocation controls and rebuilt-binary streaming checks must pass;
+this is not a total-worker-memory or new performance-qualification claim. This
+does not authorize publication or change the existing compatibility/target/performance gates.
+
 The Rust and TypeScript SDK provider slice selects the coordinated SANSA development source
-`6ffe13b7640158b0e9173eb407ca1c67a1a2d60c`. The central TypeScript workspace override
+`da76789aff29025affe180196e79ba5749c9e0a2`. The central TypeScript workspace override
 selects the retained local archive
-`altopelago-sansa-0.15.0-rc.1-head-tag-fad5824f.tgz`, SHA-256
-`fad5824fec43ff29187824d73a01c47a04d32eb363258aa0f30d23d809433aba`;
+`altopelago-sansa-0.15.0-rc.1-main-28e040f1.tgz`, SHA-256
+`28e040f12f8000cf40d14e466fa85108c13fb34237c1d3791d4d9ac4e7bf9da6`;
 the staging helper, provenance record and lockfile must agree. Rust pins the same
 source revision. Previous archives remain available for provenance.
 
 This coordinated development selection enables authoritative standalone SDK
-key/tag Resolve only. It is not a registry artifact selection or permission to
+key/tag/headTag Resolve only. It is not a registry artifact selection or permission to
 publish existing package versions. Before any release, select the final registry
 dependency and integrity, refresh affected consumer locks and verify the actual
 artifact combination. Do not publish an old version with these new bytes.
 
-The next candidate adds pure Python standalone document Resolve and Core property
+The merged implementation includes pure Python standalone document Resolve and Core property
 Addressing with rebuilt native/WASM inert-value representation. It does not add a
 native/WASM standalone Resolve API. Core's reduced namespace rejects evaluation;
 Python's detailed CLI AST JSON export remains closed for property literals.

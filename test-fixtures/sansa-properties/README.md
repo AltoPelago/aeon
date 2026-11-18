@@ -1,7 +1,7 @@
 # Experimental property fixtures
 
 These three files are byte-identical mirrors of SANSA revision
-`6ffe13b7640158b0e9173eb407ca1c67a1a2d60c`. They are experimental parity
+`da76789aff29025affe180196e79ba5749c9e0a2`. They are experimental parity
 inputs, not a new CTS claim or a stable profile declaration.
 
 | File | SHA-256 |
@@ -18,7 +18,7 @@ has no raised-index option, so that one vector remains covered by standalone
 Python and SDK APIs. Core's reduced namespace deliberately denies evaluation.
 The owning SDK's 31 shared document cases remain in `../property-resolve-sdk.json`.
 
-`../property-address-literals.json` freezes eight canonical spellings against the
+`../property-address-literals.json` freezes ten canonical spellings against the
 same SANSA source. Rust Core, pure/native Python and regenerated WASM test these
 inert literals and keep clone/pointer references structural. Streaming tests cover
 Rust character boundaries and WASM UTF-8 byte boundaries. No new consumer

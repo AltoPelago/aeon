@@ -1,18 +1,17 @@
 # Combined SANSA development candidate
 
-The selected local archive contains merged standalone property Addressing/Resolve,
-Unicode hardening and ordinary empty property names from immutable SANSA source
-`dbe6d7f0ebcc40418b3b979475d6798f65d2fe2f`.
+The selected archive is packed from merged SANSA `da76789aff29025affe180196e79ba5749c9e0a2`.
+It includes container-only `tag`, head-only `headTag`, Unicode hardening,
+ordinary empty keys and the reviewed claim-note consolidation.
 
-Archive: `altopelago-sansa-0.15.0-rc.1-properties-7026ec5c.tgz`.
-SHA-256: `7026ec5ccb9077062ee2995a4d8d64204dd14bd832c119580d579bc179b8e1d7`.
-All 141 packaged files match that source; provenance.json records its tree.
-Previous archives remain unchanged for provenance. The staging helper verifies
-only the selected bytes; it never fetches, publishes or substitutes a package.
+Archive: `altopelago-sansa-0.15.0-rc.1-main-28e040f1.tgz`.
+SHA-256: `28e040f12f8000cf40d14e466fa85108c13fb34237c1d3791d4d9ac4e7bf9da6`.
+All 154 packaged files match the pinned source. `provenance.json`, the staging
+helper, workspace override and lockfile agree; Rust selects the same source.
+Prior archives remain available for provenance.
 
-The owning SDK supplies an authoritative property facet for standalone Resolve.
-Query and AEOS rule-selector admission, Python/native/WASM lexical/AST ports,
-full experimental-profile/cost qualification and playground integration remain
-separate gates. This is an unreleased integration candidate, not registry or
-capability-profile adoption. Package versions remain unchanged. Official releases,
-stable promotion and deployment stay held.
+Standalone authoritative property Resolve and literal ports are implemented.
+Property Query/AEOS admission, local positions and full profile/platform/cost/
+registry qualification retain their separate gates. This is not a registry
+artifact or a release/capability promotion. Package versions are unchanged.
+Official releases, stable promotion and deployment remain held.
