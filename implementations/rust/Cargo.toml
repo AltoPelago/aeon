@@ -32,7 +32,7 @@ aeon-document = { package = "altopelago-aeon-document", path = "crates/aeon-docu
 aeon-finalize = { package = "altopelago-aeon-finalize", path = "crates/aeon-finalize", version = "0.16.0" }
 aeon-wasm = { path = "crates/aeon-wasm", version = "0.16.0" }
 # Coordinated unreleased source; replace with the final registry version before publication.
-sansa-runtime = { package = "altopelago-sansa-runtime", git = "https://github.com/AltoPelago/sansa", rev = "da76789aff29025affe180196e79ba5749c9e0a2", version = "=0.15.0-rc.1" }
+sansa-runtime = { package = "altopelago-sansa-runtime", git = "https://github.com/AltoPelago/sansa", rev = "798532aa7f0f5ad9485e74d7b950355a291f119a", version = "=0.15.0-rc.1" }
 sha2 = "0.11.0"
 
 [workspace.lints.clippy]

@@ -1,12 +1,12 @@
 {
-  "sourceCommit": "da76789aff29025affe180196e79ba5749c9e0a2",
-  "sourceTree": "8e489c418d56f8c5373849e4e9c372d16318fe29",
-  "sourceBase": "4247590023985c6b9544cf5f10317ffc4686a1fd",
+  "sourceCommit": "798532aa7f0f5ad9485e74d7b950355a291f119a",
+  "sourceTree": "97884bfabdc7f3d477eea8b6e10de9936a0425c3",
+  "sourceBase": "da76789aff29025affe180196e79ba5749c9e0a2",
   "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "28e040f12f8000cf40d14e466fa85108c13fb34237c1d3791d4d9ac4e7bf9da6",
-  "archiveFile": "altopelago-sansa-0.15.0-rc.1-main-28e040f1.tgz",
-  "matchedSourceFiles": 154,
-  "contents": "Merged container-only tag / head-only headTag and consolidated claim notes; unchanged shared metadata facet and budgets",
+  "archiveSha256": "8f997d2a5478de49bbd4b0703f117f2bc50ec3b720e4f7fd3d8e5ecf1f127bd5",
+  "archiveFile": "altopelago-sansa-0.15.0-rc.1-query-8f997d2a.tgz",
+  "matchedSourceFiles": 155,
+  "contents": "Direct read-only property Query with private occurrence frames and shared allowance; container/head distinction, unchanged compatibility/target-preservation checks and budgets",
   "publication": false,
   "registryArtifact": false
 }

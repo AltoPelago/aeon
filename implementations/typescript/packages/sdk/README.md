@@ -188,3 +188,20 @@ explicitly.
   AEON-to-Film conversion helper.
 - `aeonicLimits` contributes its shared AES structural and processing values to
   Film. Select Film-local byte ceilings separately with `filmLimits`.
+
+
+#### Experimental property Query
+
+The coordinated local SANSA candidate also admits direct read-only Query with
+this namespace's authoritative property facet. `from $.items.*` followed by
+`select .name&key("name")` selects each original name binding. Current-row
+`.&key("items")` keeps its originating scope; explicit `?&key("items")` starts a
+boundary at the row and hides that incoming key. `&tag` matches node containers;
+`&headTag` matches heads, with explicit child navigation when needed.
+
+One `resolve.maxPropertyInspections` allowance covers all Query clauses and
+projections; complete capability preflight runs even for empty/short-circuited
+sources. Errors return no partial records. Mutation, activation (including
+trusted), AEOS and reference admission remain separate and closed. Pure Python
+has no Query evaluator; native/WASM APIs do not gain standalone Query callbacks.
+This candidate makes no new performance, release or deployment qualification.

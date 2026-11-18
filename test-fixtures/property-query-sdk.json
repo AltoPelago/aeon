@@ -1,0 +1,127 @@
+{
+  "source": "group = { \"\" = 7, name = \"x\" }\nvalue = <tag(\"hello\")>\nother = <other>\nitems = [ \\one\\ = { name\\label1\\ = \"Widget\" }, \\two\\ = { name\\label2\\ = \"Bracket\" } ]\nreading@{ \"\" = 3, note = \"n\" } = 1\n",
+  "cases": [
+    {
+      "query": "from $.group\nselect .&key(\"group\")",
+      "records": [
+        {
+          "candidate": "$.group",
+          "valueBindings": [
+            "$.group"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.group\nselect ?&key(\"group\")",
+      "records": [
+        {
+          "candidate": "$.group",
+          "valueBindings": []
+        }
+      ]
+    },
+    {
+      "query": "from $.group.*&key(\"\")\nselect .",
+      "records": [
+        {
+          "candidate": "$.group.[\"\"]",
+          "valueBindings": [
+            "$.group.[\"\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.value\nselect .&tag(\"tag\")",
+      "records": [
+        {
+          "candidate": "$.value",
+          "valueBindings": [
+            "$.value"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.value.*&headTag(\"tag\")\nselect .",
+      "records": [
+        {
+          "candidate": "$.value[0]",
+          "valueBindings": [
+            "$.value[0]"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.value\nselect .&headTag(\"tag\")",
+      "records": [
+        {
+          "candidate": "$.value",
+          "valueBindings": []
+        }
+      ]
+    },
+    {
+      "query": "from $.value.*&headTag(\"tag\")\nselect .*",
+      "records": [
+        {
+          "candidate": "$.value[0]",
+          "valueBindings": [
+            "$.value[0][0]"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.reading.@.*&key(\"\")\nselect .",
+      "records": [
+        {
+          "candidate": "$.reading.@.[\"\"]",
+          "valueBindings": [
+            "$.reading.@.[\"\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.items.*\nwhere exists(.name&key(\"name\"))\norder by .name asc\nselect .name&key(\"name\")",
+      "records": [
+        {
+          "candidate": "$.items[1]",
+          "valueBindings": [
+            "$.items[1].name"
+          ]
+        },
+        {
+          "candidate": "$.items[0]",
+          "valueBindings": [
+            "$.items[0].name"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.items.\\one\\\nselect .\\label1\\&key(\"name\")",
+      "records": [
+        {
+          "candidate": "$.items[0]",
+          "valueBindings": [
+            "$.items[0].name"
+          ]
+        }
+      ]
+    },
+    {
+      "query": "from $.missing\nwhere false\nselect .&tag(\"tag\")",
+      "records": []
+    },
+    {
+      "query": "from $.group\nwhere exists(.&key(\"group\"))\nselect .&key(\"group\")",
+      "limit": 1,
+      "code": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+      "phase": "select"
+    }
+  ]
+}

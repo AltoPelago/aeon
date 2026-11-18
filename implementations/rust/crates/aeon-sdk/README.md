@@ -46,7 +46,8 @@ assert!(result.is_ok());
 Local spaces remain host-mounted and are not invented by the document adapter.
 
 With the coordinated unreleased SANSA source, the same feature supplies an
-authoritative property facet for standalone `namespace.resolve_address(...)`:
+authoritative property facet for standalone `namespace.resolve_address(...)` and
+direct read-only `namespace.evaluate_query(...)`:
 `$.*&key("item")&tag("widget")` selects the original named container for
 `item = <widget("hello")>`. `runtime::resolve::ResolveOptions` provides
 `max_property_inspections` (default 10,000, maximum 1,000,000).
@@ -58,10 +59,15 @@ from existing child storage without cloning the children vector. Scope ancestry
 has depth-dependent cost, which the logical inspection allowance does not bound.
 No performance improvement or new allocation bound is claimed.
 
-This does not admit property selectors into Query, activation, mutation, AEOS
+Query `.&key("item")` retains its row's originating scope; explicit `?&key("item")`
+starts a boundary at that row. One private inspection allowance covers from, where,
+ordering and select. Reentrant/public calls receive fresh allowances; outputs keep
+original handles and canonical structural paths.
+
+This does not admit property selectors into activation, mutation, AEOS
 rules, exact lookup or references. The legacy Core parser/Resolve and actual
 Python/native/WASM lexical/AST surfaces are separate ports. Full provider/profile
-and resource qualification, playground integration, release and deployment remain
+and resource qualification, owning review/main verification, release and deployment remain
 pending; capability manifests and package versions are unchanged.
 
 The same feature exposes experimental `namespace.plan_mutation(&request,
