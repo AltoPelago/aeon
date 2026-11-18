@@ -406,6 +406,7 @@ impl<'a> LexerSession<'a> {
         self.aborted = true;
         self.quoted_string = None;
         self.comment = None;
+        self.comment_newlines = Vec::new();
         self.number = None;
         self.prefixed_literal = None;
         self.separator_literal = None;
@@ -754,14 +755,43 @@ impl<'a> LexerSession<'a> {
                     let newline_start = (self.options.include_newlines && self.peek() == '\n')
                         .then(|| self.current_position());
                     let ch = self.advance();
-                    if let Some(start) = newline_start {
-                        self.comment_newlines.push(Span {
-                            start,
-                            end: self.current_position(),
-                        });
-                    }
                     payload_characters = payload_characters.saturating_add(1);
-                    if saw_closing && ch == '/' {
+                    let closed = saw_closing && ch == '/';
+                    if self.options.include_newlines {
+                        // A pending closing marker may still belong to the
+                        // delimiter. Only discard metadata once overflow is
+                        // certain, including when the closer spans pushes.
+                        let minimum_payload = payload_characters.saturating_sub(if closed {
+                            2
+                        } else {
+                            usize::from(ch == closing)
+                        });
+                        let oversized = structured
+                            && self
+                                .max_structured_comment_characters
+                                .is_some_and(|limit| minimum_payload > limit);
+                        if oversized {
+                            // Keep one original layout witness so suppressing
+                            // excess metadata cannot invent a parser error and
+                            // change precedence. Release the larger allocation.
+                            self.comment_newlines.truncate(1);
+                            if self.comment_newlines.capacity() > self.comment_newlines.len() {
+                                self.comment_newlines.shrink_to_fit();
+                            }
+                        }
+                        if let Some(start) = newline_start
+                            && (!oversized || self.comment_newlines.is_empty())
+                        {
+                            if oversized {
+                                self.comment_newlines.reserve_exact(1);
+                            }
+                            self.comment_newlines.push(Span {
+                                start,
+                                end: self.current_position(),
+                            });
+                        }
+                    }
+                    if closed {
                         if structured {
                             self.observe_structured_comment(
                                 start,
@@ -790,7 +820,7 @@ impl<'a> LexerSession<'a> {
 
     fn finish_comment(&mut self) {
         // An unfinished comment remains a lexical error, not completed layout.
-        self.comment_newlines.clear();
+        self.comment_newlines = Vec::new();
         match self
             .comment
             .take()
@@ -2990,6 +3020,177 @@ context = ?.name next"#;
                 }
             }
         }
+    }
+
+    #[test]
+    fn structured_comment_newline_metadata_stops_at_the_payload_limit() {
+        for (opener, closer) in [
+            ("/#", "#/"),
+            ("/@", "@/"),
+            ("/?", "?/"),
+            ("/{", "}/"),
+            ("/[", "]/"),
+            ("/(", ")/"),
+        ] {
+            for width in [1024, 2048] {
+                for character in ['\n', 'x'] {
+                    for closed in [false, true] {
+                        let mut lexer = LexerSession::with_structured_comment_limit(
+                            LexerOptions {
+                                include_newlines: true,
+                                ..LexerOptions::default()
+                            },
+                            8,
+                        );
+                        assert!(lexer.push(Cow::Borrowed(opener)).tokens.is_empty());
+                        let chunk = character.to_string().repeat(16);
+                        for _ in 0..width / 16 {
+                            let result = lexer.push(Cow::Borrowed(&chunk));
+                            assert!(result.tokens.is_empty());
+                            assert!(result.errors.is_empty());
+                            assert_eq!(lexer.retained_input_bytes(), 0);
+                            let witnesses = usize::from(character == '\n');
+                            assert_eq!(lexer.comment_newlines.len(), witnesses);
+                            assert_eq!(lexer.comment_newlines.capacity(), witnesses);
+                            // Do not introduce earlier size errors: a missing
+                            // closer must keep its lexical error precedence.
+                            assert!(lexer.structured_comment_limit_violation().is_none());
+                        }
+                        if closed {
+                            let result = lexer.push(Cow::Borrowed(closer));
+                            assert_eq!(result.tokens.len(), usize::from(character == '\n'));
+                            assert!(result.errors.is_empty());
+                            let violation = lexer
+                                .structured_comment_limit_violation()
+                                .expect("closed oversized comment");
+                            assert_eq!(violation.observed, width);
+                            assert_eq!(violation.limit, 8);
+                            assert_eq!(violation.span.end.offset, width + 4);
+                            if character == '\n' {
+                                assert_eq!(lexer.previous_token_kind, Some(TokenKind::Newline));
+                            }
+                        }
+                        let result = lexer.finish();
+                        assert_eq!(result.errors.is_empty(), closed);
+                        if !closed {
+                            assert_eq!(result.errors[0].code, "UNTERMINATED_BLOCK_COMMENT");
+                            assert!(lexer.structured_comment_limit_violation().is_none());
+                        }
+                        assert_eq!(lexer.comment_newlines.capacity(), 0);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn structured_comment_newline_metadata_preserves_exact_limit_and_closer_splits() {
+        for (opener, closer) in [
+            ("/#", "#/"),
+            ("/@", "@/"),
+            ("/?", "?/"),
+            ("/{", "}/"),
+            ("/[", "]/"),
+            ("/(", ")/"),
+        ] {
+            for payload in [
+                String::new(),
+                String::from("\n"),
+                "\n".repeat(8),
+                String::from("é\r\nx\n"),
+                format!("\n{}", &closer[..1]),
+            ] {
+                for include_comments in [false, true] {
+                    let source = format!("a=1 {opener}{payload}{closer}b=2");
+                    let options = LexerOptions {
+                        include_newlines: true,
+                        include_comments,
+                    };
+                    let expected = tokenize(&source, options);
+                    for split in (0..=source.len()).filter(|i| source.is_char_boundary(*i)) {
+                        let mut lexer = LexerSession::with_structured_comment_limit(
+                            options,
+                            payload.chars().count(),
+                        );
+                        let mut actual = lexer.push(Cow::Borrowed(&source[..split]));
+                        for batch in [lexer.push(Cow::Borrowed(&source[split..])), lexer.finish()] {
+                            actual.tokens.extend(batch.tokens);
+                            actual.errors.extend(batch.errors);
+                        }
+                        assert_eq!(actual, expected, "{source:?}, split={split}");
+                        assert!(lexer.structured_comment_limit_violation().is_none());
+                    }
+                }
+            }
+        }
+        // The structured-comment allowance does not cap ordinary comments.
+        let mut lexer = LexerSession::with_structured_comment_limit(
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+            0,
+        );
+        let result = lexer.push(Cow::Owned(format!("/*{}*/", "\n".repeat(32))));
+        assert_eq!(result.tokens.len(), 32);
+        assert!(lexer.structured_comment_limit_violation().is_none());
+    }
+
+    #[test]
+    fn structured_comment_newline_metadata_keeps_only_the_first_late_layout_witness() {
+        let mut lexer = LexerSession::with_structured_comment_limit(
+            LexerOptions {
+                include_newlines: true,
+                ..LexerOptions::default()
+            },
+            8,
+        );
+        drop(lexer.push(Cow::Borrowed("/@xxxxxxxxx")));
+        assert_eq!(lexer.comment_newlines.capacity(), 0);
+        for _ in 0..16 {
+            drop(lexer.push(Cow::Borrowed("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")));
+            assert_eq!(lexer.comment_newlines.len(), 1);
+            assert_eq!(lexer.comment_newlines.capacity(), 1);
+            assert_eq!(lexer.comment_newlines[0].start.offset, 11);
+        }
+        // The per-comment bound must not discard a following valid comment's
+        // complete newline sequence just because the earlier one was invalid.
+        let result = lexer.push(Cow::Borrowed("@/ /@\n\n@/"));
+        assert_eq!(result.tokens.len(), 3);
+        assert!(result.tokens.iter().all(|t| t.kind == TokenKind::Newline));
+        assert!(lexer.finish().errors.is_empty());
+        assert_eq!(lexer.comment_newlines.capacity(), 0);
+    }
+
+    #[test]
+    fn structured_comment_newline_metadata_is_released_on_lexical_termination() {
+        let options = LexerOptions {
+            include_newlines: true,
+            ..LexerOptions::default()
+        };
+        let mut unfinished = LexerSession::with_structured_comment_limit(options, 8);
+        drop(unfinished.push(Cow::Borrowed("/@\n")));
+        assert_eq!(unfinished.comment_newlines.len(), 1);
+        assert_eq!(
+            unfinished.finish().errors[0].code,
+            "UNTERMINATED_BLOCK_COMMENT"
+        );
+        assert_eq!(unfinished.comment_newlines.capacity(), 0);
+
+        let mut aborted = LexerSession::with_retained_token_limit(
+            LexerOptions {
+                include_comments: true,
+                ..options
+            },
+            8,
+        );
+        let result = aborted.push(Cow::Owned(format!("/@{}", "\n".repeat(32))));
+        assert_eq!(
+            result.errors[0].code,
+            "INCREMENTAL_TOKEN_RETENTION_EXCEEDED"
+        );
+        assert!(aborted.aborted);
+        assert_eq!(aborted.comment_newlines.capacity(), 0);
     }
 
     #[test]

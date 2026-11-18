@@ -8,6 +8,11 @@ repositories.
 
 ## Unreleased
 
+- Bound pending newline metadata after a structured comment exceeds its configured
+  size limit, retaining one layout marker to preserve diagnostic precedence.
+  Unterminated comments and token-retention aborts release pending metadata.
+  Regenerate WASM and cover exact limits, split closers and streamed rejections.
+
 - Rebuild the committed WASM artifact from merged Rust sources so physical LF/CRLF
   inside all seven block-comment channels remains a binding separator in process,
   canonical and streaming APIs. Add compiled-artifact byte-split regressions.

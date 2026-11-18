@@ -70,8 +70,12 @@ This keeps the release history honest about what was actually shipped.
 
 The combined-main preparation also rebuilds committed WASM from the merged Rust
 block-comment newline fix. Compile/process, canonical and byte-stream parity must
-pass against that generated artifact as well as source. This does not authorize
-publication or change the existing compatibility/target/performance gates.
+pass against that generated artifact as well as source. Oversized structured
+comments retain at most one newline layout witness after certain overflow,
+release excess metadata capacity, and preserve closing/lexical error precedence.
+The source allocation controls and rebuilt-binary streaming checks must pass;
+this is not a total-worker-memory or new performance-qualification claim. This
+does not authorize publication or change the existing compatibility/target/performance gates.
 
 The Rust and TypeScript SDK provider slice selects the coordinated SANSA development source
 `da76789aff29025affe180196e79ba5749c9e0a2`. The central TypeScript workspace override
