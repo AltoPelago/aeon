@@ -192,6 +192,80 @@ select { sku = .sku stage = .stage }
             tuple(field.name for field in record.value.fields), ("sku", "stage")
         )
 
+    def test_property_query_shared_sdk_cases(self) -> None:
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-query-sdk.json").read_text())
+        document = pytonic.loads(fixture["source"])
+        for case in fixture["cases"]:
+            with self.subTest(query=case["query"]):
+                result = document.query(case["query"], max_property_inspections=case.get("limit", 10000))
+                if "code" in case:
+                    self.assertFalse(result.ok)
+                    self.assertEqual(result.results, ())
+                    error = result.errors[0]
+                    self.assertEqual(error.code, case["code"])
+                    self.assertEqual(error.phase, case["phase"])
+                    self.assertEqual(error.property, "key")
+                    self.assertEqual(error.budget, "maxPropertyInspections")
+                    self.assertEqual(error.limit, 1)
+                    self.assertEqual(error.observed, 2)
+                else:
+                    self.assertTrue(result.ok, result.errors)
+                    self.assertEqual([{"candidate":row.candidate.address,"valueBindings":[binding.address for binding in row.value]} for row in result.results], case["records"])
+                    for row in result.results:
+                        self.assertEqual(row.candidate, document.at(row.candidate.address))
+                        for binding in row.value:
+                            self.assertEqual(binding, document.at(binding.address))
+
+    def test_property_query_allowances_are_bounded_before_execution(self) -> None:
+        document = pytonic.loads('x=1')
+        for limit in [True, False, -1, 1.5, 1000001, "1", 2**100]:
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                document.query('from $.missing\nselect .&key("x")',max_property_inspections=limit)
+        for limit in [0, 1, 1000000]:
+            result=document.query('from $.x\nselect .&key("x")',max_property_inspections=limit)
+            self.assertEqual(result.ok,limit>0)
+        self.assertTrue(document.query('from $.x\nselect .&key("x")').ok)
+        self.assertTrue(document.query('from $.x\nselect .&key("x")').ok)
+
+    def test_property_query_numeric_limits_normalize_without_host_coercion(self) -> None:
+        document = pytonic.loads('x=1')
+        for value, expected in [(1.0, True), (-0.0, False), (0.0, False), (1000000.0, True)]:
+            with self.subTest(value=value):
+                result=document.query('from $.x\nselect .&key("x")',max_property_inspections=value)
+                self.assertEqual(result.ok,expected)
+                if expected:
+                    self.assertEqual(result.results[0].value,(document["x"],))
+                else:
+                    self.assertEqual(result.errors[0].code,"SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED")
+                    self.assertEqual(result.errors[0].limit,0)
+                    self.assertEqual(result.errors[0].observed,1)
+        class Coercion:
+            calls=0
+            def __index__(self):
+                self.calls+=1
+                return 1
+            def __float__(self):
+                self.calls+=1
+                return 1.0
+        class ThrowingIndex(Coercion):
+            def __index__(self):
+                self.calls+=1
+                raise RuntimeError("must not execute")
+        class IntSubclass(int):
+            calls=0
+            def __index__(self):
+                type(self).calls+=1
+                raise RuntimeError("must not execute")
+        class FloatSubclass(float):
+            calls=0
+            def __float__(self):
+                type(self).calls+=1
+                raise RuntimeError("must not execute")
+        for value in [Coercion(),ThrowingIndex(),IntSubclass(1),FloatSubclass(1),float('nan'),float('inf'),-float('inf')]:
+            with self.subTest(type=type(value).__name__), self.assertRaises(ValueError):
+                document.query('from $.missing\nselect .&key("x")',max_property_inspections=value)
+            if hasattr(value,"calls"):self.assertEqual(value.calls,0)
+
     def test_query_child_identities_preserve_occurrences_and_structural_paths(self) -> None:
         document = pytonic.loads('items=[\\a\\={name\\n1\\="B"}, \\b\\={name\\n2\\="A"}]')
         for _ in range(2):

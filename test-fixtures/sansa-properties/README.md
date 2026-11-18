@@ -1,7 +1,7 @@
 # Experimental property fixtures
 
 These three files are byte-identical mirrors of SANSA revision
-`da76789aff29025affe180196e79ba5749c9e0a2`. They are experimental parity
+`edcb32cc41a5bfc12efe3f667031329273ed1f9b`. They are experimental parity
 inputs, not a new CTS claim or a stable profile declaration.
 
 | File | SHA-256 |

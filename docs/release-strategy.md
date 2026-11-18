@@ -78,15 +78,15 @@ this is not a total-worker-memory or new performance-qualification claim. This
 does not authorize publication or change the existing compatibility/target/performance gates.
 
 The Rust and TypeScript SDK provider slice selects the coordinated SANSA development source
-`da76789aff29025affe180196e79ba5749c9e0a2`. The central TypeScript workspace override
+`edcb32cc41a5bfc12efe3f667031329273ed1f9b`. The central TypeScript workspace override
 selects the retained local archive
-`altopelago-sansa-0.15.0-rc.1-main-28e040f1.tgz`, SHA-256
-`28e040f12f8000cf40d14e466fa85108c13fb34237c1d3791d4d9ac4e7bf9da6`;
+`altopelago-sansa-0.15.0-rc.1-query-qa-fbbf754a.tgz`, SHA-256
+`fbbf754ad6e5c15523ccf51961d962c490796b97aa7ae82147a7913cc277833a`;
 the staging helper, provenance record and lockfile must agree. Rust pins the same
 source revision. Previous archives remain available for provenance.
 
 This coordinated development selection enables authoritative standalone SDK
-key/tag/headTag Resolve only. It is not a registry artifact selection or permission to
+key/tag/headTag Resolve and direct read-only Query. It is not a registry artifact selection or permission to
 publish existing package versions. Before any release, select the final registry
 dependency and integrity, refresh affected consumer locks and verify the actual
 artifact combination. Do not publish an old version with these new bytes.
@@ -99,7 +99,7 @@ Core qualifier ownership and public Rust source changes are documented in its
 README. These development ports do not establish stable profile support.
 
 Owning review/main verification of these ports, remaining tooling JSON export,
-authoritative provider/playground integration, separately admitted Query support
+authoritative provider/playground integration, Query review/main verification
 and affected resource/platform qualification remain open. Keep the original
 compatibility and target-preservation checks and 1.15x latency/1.20x memory
 ceilings. Capability/profile promotion, official releases and deployment remain
@@ -380,7 +380,8 @@ legacy 0.16 and candidate 0.17 providers require explicit consumer compatibility
 checks; this does not upgrade or relax their runtime graphs.
 
 The unpublished 0.2 property revision separates container-only `&tag` from
-head-only `&headTag`. This exact candidate is still under owning review. Shared
+head-only `&headTag`. The container/head split is merged; direct property Query is a coordinated candidate
+under owning review. Shared
 callbacks, parser/inspection ceilings and prohibited consumer admission are
 unchanged. Old head-target predicates must migrate explicitly to `&headTag`;
 no published selector contract or immutable reference/target fixture is revised.

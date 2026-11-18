@@ -99,8 +99,8 @@ test('SDK owning planes retain scope and closed consumer boundaries', () => {
     assert.equal(result.ok, true);
     assert.equal(result.bindings.length, scope === 'payload' ? 0 : 1);
     const query = evaluateQuery('from $.*&key("value")\nselect .', namespace);
-    assert.ok(!query.ok);
-    assert.equal(query.errors[0]?.code, 'SANSA_RESOLVE_UNSUPPORTED_SELECTOR');
+    assert.ok(query.ok);
+    assert.equal(query.results.length, scope === 'payload' ? 1 : 0);
     const mutation = planMutation({op: 'remove', target: '$.*&key("value")'}, namespace);
     assert.ok(!mutation.ok);
     assert.deepEqual(mutation.errors.map(e => e.code), ['SANSA_MUTATE_NON_EXACT_TARGET']);
@@ -119,6 +119,26 @@ test('recursive tag predicates distinguish original containers, heads and conten
       assert.deepEqual(selected.bindings.map(binding => binding.address), item.paths);
       assert.deepEqual(selected.bindings.map(binding => binding.representationKind), item.kinds);
       for (const binding of selected.bindings) assert.equal(binding, resolveAddress(binding.address, namespace).bindings[0]);
+    }
+  }
+});
+
+
+test('SDK property Query preserves original targets, row scope, ordering and shared budgets', async () => {
+  const {default: fixtures} = await import('../../../../../test-fixtures/property-query-sdk.json', {with:{type:'json'}});
+  const {parseQuery} = await import('@altopelago/sansa');
+  const namespace = readAeonNamespace(fixtures.source).namespace;
+  for (const item of fixtures.cases) {
+    const parsed=parseQuery(item.query);assert.ok(parsed.ok);
+    for (const input of [item.query,parsed.query]) {
+      const result=evaluateQuery(input,namespace,{resolve:{maxPropertyInspections:item.limit ?? 10000}});
+      if (item.code) {assert.ok(!result.ok);assert.equal(result.errors[0]?.code,item.code);assert.equal(result.errors[0]?.phase,item.phase);assert.deepEqual(result.results,[]);continue;}
+      assert.ok(result.ok,JSON.stringify(result));
+      assert.deepEqual(result.results.map(row=>({candidate:row.candidateAddress,valueBindings:row.value.type==='bindingSet'?row.value.bindings.map(b=>b.address):null})),item.records,item.query);
+      for(const row of result.results) {
+        assert.equal(row.binding,resolveAddress(row.candidateAddress!,namespace).bindings[0]);
+        if(row.value.type==='bindingSet') for(const binding of row.value.bindings) assert.equal(binding,resolveAddress(binding.address!,namespace).bindings[0]);
+      }
     }
   }
 });

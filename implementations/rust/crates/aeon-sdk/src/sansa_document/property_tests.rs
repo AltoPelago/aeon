@@ -127,14 +127,14 @@ fn properties_reject_foreign_document_plane_materialization_and_direct_head() {
 }
 
 #[test]
-fn properties_preserve_closed_query_and_exact_lookup() {
+fn properties_admit_direct_query_and_preserve_exact_lookup() {
     let ns = namespace();
     let result = ns.evaluate_query(
         "from $.*&key(\"value\")\nselect .",
         &runtime::evaluate::EvaluateOptions::default(),
     );
-    assert!(!result.is_ok());
-    assert_eq!(result.errors[0].code, "SANSA_RESOLVE_UNSUPPORTED_SELECTOR");
+    assert!(result.is_ok());
+    assert_eq!(result.results.len(), 1);
     assert!(ns.at_exact("$.value&tag(\"tag\")").is_none());
 }
 
@@ -171,6 +171,60 @@ fn recursive_predicates_distinguish_containers_heads_and_content() {
             for binding in selected.bindings {
                 assert_eq!(Some(binding.clone()), ns.at_exact(&binding.address()));
             }
+        }
+    }
+}
+
+#[test]
+fn shared_property_query_document_cases_preserve_original_targets_and_scope() {
+    use runtime::evaluate::{EvaluateOptions, EvaluatedValue};
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../../test-fixtures/property-query-sdk.json"
+    )))
+    .expect("query fixture");
+    let ns = AeonSansaNamespace::compile(
+        fixture["source"].as_str().expect("source"),
+        CompileOptions::default(),
+        AeonSansaScope::Payload,
+        AeonNumericMaterialization::Lossless,
+    )
+    .expect("namespace");
+    for case in fixture["cases"].as_array().expect("cases") {
+        let source = case["query"].as_str().expect("query");
+        let parsed = runtime::query::parse_query(source).expect("query parse");
+        let options = EvaluateOptions {
+            resolve: ResolveOptions {
+                max_property_inspections: case["limit"].as_u64().unwrap_or(10000) as u32,
+                ..ResolveOptions::default()
+            },
+            ..EvaluateOptions::default()
+        };
+        for result in [
+            ns.evaluate_query(source, &options),
+            runtime::evaluate::evaluate_parsed_query(&parsed, &ns, &options),
+        ] {
+            if let Some(code) = case["code"].as_str() {
+                assert_eq!(result.errors[0].code, code, "{source}");
+                assert_eq!(
+                    format!("{:?}", result.errors[0].phase.expect("phase")).to_lowercase(),
+                    case["phase"]
+                );
+                assert!(result.results.is_empty());
+                continue;
+            }
+            assert!(result.is_ok(), "{source}: {:?}", result.errors);
+            let records:Vec<Value>=result.results.iter().map(|row| {
+                let EvaluatedValue::Bindings(bindings)=&row.value else {panic!("bindings");};
+                for b in bindings {assert_eq!(ns.at_exact(&b.address()),Some(b.clone()));}
+                assert_eq!(ns.at_exact(&row.candidate.address()),Some(row.candidate.clone()));
+                serde_json::json!({"candidate":row.candidate.address(),"valueBindings":bindings.iter().map(|b|b.address()).collect::<Vec<_>>()})
+            }).collect();
+            assert_eq!(
+                serde_json::to_value(records).expect("records"),
+                case["records"],
+                "{source}"
+            );
         }
     }
 }

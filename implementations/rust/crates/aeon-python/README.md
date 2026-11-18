@@ -231,9 +231,32 @@ the pinned standalone SANSA Addressing engine. Escapes, quoted whitespace/commen
 characters, canonical payloads and SansaAddressLiteral kinds survive the existing
 native event/value ABI. Clone/pointer targets remain structural paths.
 
-This is a representation port, not a new native Resolve API. Pytonic Query and
-address activation still deny property evaluation; no Python callback facet or
-new public counter/session is marshalled into Rust. The separate pure Python
+This literal representation port adds no native Resolve API. The separate direct
+Pytonic Query integration is described below; address activation remains closed
+to properties. No Python callback facet or public mutable counter/session is
+marshalled into Rust. The separate pure Python
 `aeon.sansa` resolver supplies its own explicitly capable namespaces. Profile,
 platform and affected cost qualification, official release and deployment remain
 separate gates. Existing package versions and capability manifests are unchanged.
+
+
+### Experimental property Query
+
+The existing native `Document.query()` is explicitly admitted to the coordinated
+read-only property candidate. It uses the Rust SDK's authoritative document
+namespace and shared evaluator: `.&key("name")` retains the current row's
+originating scope, while explicit `?` starts a boundary at the row. `&tag` selects
+node containers, `&headTag` selects heads, and results retain immutable original
+binding views and structural addresses. Pure Python has no Query evaluator;
+WASM gains no new Query API.
+
+`max_property_inspections` accepts finite integer-valued Python ints/floats
+(default/None:10,000; range0..1,000,000). Integral1.0 and signed zero normalize
+to1 and0. Booleans, non-finite/fractional/negative/out-of-range values, strings
+and arbitrary objects raise `ValueError` before execution, without invoking
+conversion hooks. The allowance is shared across all clauses;
+separate public calls receive fresh state. Checked Query failures return no
+partial records. `SansaDiagnostic.property`, selector index, budget, limit and
+observed fields retain property failure accounting. Literal activation, mutation,
+Instruction/SO and references remain closed to properties. Releases and deployment
+remain held; no new full-profile/platform/performance qualification is claimed.

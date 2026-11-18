@@ -15,7 +15,7 @@ use aeon_sdk::sansa_document::{
 use aes_telex::{ClarifierKind, DatatypeClarifier, GenericArgument};
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyModule, PyTuple};
+use pyo3::types::{PyAny, PyBool, PyFloat, PyInt, PyModule, PyTuple};
 
 use super::python_diagnostic;
 
@@ -149,6 +149,7 @@ impl PyDocument {
             max_where_candidates=None,
             max_order_candidates=None,
             max_result_records=None,
+            max_property_inspections=None,
             activation_roots=None,
             activation_selectors=None,
             allow_contextual_activation=false,
@@ -168,6 +169,7 @@ impl PyDocument {
         max_where_candidates: Option<usize>,
         max_order_candidates: Option<usize>,
         max_result_records: Option<usize>,
+        max_property_inspections: Option<Py<PyAny>>,
         activation_roots: Option<Vec<String>>,
         activation_selectors: Option<Vec<String>>,
         allow_contextual_activation: bool,
@@ -180,6 +182,43 @@ impl PyDocument {
         };
         use runtime::value_semantics::Profile;
 
+        let property_limit_error = || {
+            PyValueError::new_err(
+                "max_property_inspections must be a finite integer-valued number from 0 through 1000000",
+            )
+        };
+        let property_limit = match max_property_inspections {
+            None => runtime::property::DEFAULT_PROPERTY_INSPECTIONS,
+            Some(value) => {
+                let value = value.bind(py);
+                if value.is_instance_of::<PyBool>() {
+                    return Err(property_limit_error());
+                }
+                // Inspect primitive storage only. Generic extraction on an
+                // arbitrary object may invoke its __index__/__float__ hooks.
+                if value.is_exact_instance_of::<PyInt>() {
+                    value.extract::<u32>().map_err(|_| property_limit_error())?
+                } else if value.is_exact_instance_of::<PyFloat>() {
+                    let number = value
+                        .cast::<PyFloat>()
+                        .map_err(|_| property_limit_error())?
+                        .value();
+                    if !number.is_finite()
+                        || number < 0.0
+                        || number > f64::from(runtime::property::MAX_PROPERTY_INSPECTIONS)
+                        || number.fract() != 0.0
+                    {
+                        return Err(property_limit_error());
+                    }
+                    number as u32
+                } else {
+                    return Err(property_limit_error());
+                }
+            }
+        };
+        if property_limit > runtime::property::MAX_PROPERTY_INSPECTIONS {
+            return Err(property_limit_error());
+        }
         let document_scope = parse_scope(scope)?;
         let sansa_scope = sansa_scope(document_scope);
         let profile =
@@ -233,6 +272,10 @@ impl PyDocument {
             }
         };
         let options = EvaluateOptions {
+            resolve: runtime::resolve::ResolveOptions {
+                max_property_inspections: property_limit,
+                ..runtime::resolve::ResolveOptions::default()
+            },
             profile,
             policy,
             budget: QueryBudget {
@@ -242,7 +285,6 @@ impl PyDocument {
                 max_result_records,
             },
             address_activation,
-            ..EvaluateOptions::default()
         };
         let namespace = AeonSansaNamespace::from_shared(
             Arc::clone(&self.document),
@@ -727,6 +769,8 @@ pub(super) struct PySansaDiagnostic {
     limit: Option<usize>,
     #[pyo3(get)]
     observed: Option<usize>,
+    #[pyo3(get)]
+    property: Option<String>,
 }
 
 #[pyclass(
@@ -770,6 +814,7 @@ impl From<runtime::Diagnostic> for PySansaDiagnostic {
             budget: diagnostic.budget,
             limit: diagnostic.limit,
             observed: diagnostic.observed,
+            property: diagnostic.property,
         }
     }
 }
