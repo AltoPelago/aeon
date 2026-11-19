@@ -4,6 +4,7 @@ import cases from '../../../../../test-fixtures/aeos-property-selectors.json' wi
 import regressions from '../../../../../test-fixtures/aeos-property-regressions.json' with {type:'json'};
 import contextRegressions from '../../../../../test-fixtures/aeos-property-context-regressions.json' with {type:'json'};
 import rangeAttributeRegressions from '../../../../../test-fixtures/aeos-property-range-attribute-regressions.json' with {type:'json'};
+import nestedRegressions from '../../../../../test-fixtures/aeos-property-nested-attribute-regressions.json' with {type:'json'};
 import {encodeTelex, type TelexRecord} from '@altopelago/aeon-aes';
 import {validate, type ValidateOptions} from './validate.js';
 import {validateTelex, validateTelexRecords} from './telex.js';
@@ -56,4 +57,28 @@ test('portable source content never supplies an absent direct head', async () =>
             assert.deepEqual(result.guarantees, {});
         }
     }
+});
+
+for (const item of nestedRegressions.tests) test(`AEOS nested attributes: ${item.id}`, () => {
+    const records = structuredClone(item.records) as unknown as TelexRecord[];
+    const schema = structuredClone(item.schema) as unknown as SchemaV1;
+    const before = JSON.stringify({records, schema});
+    for (let repeat = 0; repeat < 2; repeat++) {
+        const wire = encodeTelex(records, {profile:item.profile, ...item.limits});
+        for (const result of [validateTelexRecords(records, schema), validateTelex(wire, schema, item.limits)]) {
+            assert.equal(result.ok, item.expected.ok, item.id);
+            assert.deepEqual(result.errors.map(({code,path}) => ({code,path})).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))),
+                [...item.expected.errors].sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b))), item.id);
+            if (!result.ok) assert.deepEqual(result.guarantees, {});
+            assert.equal(JSON.stringify({records,schema}), before);
+        }
+    }
+});
+
+test('nested Telex keeps the existing default attribute depth limit', () => {
+    const item = nestedRegressions.tests[0]!;
+    const result = validateTelex(item.telex, item.schema as unknown as SchemaV1);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors[0]?.code, 'AES_LIMIT_EXCEEDED');
+    assert.deepEqual(result.guarantees, {});
 });

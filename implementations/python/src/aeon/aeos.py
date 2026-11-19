@@ -492,15 +492,12 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
         key = str(details.segments[-1][1])
         event = by_address.get(owner)
         if event is not None:
-            _insert_portable_attribute(event["annotations"], [key], record)
+            # Index actual supplied attribute entries as owners too. A missing
+            # intermediate owner must not hide a real descendant in a scaffold.
+            entry = _portable_attribute_entry(record)
+            event["annotations"][key] = entry
+            by_address[address] = entry
             continue
-        first_attribute = next((index for index, segment in enumerate(details.segments) if segment[0] == "attribute"), None)
-        if first_attribute is not None and all(segment[0] == "attribute" for segment in details.segments[first_attribute:]):
-            root_owner = "$" if first_attribute == 0 else details.prefixes[first_attribute - 1]
-            event = by_address.get(root_owner)
-            if event is not None:
-                _insert_portable_attribute(event["annotations"], [str(segment[1]) for segment in details.segments[first_attribute:]], record)
-                continue
         # Preserve actual partial-stream attributes without fabricating owner values.
         event = _portable_aeos_event(record, details)
         body.append((address, event))
@@ -524,9 +521,8 @@ def _portable_aeos_event(record, details):
     return {
         "path": {"segments": [{"type": "root"}, *[_portable_aeos_segment(segment) for segment in details.segments]]},
         "key": str(details.segments[-1][1]) if details.segments else "",
-        "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
-        "datatype": _portable_datatype(record), "annotations": {},
-        "value": _portable_aeos_value(record), "span": _portable_span(record.get("span")),
+        **_portable_attribute_entry(record),
+        "span": _portable_span(record.get("span")),
     }
 
 
@@ -556,29 +552,13 @@ def _portable_aeos_value(record: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def _insert_portable_attribute(target: object, keys: list[str], record: dict[str, object]) -> None:
-    if not isinstance(target, dict) or not keys:
-        return
-    key, rest = keys[0], keys[1:]
-    existing = target.get(key)
-    if not isinstance(existing, dict):
-        existing = {"annotations": {}}
-        target[key] = existing
-    annotations = existing.get("annotations")
-    if not isinstance(annotations, dict):
-        annotations = {}
-        existing["annotations"] = annotations
-    if rest:
-        _insert_portable_attribute(annotations, rest, record)
-        return
-    existing.update(
-        {
-            "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
-            "datatype": _portable_datatype(record),
-            "value": _portable_aeos_value(record),
-            "annotations": annotations,
-        }
-    )
+def _portable_attribute_entry(record):
+    return {
+        "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
+        "datatype": _portable_datatype(record),
+        "value": _portable_aeos_value(record),
+        "annotations": {},
+    }
 
 
 def _portable_parent(path: str) -> str | None:

@@ -28,6 +28,27 @@ class AeosPropertyTests(unittest.TestCase):
                             self.assertEqual(result['guarantees'], {})
                         self.assertEqual((records, schema, options), before)
 
+    def test_nested_partial_attribute_vectors(self):
+        cases = json.loads(FIXTURES.with_name('aeos-property-nested-attribute-regressions.json').read_text())['tests']
+        for case in cases:
+            with self.subTest(case=case['id']):
+                before = copy.deepcopy(case)
+                for _ in range(2):
+                    wire = encode_telex(case['records'], profile=case['profile'], limits=case['limits'])
+                    for result in [validate_telex_records(case['records'], case['schema']),
+                                   validate_telex(wire, case['schema'], limits=case['limits'])]:
+                        self.assertEqual(result['ok'], case['expected']['ok'], (case['id'], result))
+                        self.assertEqual(sorted((e['code'], e['path']) for e in result['errors']),
+                                         sorted((e['code'], e['path']) for e in case['expected']['errors']))
+                        if not result['ok']:
+                            self.assertEqual(result['guarantees'], {})
+                        self.assertEqual(case, before)
+
+        rejected = validate_telex(cases[0]['telex'], cases[0]['schema'])
+        self.assertFalse(rejected['ok'])
+        self.assertEqual(rejected['errors'][0]['code'], 'AES_LIMIT_EXCEEDED')
+        self.assertEqual(rejected['guarantees'], {})
+
     def test_property_limit_does_not_coerce(self):
         calls = []
         class Index:
