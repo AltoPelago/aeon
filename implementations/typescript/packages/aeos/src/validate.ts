@@ -105,7 +105,7 @@ type IdentitySelectorState = {
     propertyLimit: number;
     propertyInspections: number;
     propertySelectors: Set<string>;
-    propertyRuleBatches: RuleIndex[];
+    propertyRuleBatches: Map<string, SchemaRule>[];
     propertyRuleCounts: Map<string, number>;
 };
 
