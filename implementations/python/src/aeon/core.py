@@ -956,6 +956,7 @@ def enforce_mode(
     effective_policy = effective_datatype_policy(mode, datatype_policy)
     errors: list[AeonError] = []
     lookup = {format_path(binding.path): binding for binding in bindings}
+    terminal_values: dict[int, Value] = {}
     for binding in bindings:
         if should_skip_header_binding_for_mode(document, binding):
             continue
@@ -970,8 +971,14 @@ def enforce_mode(
                     errors.append(UntypedValueInStrictModeError(format_path(binding.path), binding.span))
             continue
         expected = expected_kinds_for_reserved_datatype(binding.datatype)
-        actual_kind = datatype_check_kind(binding.value, lookup, binding.datatype)
-        if datatype_base(binding.datatype) == "switch" and actual_kind == "ToggleLiteral":
+        kinds = expected if expected is not None else expected_kinds_for_custom_datatype(binding.datatype)
+        is_switch = datatype_base(binding.datatype) == "switch"
+        actual_kind = (
+            datatype_check_kind(binding.value, lookup, binding.datatype, terminal_values)
+            if kinds is not None or is_switch or mode == "strict"
+            else None
+        )
+        if is_switch and actual_kind == "ToggleLiteral":
             errors.append(
                 CustomToggleAliasNotAllowedError(
                     format_path(binding.path),
@@ -992,15 +999,13 @@ def enforce_mode(
                 )
             )
             continue
-        if expected is None:
-            expected = expected_kinds_for_custom_datatype(binding.datatype)
-        if expected is not None and actual_kind not in expected:
+        if kinds is not None and actual_kind not in kinds:
             errors.append(
                 DatatypeLiteralMismatchError(
                     format_path(binding.path),
                     binding.datatype,
                     actual_kind,
-                    expected,
+                    kinds,
                     binding.span,
                 )
             )
@@ -1012,6 +1017,7 @@ def enforce_mode(
                 lookup,
                 mode,
                 effective_policy,
+                terminal_values,
             )
         )
         errors.extend(validate_node_head_datatypes(binding.value, format_path(binding.path), binding.span, mode))
@@ -1214,21 +1220,28 @@ def datatype_check_kind(
     value: Value,
     lookup: dict[str, ResolvedBinding],
     datatype: str,
+    terminal_values: dict[int, Value],
 ) -> str:
     current = unwrap_typed_value(value)
     seen: set[int] | None = None
     while isinstance(current, (CloneReference, PointerReference)):
-        # Sibling attributes can share an owning path. Track each reference value.
+        identity = id(current)
+        cached = terminal_values.get(identity)
+        if cached is not None:
+            current = cached
+            break
         if seen is None:
             seen = set()
-        identity = id(current)
         if identity in seen:
-            break
+            return datatype_value_kind(datatype, current)
         seen.add(identity)
         target = resolve_reference_value(current, lookup)
         if target is None:
-            break
+            return datatype_value_kind(datatype, current)
         current = unwrap_typed_value(target)
+    if seen:
+        for identity in seen:
+            terminal_values[identity] = current
     return datatype_value_kind(datatype, current)
 
 
@@ -1239,6 +1252,7 @@ def validate_annotation_entries(
     lookup: dict[str, ResolvedBinding],
     mode: str,
     effective_policy: str,
+    terminal_values: dict[int, Value],
 ) -> list[AeonError]:
     if annotations is None:
         return []
@@ -1258,18 +1272,17 @@ def validate_annotation_entries(
             if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
                 errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
             else:
-                if value is not None and hasattr(value, "type"):
-                    actual_kind = datatype_check_kind(value, lookup, datatype)
-                    if expected is None:
-                        expected = expected_kinds_for_custom_datatype(datatype)
-                    if expected is not None and actual_kind not in expected:
-                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
+                kinds = expected if expected is not None else expected_kinds_for_custom_datatype(datatype)
+                if kinds is not None and value is not None and hasattr(value, "type"):
+                    actual_kind = datatype_check_kind(value, lookup, datatype, terminal_values)
+                    if actual_kind not in kinds:
+                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, kinds, span))
         value = entry.get("value")
         if isinstance(value, (ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
             errors.extend(validate_node_head_datatypes(value, attr_path, span, mode))
         nested = entry.get("annotations")
         if isinstance(nested, dict):
-            errors.extend(validate_annotation_entries(nested, attr_path, span, lookup, mode, effective_policy))
+            errors.extend(validate_annotation_entries(nested, attr_path, span, lookup, mode, effective_policy, terminal_values))
     return errors
 
 

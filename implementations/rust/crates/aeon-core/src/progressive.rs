@@ -383,10 +383,11 @@ impl ProgressiveValidationState {
             .chain(self.event_path_error.iter().cloned())
             .chain(self.duplicate_errors.iter().cloned())
             .collect::<Vec<_>>();
+        let mut terminal_values = HashMap::new();
         if !self.fail_closed_duplicate_suppresses_events() {
-            errors.extend(self.effective_datatype_event_errors());
+            errors.extend(self.effective_datatype_event_errors(&mut terminal_values));
         }
-        errors.extend(self.effective_datatype_attribute_errors());
+        errors.extend(self.effective_datatype_attribute_errors(&mut terminal_values));
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.gp_profile_errors.iter().cloned());
             errors.extend(self.gp_unprojected_errors.iter().cloned());
@@ -416,11 +417,15 @@ impl ProgressiveValidationState {
             && !self.options.recovery
     }
 
-    fn effective_datatype_event_errors(&self) -> Vec<Diagnostic> {
+    fn effective_datatype_event_errors(
+        &self,
+        terminal_values: &mut HashMap<String, CompactDatatypeValue>,
+    ) -> Vec<Diagnostic> {
         let mode = self.effective_mode();
         let mut ordered = self.datatype_event_errors.errors(mode).to_vec();
         for claim in &self.reference_datatype_claims {
-            let resolved = self.resolve_compact_datatype_reference(&claim.reference);
+            let resolved =
+                self.resolve_compact_datatype_reference(&claim.reference, terminal_values);
             if let Some(error) = validate_compact_reference_datatype(
                 &claim.datatype,
                 &resolved,
@@ -441,33 +446,45 @@ impl ProgressiveValidationState {
     fn resolve_compact_datatype_reference(
         &self,
         reference: &CompactDatatypeValue,
+        terminal_values: &mut HashMap<String, CompactDatatypeValue>,
     ) -> CompactDatatypeValue {
-        let original = reference.clone();
-        let mut current = reference.clone();
+        let mut current = reference;
         let mut seen = HashSet::new();
-        loop {
+        let terminal = loop {
             let Some(target) = current.reference_target() else {
-                return current;
+                break current.clone();
             };
-            if !seen.insert(target.to_owned()) {
-                return current;
+            if let Some(terminal) = terminal_values.get(target) {
+                break terminal.clone();
+            }
+            if !seen.insert(target) {
+                return current.clone();
             }
             let Some(next) = self.datatype_targets.get(target) else {
-                return original;
+                return reference.clone();
             };
-            current = next.clone();
-        }
+            current = next;
+        };
+        terminal_values.extend(
+            seen.into_iter()
+                .map(|target| (target.to_owned(), terminal.clone())),
+        );
+        terminal
     }
 
-    fn effective_datatype_attribute_errors(&self) -> impl Iterator<Item = Diagnostic> + '_ {
+    fn effective_datatype_attribute_errors<'a>(
+        &'a self,
+        terminal_values: &'a mut HashMap<String, CompactDatatypeValue>,
+    ) -> impl Iterator<Item = Diagnostic> + 'a {
         self.datatype_attribute_checks
             .errors(self.effective_mode())
             .iter()
             .filter_map(|check| {
                 check.diagnostic(|value| {
-                    self.resolve_compact_datatype_reference(&CompactDatatypeValue::from_value(
-                        value,
-                    ))
+                    self.resolve_compact_datatype_reference(
+                        &CompactDatatypeValue::from_value(value),
+                        terminal_values,
+                    )
                 })
             })
     }
@@ -2458,6 +2475,36 @@ mod tests {
     use super::*;
     use crate::token_parser::ParserImplementation;
     use crate::{SourcePlane, compile_owned_with_implementation};
+
+    #[test]
+    fn compact_reference_chain_reuses_cached_suffixes() {
+        let mut state = ProgressiveValidationState::new(&CompileOptions::default());
+        let mut terminal_values = HashMap::new();
+        state
+            .datatype_targets
+            .insert("$.target".into(), CompactDatatypeValue::Number);
+        state.datatype_targets.insert(
+            "$.alias".into(),
+            CompactDatatypeValue::PointerReference("$.target".into()),
+        );
+        for path in ["$.alias", "$.target"] {
+            let terminal = state.resolve_compact_datatype_reference(
+                &CompactDatatypeValue::CloneReference(path.into()),
+                &mut terminal_values,
+            );
+            assert!(matches!(terminal, CompactDatatypeValue::Number));
+        }
+        assert_eq!(terminal_values.len(), 2);
+        // A second claim can resolve from the cached suffix without consulting the targets.
+        state.datatype_targets.clear();
+        assert!(matches!(
+            state.resolve_compact_datatype_reference(
+                &CompactDatatypeValue::PointerReference("$.alias".into()),
+                &mut terminal_values,
+            ),
+            CompactDatatypeValue::Number
+        ));
+    }
 
     fn collect_progressive(
         source: &str,

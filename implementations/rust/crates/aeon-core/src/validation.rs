@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::flatten::{FlattenedDocument, ValidationEvent, ValidationReferenceStep};
 use crate::pathing::{
@@ -691,6 +691,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
+    let mut terminal_values = HashMap::new();
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
         let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
@@ -708,7 +709,8 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 continue;
             }
             let resolved_value =
-                resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
+                resolve_reference_value(&event.value, events, event_lookup, &mut terminal_values)
+                    .unwrap_or(&event.value);
             if let Some(error) = datatype_value_error(
                 datatype,
                 &CompactDatatypeValue::from_value(resolved_value),
@@ -953,6 +955,7 @@ pub(crate) fn validate_datatypes_light(
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
+    let mut terminal_values = HashMap::new();
     for event in events {
         if let Some(datatype) = &event.datatype {
             if let Some(error) = validate_datatype_shape_light(
@@ -985,8 +988,13 @@ pub(crate) fn validate_datatypes_light(
                 );
                 continue;
             }
-            let resolved_value = resolve_reference_value_light(&event.value, events, event_lookup)
-                .unwrap_or(&event.value);
+            let resolved_value = resolve_reference_value_light(
+                &event.value,
+                events,
+                event_lookup,
+                &mut terminal_values,
+            )
+            .unwrap_or(&event.value);
             if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
             {
                 errors.push(
@@ -1085,8 +1093,9 @@ fn resolve_reference_value<'a>(
     value: &'a Value,
     events: &'a [AssignmentEvent],
     event_lookup: &BTreeMap<String, usize>,
+    terminal_values: &mut HashMap<*const Value, &'a Value>,
 ) -> Option<&'a Value> {
-    resolve_reference_chain(value, |segments| {
+    resolve_reference_chain(value, terminal_values, |segments| {
         resolve_reference_target_value(segments, events, event_lookup)
     })
 }
@@ -1095,14 +1104,16 @@ fn resolve_reference_value_light<'a>(
     value: &'a Value,
     events: &'a [ValidationEvent],
     event_lookup: &BTreeMap<String, usize>,
+    terminal_values: &mut HashMap<*const Value, &'a Value>,
 ) -> Option<&'a Value> {
-    resolve_reference_chain(value, |segments| {
+    resolve_reference_chain(value, terminal_values, |segments| {
         resolve_reference_target_value_light(segments, events, event_lookup)
     })
 }
 
 fn resolve_reference_chain<'a>(
     mut value: &'a Value,
+    terminal_values: &mut HashMap<*const Value, &'a Value>,
     lookup: impl Fn(&[ReferenceSegment]) -> Option<&'a Value>,
 ) -> Option<&'a Value> {
     let mut seen = HashSet::new();
@@ -1110,14 +1121,21 @@ fn resolve_reference_chain<'a>(
         match value {
             Value::TypedValue { value: inner, .. } => value = inner,
             Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-                if !seen.insert(std::ptr::from_ref(value)) {
+                let reference = std::ptr::from_ref(value);
+                if let Some(&terminal) = terminal_values.get(&reference) {
+                    value = terminal;
+                    break;
+                }
+                if !seen.insert(reference) {
                     return Some(value);
                 }
                 value = lookup(segments)?;
             }
-            _ => return Some(value),
+            _ => break,
         }
     }
+    terminal_values.extend(seen.into_iter().map(|reference| (reference, value)));
+    Some(value)
 }
 
 /// Borrowed one-hop binding data for the internal Core/Finalize boundary.
@@ -1228,6 +1246,17 @@ fn resolve_reference_remainder_target<'a>(
 ) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
         return Some(AssignmentReferenceTarget::Value(value));
+    }
+    if let Value::TypedValue {
+        attributes,
+        value: payload,
+        ..
+    } = value
+    {
+        let annotations = annotations
+            .filter(|entries| !entries.is_empty())
+            .or(Some(attributes));
+        return resolve_reference_remainder_target(payload, annotations, remainder);
     }
     match &remainder[0] {
         ReferenceSegment::Attr(key) => {
@@ -1833,7 +1862,30 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{datatype_bracket_specs, separator_spec_depth};
+    use super::*;
+
+    #[test]
+    fn reference_chain_reuses_terminal_values_across_claims() {
+        let count = 64;
+        let mut values = vec![Value::NumberLiteral { raw: "7".into() }];
+        values.extend((0..count).map(|index| Value::PointerReference {
+            segments: vec![ReferenceSegment::Index(index)],
+            span: Span::zero(),
+        }));
+        let mut terminal_values = HashMap::new();
+        let lookups = std::cell::Cell::new(0);
+        for claim in values.iter().rev().take(count) {
+            let terminal = resolve_reference_chain(claim, &mut terminal_values, |segments| {
+                lookups.set(lookups.get() + 1);
+                let [ReferenceSegment::Index(index)] = segments else {
+                    return None;
+                };
+                values.get(*index)
+            });
+            assert_eq!(terminal, values.first());
+        }
+        assert_eq!(lookups.get(), count);
+    }
 
     #[test]
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
@@ -1991,9 +2043,9 @@ pub(crate) enum AttributeDatatypeCheck {
 }
 
 impl AttributeDatatypeCheck {
-    pub(crate) fn diagnostic(
-        &self,
-        resolve: impl FnOnce(&Value) -> CompactDatatypeValue,
+    pub(crate) fn diagnostic<'a>(
+        &'a self,
+        resolve: impl FnOnce(&'a Value) -> CompactDatatypeValue,
     ) -> Option<Diagnostic> {
         match self {
             Self::Error(error) => Some(error.clone()),
@@ -2034,7 +2086,8 @@ fn validate_resolved_attribute_datatypes(
     );
     // Resolve against the authored bindings even when event metadata is omitted.
     let mut roots = None;
-    for check in checks {
+    let mut terminal_values = HashMap::new();
+    for check in &checks {
         errors.extend(check.diagnostic(|value| {
             let roots: &BTreeMap<_, _> = roots.get_or_insert_with(|| {
                 bindings
@@ -2042,7 +2095,7 @@ fn validate_resolved_attribute_datatypes(
                     .map(|binding| (binding.key.as_str(), binding))
                     .collect()
             });
-            let resolved = resolve_reference_chain(value, |segments| {
+            let resolved = resolve_reference_chain(value, &mut terminal_values, |segments| {
                 let [ReferenceSegment::Key(root), rest @ ..] = segments else {
                     return None;
                 };

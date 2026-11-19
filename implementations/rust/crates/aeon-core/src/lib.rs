@@ -4437,6 +4437,34 @@ z = 7"###,
     }
 
     #[test]
+    fn typed_attributes_resolve_metadata_and_payload_fields_of_indexed_items() {
+        let source = concat!(
+            "source = [@{leaf:number = 7} = {field:number = 8}]\n",
+            "item@{metadata:number = ~>source[0].@.leaf, payload:number = ~>source[0].field}:number = 1\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            for options in [
+                CompileOptions::default(),
+                CompileOptions {
+                    include_event_annotations: false,
+                    include_header: false,
+                    emit_binding_projections: false,
+                    shallow_event_values: true,
+                    ..CompileOptions::default()
+                },
+            ] {
+                let result =
+                    compile_owned_with_implementation(source.to_owned(), options, implementation);
+                assert!(
+                    result.errors.is_empty(),
+                    "{implementation:?}: {:?}",
+                    result.errors
+                );
+            }
+        }
+    }
+
+    #[test]
     fn strict_mode_rejects_untyped_attribute_entries() {
         let result = compile(
             "aeon:mode = \"strict\"\nb@{n=3}:n = 3\n",

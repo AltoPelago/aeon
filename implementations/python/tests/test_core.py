@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.core import CompileOptions, compile_source, datatype_has_generic_args
+from aeon.core import CompileOptions, compile_source, datatype_has_generic_args, resolve_reference_value
 
 
 class CoreCompileTests(unittest.TestCase):
@@ -1007,6 +1008,20 @@ class CoreCompileTests(unittest.TestCase):
             "Datatype/literal mismatch at '$.item.@.value': datatype ':number' expects NumberLiteral, got ListNode",
             str(result.errors[0]),
         )
+
+    def test_attribute_reference_chains_reuse_terminal_values(self) -> None:
+        count = 64
+        for datatype, expected_lookups in (("number", count), ("applicationLabel", 0)):
+            with self.subTest(datatype=datatype):
+                entries = []
+                for index in range(count):
+                    target = "target" if index == 0 else f"item.@.a{index - 1}"
+                    entries.append(f"a{index}:{datatype} = ~>{target}")
+                source = "target:number = 7\nitem@{" + ", ".join(entries) + "}:number = 1"
+                with patch("aeon.core.resolve_reference_value", wraps=resolve_reference_value) as lookup:
+                    result = compile_source(source)
+                self.assertEqual([], result.errors)
+                self.assertEqual(expected_lookups, lookup.call_count)
 
     def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
