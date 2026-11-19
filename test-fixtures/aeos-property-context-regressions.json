@@ -1,0 +1,1099 @@
+{
+  "id": "aeos-property-qa-context-regressions",
+  "tests": [
+    {
+      "id": "node-1-children-actual-heads",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\").*",
+            "constraints": {
+              "type": "NodeHead",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n"
+    },
+    {
+      "id": "node-1-children-no-phantom-target",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\")[1]",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.n&key(\"n\")[1]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n"
+    },
+    {
+      "id": "node-2-children-actual-heads",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        },
+        {
+          "path": "$.n[0][1]",
+          "kind": "StringLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\").*",
+            "constraints": {
+              "type": "NodeHead",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n\npath=$.n[0][1]\nkind=StringLiteral\nvalue=1\n"
+    },
+    {
+      "id": "node-2-children-no-phantom-target",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        },
+        {
+          "path": "$.n[0][1]",
+          "kind": "StringLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\")[1]",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.n&key(\"n\")[1]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n\npath=$.n[0][1]\nkind=StringLiteral\nvalue=1\n"
+    },
+    {
+      "id": "node-3-children-actual-heads",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        },
+        {
+          "path": "$.n[0][1]",
+          "kind": "StringLiteral",
+          "value": "1"
+        },
+        {
+          "path": "$.n[0][2]",
+          "kind": "StringLiteral",
+          "value": "2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\").*",
+            "constraints": {
+              "type": "NodeHead",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n\npath=$.n[0][1]\nkind=StringLiteral\nvalue=1\n\npath=$.n[0][2]\nkind=StringLiteral\nvalue=2\n"
+    },
+    {
+      "id": "node-3-children-no-phantom-target",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        },
+        {
+          "path": "$.n[0][1]",
+          "kind": "StringLiteral",
+          "value": "1"
+        },
+        {
+          "path": "$.n[0][2]",
+          "kind": "StringLiteral",
+          "value": "2"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\")[1]",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.n&key(\"n\")[1]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n\npath=$.n[0][1]\nkind=StringLiteral\nvalue=1\n\npath=$.n[0][2]\nkind=StringLiteral\nvalue=2\n"
+    },
+    {
+      "id": "actual-content-targets-retained",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "0"
+        },
+        {
+          "path": "$.n[0][1]",
+          "kind": "StringLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\")[0].*",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.n[0][0]"
+          },
+          {
+            "code": "type_mismatch",
+            "path": "$.n[0][1]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=NodeHead\nvalue=book\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=0\n\npath=$.n[0][1]\nkind=StringLiteral\nvalue=1\n"
+    },
+    {
+      "id": "partial-scaffold-not-a-head",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "complete-actual-head-control",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "book"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "NodeHead",
+          "value": "other"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1]\nkind=NodeHead\nvalue=book\n\npath=$.n[0]\nkind=NodeHead\nvalue=other\n"
+    },
+    {
+      "id": "partial-scaffold-navigation-preserved",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\")[0][0]",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "partial-scaffold-is-not-result",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&key(\"n\")[0]",
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.n&key(\"n\")[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "actual-wrong-kind-head-fails-closed",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.n&tag(\"book\")"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "scaffold-with-no-actual-head",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.n&tag(\"book\")"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-list-no-fallback-target",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[2]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items&key(\"items\")[0]",
+            "constraints": {
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.items&key(\"items\")[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.items\nkind=ListNode\n\npath=$.items[2]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-list-original-target",
+      "records": [
+        {
+          "path": "$.items",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.items[2]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items&key(\"items\")[2]",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.items\nkind=ListNode\n\npath=$.items[2]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "TupleLiteral-context-alone",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "TupleLiteral"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "TUPLE_ELEMENT_TYPE_MISMATCH",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=TupleLiteral\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "TupleLiteral-context-first",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "TupleLiteral"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          },
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "TUPLE_ELEMENT_TYPE_MISMATCH",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=TupleLiteral\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "TupleLiteral-context-last",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "TupleLiteral"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "TUPLE_ELEMENT_TYPE_MISMATCH",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=TupleLiteral\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "TupleLiteral-context-distinct",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "TupleLiteral"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"t\")[0]",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "TUPLE_ELEMENT_TYPE_MISMATCH",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=TupleLiteral\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "ListNode-context-alone",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=ListNode\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "ListNode-context-first",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          },
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=ListNode\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "ListNode-context-last",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=ListNode\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "ListNode-context-distinct",
+      "records": [
+        {
+          "path": "$.t",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.t[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"t\")[0]",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.t&key(\"t\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.t[0]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.t\nkind=ListNode\n\npath=$.t[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "scaffold-width-8",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[2][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[3][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[4][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[5][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[6][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[7][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[8]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[2][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[3][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[4][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[5][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[6][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[7][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[8]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "scaffold-width-16",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[0][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[1][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[2][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[3][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[4][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[5][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[6][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[7][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[8][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[9][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[10][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[11][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[12][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[13][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[14][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[15][0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.n[16]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n&tag(\"book\")",
+            "constraints": {
+              "type": "NodeLiteral",
+              "required": true
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 2
+        }
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[0][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[1][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[2][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[3][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[4][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[5][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[6][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[7][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[8][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[9][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[10][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[11][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[12][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[13][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[14][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[15][0]\nkind=StringLiteral\nvalue=x\n\npath=$.n[16]\nkind=NodeHead\nvalue=book\n"
+    }
+  ]
+}

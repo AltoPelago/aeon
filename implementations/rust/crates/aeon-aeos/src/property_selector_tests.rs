@@ -10,11 +10,16 @@ fn shared_portable_property_vectors() {
         "../../../../../test-fixtures/aeos-property-regressions.json"
     ))
     .expect("regression JSON");
+    let context: JsonValue = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/aeos-property-context-regressions.json"
+    ))
+    .expect("context regressions");
     for case in suite["tests"]
         .as_array()
         .expect("tests")
         .iter()
         .chain(regressions["tests"].as_array().expect("regressions"))
+        .chain(context["tests"].as_array().expect("context cases"))
     {
         let records: Vec<TelexRecord> = case["records"]
             .as_array()

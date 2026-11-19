@@ -6,9 +6,19 @@ import altopelago.aeon as aeon
 
 
 class NativeAeosPropertyTests(unittest.TestCase):
+    def test_source_content_does_not_fabricate_direct_heads(self):
+        for source in ['n=<book("x", "y")>', 'n=<book("x", "y", "z")>']:
+            schema = {'schema_id':'test.actual.targets', 'schema_version':'1', 'rules':[
+                {'selector':'$.n&key("n")[1]', 'constraints':{'required':True, 'type':'StringLiteral'}}]}
+            result = aeon.load_telex_text(aeon.compile_to_telex(source).decode(), mode='loose', schema=json.dumps(schema))
+            self.assertIsNotNone(result.validation, result.error)
+            self.assertEqual([(error['code'], error['path']) for error in result.validation_errors],
+                             [('missing_required_field','$.n&key("n")[1]')])
+            self.assertEqual(result.validation['guarantees'], {})
+
     def test_qa_regressions_through_actual_telex_loader(self):
         fixtures = Path(__file__).resolve().parents[5] / 'test-fixtures/aeos-property-regressions.json'
-        cases = json.loads(fixtures.read_text())['tests']
+        cases = json.loads(fixtures.read_text())['tests'] + json.loads(fixtures.with_name('aeos-property-context-regressions.json').read_text())['tests']
         for case in cases:
             # Sparse positions exercise the low-level validators, not the JSON
             # materializer. Loader policy overrides remain outside its schema API.

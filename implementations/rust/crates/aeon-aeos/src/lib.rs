@@ -766,7 +766,7 @@ pub fn validate(envelope: &ValidationEnvelope) -> ResultEnvelope {
         &envelope.aes,
         envelope.schema.as_ref(),
         &envelope.options,
-        false,
+        None,
     )
 }
 
@@ -820,7 +820,7 @@ pub fn validate_telex_records(
     options: ValidationOptions,
 ) -> ResultEnvelope {
     let aes = portable_records_to_aeos(records);
-    validate_inner(&aes, schema.as_ref(), &options, true)
+    validate_inner(&aes, schema.as_ref(), &options, Some(records))
 }
 
 fn failing_telex_envelope(code: &'static str) -> ResultEnvelope {
@@ -1154,7 +1154,7 @@ fn validate_inner(
     aes: &[AesEvent],
     schema: Option<&Schema>,
     options: &ValidationOptions,
-    property_topology: bool,
+    portable_records: Option<&[TelexRecord]>,
 ) -> ResultEnvelope {
     let mut ctx = DiagContext::default();
     let resource_policy = resolve_resource_policy(
@@ -1367,7 +1367,7 @@ fn validate_inner(
     let mut identity_state = IdentitySelectorState::new(
         resource_policy.max_identity_inspections,
         resource_policy.max_property_inspections,
-        property_topology,
+        portable_records,
     );
     let mut expansion_budget = 0usize;
     let expanded_rule_index = expand_selector_rules(
@@ -1404,7 +1404,16 @@ fn validate_inner(
             batch_index > 0,
         );
         let selected_rule_index = select_any_of_rules(&batch, &effective_events_by_path, &mut ctx);
-        check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_types(
+            &selected_rule_index,
+            &effective_events_by_path,
+            &mut ctx,
+            if batch_index == 0 {
+                &effective_events_by_path
+            } else {
+                &events_by_path
+            },
+        );
         check_tuple_arity(
             &selected_rule_index,
             &container_arity,
@@ -2242,6 +2251,7 @@ fn check_types(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    parent_context: &BTreeMap<String, EventInfo>,
 ) {
     for (path, constraints) in rule_index {
         let Some(event) = events_by_path.get(path) else {
@@ -2284,7 +2294,7 @@ fn check_types(
         if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
             && !type_matches(expected_type, &event.value_type, constraints)
         {
-            let code = if is_tuple_element_path(path, events_by_path) {
+            let code = if is_tuple_element_path(path, parent_context) {
                 "TUPLE_ELEMENT_TYPE_MISMATCH"
             } else {
                 "type_mismatch"
@@ -3853,19 +3863,26 @@ struct IdentitySelectorState {
     cache: BTreeMap<String, Option<BTreeSet<String>>>,
     property_namespace: Option<IdentitySelectorNamespace>,
     property_topology: bool,
+    original_paths: Option<BTreeSet<String>>,
     property_limit: usize,
     property_selectors: BTreeSet<String>,
     property_rule_batches: Vec<BTreeMap<String, JsonValue>>,
     property_rule_counts: BTreeMap<String, usize>,
 }
 impl IdentitySelectorState {
-    fn new(limit: usize, property_limit: usize, property_topology: bool) -> Self {
+    fn new(limit: usize, property_limit: usize, portable_records: Option<&[TelexRecord]>) -> Self {
         Self {
             limit,
             namespace: None,
             cache: BTreeMap::new(),
             property_namespace: None,
-            property_topology,
+            property_topology: portable_records.is_some(),
+            original_paths: portable_records.map(|records| {
+                records
+                    .iter()
+                    .filter_map(|record| record.get("path").map(str::to_owned))
+                    .collect()
+            }),
             property_limit,
             property_selectors: BTreeSet::new(),
             property_rule_batches: Vec::new(),
@@ -3891,6 +3908,7 @@ struct IdentitySelectorNamespace {
     inspections: Cell<usize>,
     property_inspections: Cell<usize>,
     properties_enabled: bool,
+    direct_heads: BTreeMap<usize, Vec<usize>>,
 }
 impl IdentitySelectorNamespace {
     fn new(root: SansaResolveBinding) -> Self {
@@ -3928,6 +3946,7 @@ impl IdentitySelectorNamespace {
             inspections: Cell::new(0),
             property_inspections: Cell::new(0),
             properties_enabled: false,
+            direct_heads: BTreeMap::new(),
         }
     }
 
@@ -3944,6 +3963,20 @@ impl IdentitySelectorNamespace {
                 .and_then(|info| info.value.clone());
             let mut children = std::mem::take(&mut row.children);
             children.sort_by_key(|child| namespace.rows[*child].index);
+            if namespace.rows[index].kind.as_deref() == Some("NodeLiteral")
+                && children
+                    .iter()
+                    .any(|child| namespace.rows[*child].kind.is_none())
+            {
+                namespace.direct_heads.insert(
+                    index,
+                    children
+                        .iter()
+                        .copied()
+                        .filter(|child| namespace.rows[*child].kind.is_some())
+                        .collect(),
+                );
+            }
             namespace.rows[index].children = children;
         }
         namespace
@@ -4034,7 +4067,12 @@ impl PropertyAccess for IdentitySelectorNamespace {
         _context: &'a PropertyAccessContext<'a, usize>,
     ) -> Result<PropertyHeads<'a, usize>, PropertyAccessError> {
         Ok(Box::new(
-            self.rows[*binding].children.iter().copied().map(Ok),
+            self.direct_heads
+                .get(binding)
+                .unwrap_or(&self.rows[*binding].children)
+                .iter()
+                .copied()
+                .map(Ok),
         ))
     }
 }
@@ -4056,7 +4094,11 @@ impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
         self.rows[*b].name.clone()
     }
     fn position(&self, b: &usize) -> Option<usize> {
-        self.rows[*b].index
+        // Portable records carry authoritative source positions. A named
+        // child has no positional coordinate in this profile.
+        self.rows[*b]
+            .index
+            .or(self.properties_enabled.then_some(usize::MAX))
     }
     fn supports_structural_identity(&self) -> bool {
         true
@@ -4125,14 +4167,44 @@ fn resolve_sansa_selector_path_set(
                 .property_namespace
                 .as_ref()
                 .map_or(0, |ns| ns.inspections.get());
+        let original_paths = identity_state.original_paths.as_ref();
         let namespace = identity_state.property_namespace.get_or_insert_with(|| {
             IdentitySelectorNamespace::with_properties(
-                build_aeos_sansa_resolve_tree_with_source_limits(events_by_path, true),
+                build_aeos_sansa_resolve_tree_with_source_limits(
+                    events_by_path,
+                    true,
+                    original_paths,
+                ),
                 events_by_path,
             )
         });
-        let result = sansa_runtime::resolve::resolve_address(
-            selector,
+        // The generic resolver's single-index operation permits an ordinal
+        // fallback. Portable partial streams must instead use their explicit
+        // source coordinates; singleton ranges have exactly that behavior.
+        // Keep this bridge private to the portable property profile.
+        let Ok(mut address) = sansa_runtime::address::parse_address(selector) else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.into()),
+                    code: "invalid_schema_policy".into(),
+                    phase: "schema_validation".into(),
+                    span: None,
+                },
+            );
+            identity_state.cache.insert(selector.into(), None);
+            return None;
+        };
+        for step in &mut address.selectors {
+            if let sansa_runtime::address::Selector::Position { index } = *step {
+                *step = sansa_runtime::address::Selector::PositionRange {
+                    start: Some(index),
+                    end: Some(index),
+                };
+            }
+        }
+        let result = sansa_runtime::resolve::resolve_parsed_address(
+            &address,
             namespace,
             &sansa_runtime::resolve::ResolveOptions {
                 max_identity_inspections: identity_state.limit.saturating_sub(used_identity),
@@ -4149,7 +4221,7 @@ fn resolve_sansa_selector_path_set(
                     .bindings
                     .iter()
                     .filter_map(|binding| namespace.rows[*binding].address.clone())
-                    .filter(|path| events_by_path.contains_key(path))
+                    .filter(|path| original_paths.is_some_and(|paths| paths.contains(path)))
                     .collect(),
             )
         } else {
@@ -4254,19 +4326,23 @@ fn create_aeos_sansa_resolve_namespace(
 fn build_aeos_sansa_resolve_tree(
     events_by_path: &BTreeMap<String, EventInfo>,
 ) -> SansaResolveBinding {
-    build_aeos_sansa_resolve_tree_with_source_limits(events_by_path, false)
+    build_aeos_sansa_resolve_tree_with_source_limits(events_by_path, false, None)
 }
 
 fn build_aeos_sansa_resolve_tree_with_source_limits(
     events_by_path: &BTreeMap<String, EventInfo>,
     portable: bool,
+    original_paths: Option<&BTreeSet<String>>,
 ) -> SansaResolveBinding {
     let mut root = SansaResolveBinding {
         address: Some(String::from("$")),
         children: Vec::new(),
         ..SansaResolveBinding::default()
     };
-    let mut entries = events_by_path.iter().collect::<Vec<_>>();
+    let mut entries = events_by_path
+        .iter()
+        .filter(|(path, _)| original_paths.is_none_or(|paths| paths.contains(*path)))
+        .collect::<Vec<_>>();
     entries.sort_by_key(|(path, _)| path.len());
     for (path, info) in entries {
         insert_aeos_sansa_resolve_path(&mut root, path, info, portable);

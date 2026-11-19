@@ -102,6 +102,7 @@ type IdentitySelectorState = {
     namespace?: SansaResolveNamespace<AeosSansaResolveBinding>;
     propertyNamespace?: SansaResolveNamespace<AeosSansaResolveBinding>;
     propertyTopology: boolean;
+    originalPaths: ReadonlySet<string> | undefined;
     propertyLimit: number;
     propertyInspections: number;
     propertySelectors: Set<string>;
@@ -601,7 +602,7 @@ function validateBody(
     if (ctx.errors.length > errorCountBeforeSchemaIndex) {
         return createFailingEnvelope(ctx.errors, ctx.warnings, {});
     }
-    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map(), propertyTopology, propertyLimit: resourcePolicy.max_property_inspections, propertyInspections: 0, propertySelectors: new Set(), propertyRuleBatches: [], propertyRuleCounts: new Map()};
+    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map(), propertyTopology, originalPaths: propertyTopology ? new Set(aes.flatMap(event => typeof event.path === 'string' ? [event.path] : [])) : undefined, propertyLimit: resourcePolicy.max_property_inspections, propertyInspections: 0, propertySelectors: new Set(), propertyRuleBatches: [], propertyRuleCounts: new Map()};
     const selectorExpansionBudget = { count: 0 };
     const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget, identityState);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
@@ -620,7 +621,7 @@ function validateBody(
 
         const effectiveEventsByPath = resolveReferenceFormEvents(batch, eventsByPath, resourcePolicy, ctx, batchIndex > 0);
         const selectedRuleIndex = selectAnyOfRules(batch, effectiveEventsByPath, ctx);
-        checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx);
+        checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx, batchIndex === 0 ? effectiveEventsByPath : eventsByPath);
 
         // Phase 5b: core v1 arity/cardinality checks for tuple/list/node containers
         for (const [path, rule] of selectedRuleIndex) {
@@ -1040,7 +1041,7 @@ function resolveSansaSelectorPathSet(
         return null;
     }
 
-    const paths = new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path)));
+    const paths = new Set(result.bindings.map((binding) => binding.path).filter((path) => eventsByPath.has(path) && (!hasProperty || identityState.originalPaths?.has(path) === true)));
     if (cached) identityState.cache.set(selector, paths);
     return paths;
 }
@@ -1050,15 +1051,21 @@ function createAeosSansaResolveNamespace(
     identityState?: IdentitySelectorState,
     withProperties = false,
 ): SansaResolveNamespace<AeosSansaResolveBinding> {
-    const root = buildAeosSansaResolveTree(eventsByPath, withProperties);
+    const root = buildAeosSansaResolveTree(eventsByPath, withProperties, withProperties ? identityState?.originalPaths : undefined);
     let properties: PropertyAccess<AeosSansaResolveBinding> | undefined;
     if (withProperties && identityState) {
         const parents = new Map<AeosSansaResolveBinding, AeosSansaResolveBinding | undefined>([[root, undefined]]);
         const pending = [root];
+        const directHeads = new Map<AeosSansaResolveBinding, readonly AeosSansaResolveBinding[]>();
         while (pending.length) {
             const binding = pending.pop()!;
             // Canonical positional order is established once during namespace construction.
             binding.children.sort((a, b) => a.index !== undefined && b.index !== undefined ? a.index - b.index : 0);
+            if (binding.info?.type === 'NodeLiteral' && binding.children.some(child => child.info === undefined)) {
+                // Index only materialized direct occurrences once, retaining
+                // actual wrong-kind metadata for SANSA's checked rejection.
+                directHeads.set(binding, binding.children.filter(child => child.info !== undefined));
+            }
             for (const child of binding.children) { parents.set(child, binding); pending.push(child); }
             if (binding.attributeSpace) { parents.set(binding.attributeSpace, binding); pending.push(binding.attributeSpace); }
         }
@@ -1084,7 +1091,7 @@ function createAeosSansaResolveNamespace(
                 if (tag !== undefined && typeof tag !== 'string') throw {type:'SansaPropertyAccessFault', kind:'invalidMetadata'};
                 return tag;
             },
-            *nodeHeads(binding) { yield* binding.children; },
+            *nodeHeads(binding) { yield* directHeads.get(binding) ?? binding.children; },
         };
     }
     return {
@@ -1102,10 +1109,10 @@ function createAeosSansaResolveNamespace(
     };
 }
 
-function buildAeosSansaResolveTree(eventsByPath: ReadonlyMap<string, EventInfo>, portable = false): AeosSansaResolveBinding {
+function buildAeosSansaResolveTree(eventsByPath: ReadonlyMap<string, EventInfo>, portable = false, originalPaths?: ReadonlySet<string>): AeosSansaResolveBinding {
     const root: AeosSansaResolveBinding = { path: '$', children: [] };
     for (const [path, info] of [...eventsByPath.entries()].sort((a, b) => a[0].length - b[0].length)) {
-        insertAeosSansaResolvePath(root, path, info, portable);
+        if (originalPaths === undefined || originalPaths.has(path)) insertAeosSansaResolvePath(root, path, info, portable);
     }
     return root;
 }

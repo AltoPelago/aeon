@@ -250,7 +250,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     return _validate(aes, schema, options, False)
 
 
-def _validate(aes, schema, options, property_topology):
+def _validate(aes, schema, options, property_topology, portable_records=None):
     opts = options or {}
     trailing_policy = str(opts.get("trailingSeparatorDelimiterPolicy", "off"))
     ctx = DiagContext(errors=[], warnings=[])
@@ -347,7 +347,8 @@ def _validate(aes, schema, options, property_topology):
     if len(ctx.errors) > error_count_before_schema_index:
         return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
     identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None,
-                      "property_topology": property_topology, "property_limit": resource_policy["max_property_inspections"],
+                      "property_topology": property_topology,
+                      "original_paths": frozenset(record["path"] for record in portable_records if isinstance(record.get("path"), str)) if portable_records is not None else None, "property_limit": resource_policy["max_property_inspections"],
                       "property_counter": {"inspections": 0}, "property_namespace": None,
                       "property_selectors": set(), "property_rule_batches": [], "property_rule_counts": {}}
     expansion_budget = {"count": 0}
@@ -360,7 +361,7 @@ def _validate(aes, schema, options, property_topology):
         check_reference_forms(schema if batch_index == 0 else {**schema, "reference_policy": "allow"}, batch, events_by_path, ctx)
         effective_events_by_path = resolve_reference_form_events(batch, events_by_path, resource_policy, ctx, selected_only=batch_index > 0)
         selected_rule_index = select_any_of_rules(batch, effective_events_by_path, ctx)
-        check_types(selected_rule_index, effective_events_by_path, ctx)
+        check_types(selected_rule_index, effective_events_by_path, ctx, effective_events_by_path if batch_index == 0 else events_by_path)
 
         for path, rule in selected_rule_index.items():
             constraints = rule.get("constraints", {})
@@ -463,7 +464,7 @@ def validate_telex_records(
 ) -> dict[str, object]:
     """Apply AEOS to decoded portable AES records without reparsing AEON."""
 
-    return _validate(portable_records_to_aeos(records), schema, options, True)
+    return _validate(portable_records_to_aeos(records), schema, options, True, records)
 
 
 def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -953,7 +954,8 @@ def check_presence(rule_index: dict[str, dict[str, object]], bound_paths: set[st
             emit_error(ctx, create_diag(path, None, f"Missing required field: {path}", ERROR_CODES["missing_required_field"]))
 
 
-def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
+def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext, parent_context=None) -> None:
+    parent_context = events if parent_context is None else parent_context
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
         if not isinstance(constraints, dict):
@@ -978,7 +980,7 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
             emit_error(ctx, create_diag(path, event.get("span"), f"Datatype mismatch: expected {expected_datatype}, got {actual_datatype if isinstance(actual_datatype, str) else 'none'}", ERROR_CODES["type_mismatch"]))
         if isinstance(expected_type, str):
             if not type_matches(expected_type, actual_type, constraints):
-                code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]
+                code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, parent_context) else ERROR_CODES["type_mismatch"]
                 emit_error(ctx, create_diag(path, event.get("span"), f"Type mismatch: expected {expected_type}, got {actual_type}", code))
 
 
@@ -1604,7 +1606,7 @@ def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, o
         for binding in bindings
         if isinstance(binding, dict)
         for path in [binding.get("path") or binding.get("address")]
-        if isinstance(path, str) and path in events
+        if isinstance(path, str) and path in events and (not has_property or path in identity_state["original_paths"])
     }
 
     if cached:
@@ -1620,7 +1622,7 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
         return binding.get("info", {}).get("structuralId")
     namespace = {
         **({"identity": identity} if identity_state is not None else {}),
-        "root": build_aeos_sansa_resolve_tree(events, with_properties),
+        "root": build_aeos_sansa_resolve_tree(events, with_properties, identity_state["original_paths"] if with_properties else None),
         "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
         "member": lambda binding, name: next(
             (
@@ -1647,11 +1649,14 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
     if with_properties:
         parents = {id(namespace["root"]): None}
         pending = [namespace["root"]]
+        direct_heads = {}
         while pending:
             binding = pending.pop()
             children = binding.get("children", [])
             if children and all(type(child.get("index")) is int for child in children):
                 children.sort(key=lambda child: child["index"])
+            if (binding.get("info") or {}).get("type") == "NodeLiteral" and any("info" not in child for child in children):
+                direct_heads[id(binding)] = tuple(child for child in children if "info" in child)
             for child in children:
                 parents[id(child)] = binding
                 pending.append(child)
@@ -1691,15 +1696,16 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
             "key": lambda binding, context: None if (binding.get("info") or {}).get("type") == "NodeHead" else binding.get("name"),
             "nodeKind": lambda binding, context: (binding.get("info") or {}).get("type") if (binding.get("info") or {}).get("type") in {"NodeLiteral", "NodeHead"} else "Other",
             "nodeTag": tag,
-            "nodeHeads": lambda binding, context: iter(binding.get("children", [])),
+            "nodeHeads": lambda binding, context: iter(direct_heads.get(id(binding), binding.get("children", []))),
         }
     return namespace
 
 
-def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]], portable=False) -> dict[str, object]:
+def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]], portable=False, original_paths=None) -> dict[str, object]:
     root: dict[str, object] = {"path": "$", "children": []}
     for path, info in sorted(events.items(), key=lambda item: len(item[0])):
-        insert_aeos_sansa_resolve_path(root, path, info, portable)
+        if original_paths is None or path in original_paths:
+            insert_aeos_sansa_resolve_path(root, path, info, portable)
     return root
 
 
