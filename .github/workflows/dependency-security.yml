@@ -81,7 +81,8 @@ jobs:
         run: cargo audit
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+        # 0.22 requires Rust 1.95; keep this policy tool compatible with the pinned toolchain.
+        run: cargo install cargo-deny --version 0.21.0 --locked
 
       - name: Run cargo-deny policy checks
         working-directory: implementations/rust
