@@ -1,20 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import cases from '../../../../../test-fixtures/aeos-property-selectors.json' with {type:'json'};
+import regressions from '../../../../../test-fixtures/aeos-property-regressions.json' with {type:'json'};
 import {encodeTelex, type TelexRecord} from '@altopelago/aeon-aes';
 import {validate, type ValidateOptions} from './validate.js';
 import {validateTelex, validateTelexRecords} from './telex.js';
 import type {SchemaV1} from './types/schema.js';
 
-for (const item of cases.tests) test(`AEOS properties: ${item.id}`, () => {
+for (const item of [...cases.tests, ...regressions.tests]) test(`AEOS properties: ${item.id}`, () => {
     const records = structuredClone(item.records) as unknown as TelexRecord[];
     const schema = structuredClone(item.schema) as unknown as SchemaV1;
     const options = ('options' in item ? item.options : undefined) as ValidateOptions | undefined;
     const before = JSON.stringify({records, schema, options});
     for (let repeat = 0; repeat < 2; repeat++) {
-        const results = item.entrypoint === 'legacy'
+        const results = 'entrypoint' in item && item.entrypoint === 'legacy'
             ? [validate([], schema, options)]
-            : [validateTelexRecords(records, schema, options), validateTelex(encodeTelex(records), schema, options)];
+            : [validateTelexRecords(records, schema, options), validateTelex(encodeTelex(records, 'profile' in item ? {profile: item.profile} : {}), schema, options)];
         for (const result of results) {
             assert.equal(result.ok, item.expected.ok, JSON.stringify(result));
             const actual = result.errors.map(error => ({code:error.code, path:error.path})).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));

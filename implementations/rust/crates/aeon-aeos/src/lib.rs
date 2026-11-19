@@ -1385,32 +1385,47 @@ fn validate_inner(
         &events_by_path,
     );
     check_presence(&effective_rule_index, &bound_paths, &mut ctx);
-    check_reference_forms(schema, &effective_rule_index, &events_by_path, &mut ctx);
-    let effective_events_by_path = resolve_reference_form_events(
-        &effective_rule_index,
-        &events_by_path,
-        &resource_policy,
-        &mut ctx,
-    );
-    let selected_rule_index =
-        select_any_of_rules(&effective_rule_index, &effective_events_by_path, &mut ctx);
-    check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_tuple_arity(
-        &selected_rule_index,
-        &container_arity,
-        &effective_events_by_path,
-        &mut ctx,
-    );
-    check_literal_lexical_constraints(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_numeric_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_string_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_patterns(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_attribute_constraints(
-        &selected_rule_index,
-        &effective_events_by_path,
-        &schema.datatype_rules,
-        &mut ctx,
-    );
+    let mut batches = vec![effective_rule_index];
+    for batch in std::mem::take(&mut identity_state.property_rule_batches) {
+        batches.push(merge_datatype_rules_inner(
+            &batch,
+            &schema.datatype_rules,
+            &events_by_path,
+            true,
+        ));
+    }
+    for (batch_index, batch) in batches.into_iter().enumerate() {
+        check_reference_forms(schema, &batch, &events_by_path, &mut ctx, batch_index == 0);
+        let effective_events_by_path = resolve_reference_form_events(
+            &batch,
+            &events_by_path,
+            &resource_policy,
+            &mut ctx,
+            batch_index > 0,
+        );
+        let selected_rule_index = select_any_of_rules(&batch, &effective_events_by_path, &mut ctx);
+        check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_tuple_arity(
+            &selected_rule_index,
+            &container_arity,
+            &effective_events_by_path,
+            &mut ctx,
+        );
+        check_literal_lexical_constraints(
+            &selected_rule_index,
+            &effective_events_by_path,
+            &mut ctx,
+        );
+        check_numeric_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_string_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_patterns(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_attribute_constraints(
+            &selected_rule_index,
+            &effective_events_by_path,
+            &schema.datatype_rules,
+            &mut ctx,
+        );
+    }
     check_world_policy(
         schema,
         aes,
@@ -2151,9 +2166,27 @@ fn merge_datatype_rules(
     datatype_rules: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
 ) -> BTreeMap<String, JsonValue> {
+    merge_datatype_rules_inner(rule_index, datatype_rules, events_by_path, false)
+}
+
+fn merge_datatype_rules_inner(
+    rule_index: &BTreeMap<String, JsonValue>,
+    datatype_rules: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    selected_only: bool,
+) -> BTreeMap<String, JsonValue> {
     let mut merged = rule_index.clone();
 
-    for (path, event) in events_by_path {
+    let entries: Box<dyn Iterator<Item = (&String, &EventInfo)> + '_> = if selected_only {
+        Box::new(
+            rule_index
+                .keys()
+                .filter_map(|path| events_by_path.get(path).map(|event| (path, event))),
+        )
+    } else {
+        Box::new(events_by_path.iter())
+    };
+    for (path, event) in entries {
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
         };
@@ -2274,8 +2307,9 @@ fn check_reference_forms(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    global_policy: bool,
 ) {
-    if schema.reference_policy.as_deref().unwrap_or("allow") == "forbid" {
+    if global_policy && schema.reference_policy.as_deref().unwrap_or("allow") == "forbid" {
         for (path, event) in events_by_path {
             if !is_reference_type(&event.value_type) {
                 continue;
@@ -3493,8 +3527,20 @@ fn resolve_reference_form_events(
     events_by_path: &BTreeMap<String, EventInfo>,
     resource_policy: &ResourcePolicy,
     ctx: &mut DiagContext,
+    selected_only: bool,
 ) -> BTreeMap<String, EventInfo> {
-    let mut resolved = events_by_path.clone();
+    let mut resolved = if selected_only {
+        rule_index
+            .keys()
+            .filter_map(|path| {
+                events_by_path
+                    .get(path)
+                    .map(|event| (path.clone(), event.clone()))
+            })
+            .collect()
+    } else {
+        events_by_path.clone()
+    };
     for (path, constraints) in rule_index {
         if constraints
             .get("resolve_reference_form")
@@ -3581,9 +3627,27 @@ fn expand_selector_rules(
                 );
                 return expanded;
             }
-            expanded
-                .entry(actual_path)
-                .or_insert_with(|| rule.constraints.clone());
+            match expanded.entry(actual_path) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(rule.constraints.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(entry)
+                    if identity_state.property_selectors.contains(selector) =>
+                {
+                    let actual_path = entry.key().clone();
+                    let layer = identity_state
+                        .property_rule_counts
+                        .entry(actual_path.clone())
+                        .or_default();
+                    if *layer == identity_state.property_rule_batches.len() {
+                        identity_state.property_rule_batches.push(BTreeMap::new());
+                    }
+                    identity_state.property_rule_batches[*layer]
+                        .insert(actual_path, rule.constraints.clone());
+                    *layer += 1;
+                }
+                _ => {}
+            }
         }
         if !matched
             && rule
@@ -3790,6 +3854,9 @@ struct IdentitySelectorState {
     property_namespace: Option<IdentitySelectorNamespace>,
     property_topology: bool,
     property_limit: usize,
+    property_selectors: BTreeSet<String>,
+    property_rule_batches: Vec<BTreeMap<String, JsonValue>>,
+    property_rule_counts: BTreeMap<String, usize>,
 }
 impl IdentitySelectorState {
     fn new(limit: usize, property_limit: usize, property_topology: bool) -> Self {
@@ -3800,6 +3867,9 @@ impl IdentitySelectorState {
             property_namespace: None,
             property_topology,
             property_limit,
+            property_selectors: BTreeSet::new(),
+            property_rule_batches: Vec::new(),
+            property_rule_counts: BTreeMap::new(),
         }
     }
 }
@@ -3932,7 +4002,9 @@ impl PropertyAccess for IdentitySelectorNamespace {
         binding: &usize,
         _context: &PropertyAccessContext<'_, usize>,
     ) -> Result<Option<String>, PropertyAccessError> {
-        Ok(self.rows[*binding].name.clone())
+        Ok((self.rows[*binding].kind.as_deref() != Some("NodeHead"))
+            .then(|| self.rows[*binding].name.clone())
+            .flatten())
     }
     fn node_kind(
         &self,
@@ -4023,6 +4095,9 @@ fn resolve_sansa_selector_path_set(
                 .iter()
                 .any(|s| matches!(s, SansaSelector::PropertyFilter { .. }))
         });
+    if has_property {
+        identity_state.property_selectors.insert(selector.into());
+    }
     if has_property && !identity_state.property_topology {
         emit_error(
             ctx,
@@ -4035,12 +4110,12 @@ fn resolve_sansa_selector_path_set(
         );
         return None;
     }
-    if has_property && !ctx.errors.is_empty() {
-        return None;
-    }
     if has_property {
         if let Some(paths) = identity_state.cache.get(selector) {
             return paths.clone();
+        }
+        if !ctx.errors.is_empty() {
+            return None;
         }
         let used_identity = identity_state
             .namespace
@@ -4052,7 +4127,7 @@ fn resolve_sansa_selector_path_set(
                 .map_or(0, |ns| ns.inspections.get());
         let namespace = identity_state.property_namespace.get_or_insert_with(|| {
             IdentitySelectorNamespace::with_properties(
-                build_aeos_sansa_resolve_tree(events_by_path),
+                build_aeos_sansa_resolve_tree_with_source_limits(events_by_path, true),
                 events_by_path,
             )
         });
@@ -4179,6 +4254,13 @@ fn create_aeos_sansa_resolve_namespace(
 fn build_aeos_sansa_resolve_tree(
     events_by_path: &BTreeMap<String, EventInfo>,
 ) -> SansaResolveBinding {
+    build_aeos_sansa_resolve_tree_with_source_limits(events_by_path, false)
+}
+
+fn build_aeos_sansa_resolve_tree_with_source_limits(
+    events_by_path: &BTreeMap<String, EventInfo>,
+    portable: bool,
+) -> SansaResolveBinding {
     let mut root = SansaResolveBinding {
         address: Some(String::from("$")),
         children: Vec::new(),
@@ -4187,18 +4269,51 @@ fn build_aeos_sansa_resolve_tree(
     let mut entries = events_by_path.iter().collect::<Vec<_>>();
     entries.sort_by_key(|(path, _)| path.len());
     for (path, info) in entries {
-        insert_aeos_sansa_resolve_path(&mut root, path, info);
+        insert_aeos_sansa_resolve_path(&mut root, path, info, portable);
     }
     root
 }
 
-fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, info: &EventInfo) {
-    let Ok(address) = parse_sansa_address(path) else {
-        return;
+fn insert_aeos_sansa_resolve_path(
+    root: &mut SansaResolveBinding,
+    path: &str,
+    info: &EventInfo,
+    portable: bool,
+) {
+    let selectors = if portable {
+        use sansa_runtime::address::{ParseOptions, Selector, parse_address_with_options};
+        let Ok(parsed) = parse_address_with_options(
+            path,
+            ParseOptions {
+                max_position_index: usize::MAX,
+            },
+        ) else {
+            return;
+        };
+        let Some(selectors) = parsed
+            .address
+            .selectors
+            .into_iter()
+            .map(|selector| match selector {
+                Selector::Member { name, quoted } => Some(SansaSelector::Member { name, quoted }),
+                Selector::Position { index } => Some(SansaSelector::Position { index }),
+                Selector::AttributeSpace => Some(SansaSelector::AttributeSpace),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        selectors
+    } else {
+        let Ok(address) = parse_sansa_address(path) else {
+            return;
+        };
+        address.selectors
     };
     let mut current = root;
     let mut current_path = String::from("$");
-    for selector in address.selectors {
+    for selector in selectors {
         match selector {
             SansaSelector::Member { name, .. } => {
                 current_path.push_str(&format_member_selector(&name));
@@ -4226,6 +4341,9 @@ fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, in
             }
             _ => return,
         }
+    }
+    if portable {
+        current.address = Some(path.to_owned());
     }
     current.identity = info.identity.clone();
     current.structural_identity = info.identity.clone();
@@ -4918,7 +5036,8 @@ fn is_identifier(key: &str) -> bool {
 }
 
 fn escape_quoted_key(key: &str) -> String {
-    key.replace('\\', "\\\\").replace('"', "\\\"")
+    let quoted = serde_json::to_string(key).expect("string JSON encoding");
+    quoted[1..quoted.len() - 1].to_owned()
 }
 
 impl AesEvent {

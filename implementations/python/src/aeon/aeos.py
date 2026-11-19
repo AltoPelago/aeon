@@ -348,34 +348,38 @@ def _validate(aes, schema, options, property_topology):
         return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
     identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None,
                       "property_topology": property_topology, "property_limit": resource_policy["max_property_inspections"],
-                      "property_counter": {"inspections": 0}, "property_namespace": None}
+                      "property_counter": {"inspections": 0}, "property_namespace": None,
+                      "property_selectors": set(), "property_rule_batches": [], "property_rule_counts": {}}
     expansion_budget = {"count": 0}
     expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget, identity_state)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
     check_presence(effective_rule_index, bound_paths, ctx)
-    check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
-    effective_events_by_path = resolve_reference_form_events(effective_rule_index, events_by_path, resource_policy, ctx)
-    selected_rule_index = select_any_of_rules(effective_rule_index, effective_events_by_path, ctx)
-    check_types(selected_rule_index, effective_events_by_path, ctx)
+    batches = [effective_rule_index] + [merge_datatype_rules(batch, schema.get("datatype_rules"), events_by_path, selected_only=True)
+                                       for batch in identity_state["property_rule_batches"]]
+    for batch_index, batch in enumerate(batches):
+        check_reference_forms(schema if batch_index == 0 else {**schema, "reference_policy": "allow"}, batch, events_by_path, ctx)
+        effective_events_by_path = resolve_reference_form_events(batch, events_by_path, resource_policy, ctx, selected_only=batch_index > 0)
+        selected_rule_index = select_any_of_rules(batch, effective_events_by_path, ctx)
+        check_types(selected_rule_index, effective_events_by_path, ctx)
 
-    for path, rule in selected_rule_index.items():
-        constraints = rule.get("constraints", {})
-        expected_length = constraints.get("length_exact") if isinstance(constraints, dict) else None
-        min_children = constraints.get("min_children") if isinstance(constraints, dict) else None
-        max_children = constraints.get("max_children") if isinstance(constraints, dict) else None
-        actual_length = container_arity.get(path)
-        if isinstance(expected_length, int) and actual_length is not None and actual_length != expected_length:
-            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Tuple/List arity mismatch: expected {expected_length}, got {actual_length}", ERROR_CODES["tuple_arity_mismatch"]))
-        if isinstance(min_children, int) and actual_length is not None and actual_length < min_children:
-            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at least {min_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
-        if isinstance(max_children, int) and actual_length is not None and actual_length > max_children:
-            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at most {max_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
+        for path, rule in selected_rule_index.items():
+            constraints = rule.get("constraints", {})
+            expected_length = constraints.get("length_exact") if isinstance(constraints, dict) else None
+            min_children = constraints.get("min_children") if isinstance(constraints, dict) else None
+            max_children = constraints.get("max_children") if isinstance(constraints, dict) else None
+            actual_length = container_arity.get(path)
+            if isinstance(expected_length, int) and actual_length is not None and actual_length != expected_length:
+                emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Tuple/List arity mismatch: expected {expected_length}, got {actual_length}", ERROR_CODES["tuple_arity_mismatch"]))
+            if isinstance(min_children, int) and actual_length is not None and actual_length < min_children:
+                emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at least {min_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
+            if isinstance(max_children, int) and actual_length is not None and actual_length > max_children:
+                emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at most {max_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
 
-    check_literal_lexical_constraints(selected_rule_index, effective_events_by_path, ctx)
-    check_numeric_form(selected_rule_index, effective_events_by_path, ctx)
-    check_string_form(selected_rule_index, effective_events_by_path, ctx)
-    check_patterns(selected_rule_index, effective_events_by_path, ctx)
-    check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
+        check_literal_lexical_constraints(selected_rule_index, effective_events_by_path, ctx)
+        check_numeric_form(selected_rule_index, effective_events_by_path, ctx)
+        check_string_form(selected_rule_index, effective_events_by_path, ctx)
+        check_patterns(selected_rule_index, effective_events_by_path, ctx)
+        check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
     check_world_policy(schema, aes, bound_paths, events_by_path, ctx, identity_state)
 
     if ctx.errors:
@@ -1366,7 +1370,7 @@ def merge_datatype_rule_constraints(constraints: dict[str, object], datatype: ob
     return {**rule, **constraints}
 
 
-def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rules: object, events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rules: object, events: dict[str, dict[str, object]], selected_only=False) -> dict[str, dict[str, object]]:
     if not isinstance(datatype_rules, dict):
         return rule_index
     merged = {
@@ -1374,7 +1378,7 @@ def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rule
         for path, rule in rule_index.items()
         if isinstance(rule, dict)
     }
-    for path, event in events.items():
+    for path, event in (((path, events[path]) for path in rule_index if path in events) if selected_only else events.items()):
         datatype = event.get("datatype")
         if not isinstance(datatype, str):
             continue
@@ -1488,8 +1492,8 @@ def build_guarantees(bound_paths: set[str], events: dict[str, dict[str, object]]
     return guarantees
 
 
-def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], resource_policy: dict[str, int], ctx: DiagContext) -> dict[str, dict[str, object]]:
-    resolved = dict(events)
+def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], resource_policy: dict[str, int], ctx: DiagContext, selected_only=False) -> dict[str, dict[str, object]]:
+    resolved = {path: events[path] for path in rule_index if path in events} if selected_only else dict(events)
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
         if not isinstance(constraints, dict) or constraints.get("resolve_reference_form") is not True:
@@ -1540,7 +1544,15 @@ def expand_selector_rules(
             if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
                 emit_resource_error(ctx, selector, f"Selector expansion count exceeds max_selector_expansions {resource_policy['max_selector_expansions']}")
                 return expanded
-            expanded.setdefault(actual_path, {**rule, "path": actual_path})
+            if actual_path not in expanded:
+                expanded[actual_path] = {**rule, "path": actual_path}
+            elif selector in identity_state["property_selectors"]:
+                layer = identity_state["property_rule_counts"].get(actual_path, 0)
+                identity_state["property_rule_counts"][actual_path] = layer + 1
+                batches = identity_state["property_rule_batches"]
+                if layer == len(batches):
+                    batches.append({})
+                batches[layer][actual_path] = {**rule, "path": actual_path}
         constraints = rule.get("constraints")
         if not matched and isinstance(constraints, dict) and constraints.get("required") is True:
             emit_error(ctx, create_diag(selector, None, f"Missing required field: {selector}", ERROR_CODES["missing_required_field"]))
@@ -1550,15 +1562,17 @@ def expand_selector_rules(
 def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext, identity_state: dict) -> set[str] | None:
     parsed = parse_sansa_address(selector) if "\\" in selector or "&" in selector else {}
     has_property = parsed.get("ok") and any(s.get("type") == "propertyFilter" for s in parsed["address"]["selectors"])
+    if has_property:
+        identity_state["property_selectors"].add(selector)
     if has_property and not identity_state["property_topology"]:
         emit_error(ctx, create_diag(selector, None, "Property selectors require the portable AES/Telex validation entry point", ERROR_CODES["invalid_schema_policy"]))
-        return None
-    if has_property and ctx.errors:
         return None
     has_identity = parsed.get("ok") and any(s.get("type") == "childIdentity" for s in parsed["address"]["selectors"])
     cached = has_identity or has_property
     if cached and selector in identity_state["cache"]:
         return identity_state["cache"][selector]
+    if has_property and ctx.errors:
+        return None
     if has_property:
         if identity_state["property_namespace"] is None:
             identity_state["property_namespace"] = create_aeos_sansa_resolve_namespace(events, identity_state, True)
@@ -1606,7 +1620,7 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
         return binding.get("info", {}).get("structuralId")
     namespace = {
         **({"identity": identity} if identity_state is not None else {}),
-        "root": build_aeos_sansa_resolve_tree(events),
+        "root": build_aeos_sansa_resolve_tree(events, with_properties),
         "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
         "member": lambda binding, name: next(
             (
@@ -1674,7 +1688,7 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
 
         namespace["properties"] = {
             "scope": scope,
-            "key": lambda binding, context: binding.get("name"),
+            "key": lambda binding, context: None if (binding.get("info") or {}).get("type") == "NodeHead" else binding.get("name"),
             "nodeKind": lambda binding, context: (binding.get("info") or {}).get("type") if (binding.get("info") or {}).get("type") in {"NodeLiteral", "NodeHead"} else "Other",
             "nodeTag": tag,
             "nodeHeads": lambda binding, context: iter(binding.get("children", [])),
@@ -1682,15 +1696,29 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
     return namespace
 
 
-def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]]) -> dict[str, object]:
+def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]], portable=False) -> dict[str, object]:
     root: dict[str, object] = {"path": "$", "children": []}
     for path, info in sorted(events.items(), key=lambda item: len(item[0])):
-        insert_aeos_sansa_resolve_path(root, path, info)
+        insert_aeos_sansa_resolve_path(root, path, info, portable)
     return root
 
 
-def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dict[str, object]) -> None:
-    parsed = parse_sansa_address(path)
+def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dict[str, object], portable=False) -> None:
+    if portable:
+        # Reuse the owning source-path parser, whose index range differs from
+        # the default range for SANSA selector literals. No dense allocation.
+        from .telex import parse_canonical_path
+        selectors = []
+        for kind, value in parse_canonical_path(path).segments:
+            if kind == "index":
+                selectors.append({"type": "position", "index": value})
+            else:
+                if kind == "attribute":
+                    selectors.append({"type": "attributeSpace"})
+                selectors.append({"type": "member", "name": value})
+        parsed = {"ok": True, "address": {"root": {"kind": "absolute"}, "selectors": selectors}}
+    else:
+        parsed = parse_sansa_address(path)
     if not parsed.get("ok"):
         return
     address = parsed.get("address")
@@ -1747,7 +1775,7 @@ def get_or_create_sansa_child_binding(parent: dict[str, object], path: str, iden
 
 
 def format_sansa_member_selector(name: str) -> str:
-    return f".{name}" if is_identifier_safe(name) else f".[{json.dumps(name)}]"
+    return f".{name}" if is_identifier_safe(name) else f".[{json.dumps(name, ensure_ascii=False)}]"
 
 def select_any_of_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> dict[str, dict[str, object]]:
     selected = dict(rule_index)
@@ -1892,7 +1920,7 @@ def format_canonical_path(path: object) -> str:
             if is_identifier_safe(key):
                 result += f".{key}"
             else:
-                escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_key = json.dumps(key, ensure_ascii=False)[1:-1]
                 result += f'.["{escaped_key}"]'
         elif seg_type == "index":
             result += f"[{segment.get('index')}]"
@@ -1913,14 +1941,14 @@ def format_reference_target_path(segments: list[object]) -> str:
             if is_identifier_safe(segment):
                 out += f".{segment}"
             else:
-                escaped_key = segment.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_key = json.dumps(segment, ensure_ascii=False)[1:-1]
                 out += f'.["{escaped_key}"]'
         elif isinstance(segment, dict) and segment.get("type") == "attr":
             key = str(segment.get("key", ""))
             if is_identifier_safe(key):
                 out += f".@.{key}"
             else:
-                escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_key = json.dumps(key, ensure_ascii=False)[1:-1]
                 out += f'.@.["{escaped_key}"]'
     return out
 
@@ -1928,7 +1956,7 @@ def format_reference_target_path(segments: list[object]) -> str:
 def format_attribute_path(owner_path: str, key: str) -> str:
     if is_identifier_safe(key):
         return f"{owner_path}.@.{key}"
-    escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_key = json.dumps(key, ensure_ascii=False)[1:-1]
     return f'{owner_path}.@.["{escaped_key}"]'
 
 
@@ -2163,6 +2191,7 @@ def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]]
             continue
         mapped[str(key)] = {
             "type": value.get("type"),
+            "property_tag": value.get("value") if value.get("type") == "NodeHead" else None,
             "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
             "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
             "span": to_span_tuple(value.get("span")),
@@ -2310,7 +2339,7 @@ def is_negative(raw: str) -> bool:
 
 
 def is_identifier_safe(value: str) -> bool:
-    if not value:
+    if not value or not value.isascii():
         return False
     if not (value[0].isalpha() or value[0] == "_"):
         return False

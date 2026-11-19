@@ -11,14 +11,14 @@ FIXTURES = Path(__file__).resolve().parents[3] / 'test-fixtures/aeos-property-se
 
 class AeosPropertyTests(unittest.TestCase):
     def test_shared_vectors(self):
-        suite = json.loads(FIXTURES.read_text())
+        suite = {'tests': json.loads(FIXTURES.read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-regressions.json').read_text())['tests']}
         for case in suite['tests']:
             with self.subTest(case=case['id']):
                 records, schema, options = copy.deepcopy(case['records']), copy.deepcopy(case['schema']), copy.deepcopy(case.get('options'))
                 before = copy.deepcopy((records, schema, options))
                 for _ in range(2):
-                    results = [validate([], schema, options)] if case['entrypoint'] == 'legacy' else [
-                        validate_telex_records(records, schema, options), validate_telex(encode_telex(records), schema, options)]
+                    results = [validate([], schema, options)] if case.get('entrypoint') == 'legacy' else [
+                        validate_telex_records(records, schema, options), validate_telex(encode_telex(records, profile=case.get('profile')), schema, options)]
                     for result in results:
                         self.assertEqual(result['ok'], case['expected']['ok'], (case['id'], result))
                         actual = sorted((error['code'], error.get('path')) for error in result['errors'])

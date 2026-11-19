@@ -38,6 +38,12 @@ no reference target is rewritten or followed implicitly. Structural `path` rules
 activation, Graph, mutation/Instruction/SO and storage/reference paths stay closed.
 Existing closed-world attribute declarations remain necessary.
 
+Quoted Unicode and control-character keys retain their canonical escaped event
+paths. Source event positions use the source model's admitted range, independently
+of the default limit for positions authored in a SANSA selector. Sparse positions
+are stored as handles, without allocating intervening items. Partial-stream heads
+never acquire member keys, including heads reached through attribute edges.
+
 `resource_policy.max_property_inspections` and the host `resourcePolicy` override
 share one private allowance for a validation call: default10,000, range0..1,000,000.
 Integral finite numeric floats and signed zero normalize; bool, fractions, strings,
@@ -51,6 +57,12 @@ resolutions share the remaining allowance; repeated branches inside one Resolve
 retain their work. A private snapshot cache reuses each identical selector string
 between repeated rules, expansion and closed-world checks. Constraints/expansion
 charges still apply per rule. The cache never survives a public invocation.
+Every matching property rule checks its own constraints, including overlapping
+rules and independent reference-form views. Supplemental rule batches contain
+only their selected events; they do not repeat whole-document scans or global
+policy checks. Existing overlap precedence for unrelated legacy selectors is
+unchanged. Cached successful coverage remains available after a validation error
+without performing new property inspections.
 New property selection stops after an earlier validation failure; no partial
 guarantees are returned. Construction/order/ancestry work remains separate from
 logical inspection accounting. Head iteration streams existing handles.
@@ -60,6 +72,10 @@ calls, scope/kind distinctions, identity composition, numeric bounds, two-width
 budgets, cache lifetime and denied consumers. The JSON-lines CTS adapters call the
 real owning APIs; they implement no SANSA parsing or custom selection. The target
 is experimental/excluded by default, with no stable conformance claim.
+
+An additional44-case source/native regression fixture covers the six QA findings
+and adjacent key, scope, cache and overlapping-constraint cases. It does not change
+the existing CTS target, its expectations or the inspection/expansion budgets.
 
 The AES Type Transpiler remains a preliminary proposal for explicit type conversion
 after import (for example, a JSON string into an AEON date). No executable

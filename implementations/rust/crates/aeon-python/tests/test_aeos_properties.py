@@ -1,10 +1,30 @@
 from __future__ import annotations
 import json
+from pathlib import Path
 import unittest
 import altopelago.aeon as aeon
 
 
 class NativeAeosPropertyTests(unittest.TestCase):
+    def test_qa_regressions_through_actual_telex_loader(self):
+        fixtures = Path(__file__).resolve().parents[5] / 'test-fixtures/aeos-property-regressions.json'
+        cases = json.loads(fixtures.read_text())['tests']
+        for case in cases:
+            # Sparse positions exercise the low-level validators, not the JSON
+            # materializer. Loader policy overrides remain outside its schema API.
+            if case['id'].startswith('sparse-head-') or 'resource_policy' in case['schema']:
+                continue
+            with self.subTest(case=case['id']):
+                schema = {'schema_id':'qa.properties', 'schema_version':'1', **case['schema']}
+                for _ in range(2):
+                    loaded = aeon.load_telex_text(case['telex'], mode='loose', schema=json.dumps(schema))
+                    self.assertIsNotNone(loaded.validation, loaded.error)
+                    self.assertEqual(loaded.validation['ok'], case['expected']['ok'], loaded.validation_errors)
+                    self.assertEqual(sorted((error['code'], error['path']) for error in loaded.validation_errors),
+                                     sorted((error['code'], error['path']) for error in case['expected']['errors']))
+                    if not loaded.validation['ok']:
+                        self.assertEqual(loaded.validation['guarantees'], {})
+
     def test_portable_keys_and_native_boundary(self):
         source = 'value=1'
         schema = {'schema_id':'test.properties', 'schema_version':'1', 'rules':[{'selector':'$.*&key("value")', 'constraints':{'required':True, 'type':'NumberLiteral'}}]}

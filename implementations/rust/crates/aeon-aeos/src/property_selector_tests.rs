@@ -6,7 +6,16 @@ fn shared_portable_property_vectors() {
         "../../../../../test-fixtures/aeos-property-selectors.json"
     ))
     .expect("fixture JSON");
-    for case in suite["tests"].as_array().expect("tests") {
+    let regressions: JsonValue = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/aeos-property-regressions.json"
+    ))
+    .expect("regression JSON");
+    for case in suite["tests"]
+        .as_array()
+        .expect("tests")
+        .iter()
+        .chain(regressions["tests"].as_array().expect("regressions"))
+    {
         let records: Vec<TelexRecord> = case["records"]
             .as_array()
             .expect("records")
@@ -46,7 +55,8 @@ fn shared_portable_property_vectors() {
                     options: options.clone(),
                 })]
             } else {
-                let wire = aes_telex::encode_telex(&records, None).expect("wire");
+                let wire =
+                    aes_telex::encode_telex(&records, case["profile"].as_str()).expect("wire");
                 vec![
                     validate_telex_records(&records, Some(schema.clone()), options.clone()),
                     validate_telex(

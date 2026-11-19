@@ -104,6 +104,9 @@ type IdentitySelectorState = {
     propertyTopology: boolean;
     propertyLimit: number;
     propertyInspections: number;
+    propertySelectors: Set<string>;
+    propertyRuleBatches: RuleIndex[];
+    propertyRuleCounts: Map<string, number>;
 };
 
 function formatQuotedMemberSegment(key: unknown): string {
@@ -598,7 +601,7 @@ function validateBody(
     if (ctx.errors.length > errorCountBeforeSchemaIndex) {
         return createFailingEnvelope(ctx.errors, ctx.warnings, {});
     }
-    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map(), propertyTopology, propertyLimit: resourcePolicy.max_property_inspections, propertyInspections: 0};
+    const identityState: IdentitySelectorState = {limit: resourcePolicy.max_identity_inspections, inspections: 0, cache: new Map(), propertyTopology, propertyLimit: resourcePolicy.max_property_inspections, propertyInspections: 0, propertySelectors: new Set(), propertyRuleBatches: [], propertyRuleCounts: new Map()};
     const selectorExpansionBudget = { count: 0 };
     const expandedRuleIndex = expandSelectorRules(ruleIndex, schema, eventsByPath, ctx, resourcePolicy, selectorExpansionBudget, identityState);
     const effectiveRuleIndex = mergeDatatypeRules(expandedRuleIndex, schema.datatype_rules, eventsByPath);
@@ -608,80 +611,90 @@ function validateBody(
     checkPresence(effectiveRuleIndex, boundPaths, ctx);
     checkWorldPolicy(schema, aes as readonly { key?: string; path?: unknown; span?: unknown }[], boundPaths, eventsByPath, ctx, identityState);
 
-    // Phase 5: Type checks (literal kind)
-    checkReferenceForms(schema, effectiveRuleIndex, eventsByPath, ctx);
+    const ruleBatches = [effectiveRuleIndex, ...identityState.propertyRuleBatches.map(batch =>
+        mergeDatatypeRules(batch, schema.datatype_rules, eventsByPath, true))];
+    const checkedBatches: {rules: RuleIndex; events: ReadonlyMap<string, EventInfo>}[] = [];
+    for (const [batchIndex, batch] of ruleBatches.entries()) {
+        // Phase 5: Type checks (literal kind)
+        checkReferenceForms(batchIndex === 0 ? schema : {...schema, reference_policy: 'allow'}, batch, eventsByPath, ctx);
 
-    const effectiveEventsByPath = resolveReferenceFormEvents(effectiveRuleIndex, eventsByPath, resourcePolicy, ctx);
-    const selectedRuleIndex = selectAnyOfRules(effectiveRuleIndex, effectiveEventsByPath, ctx);
-    checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx);
+        const effectiveEventsByPath = resolveReferenceFormEvents(batch, eventsByPath, resourcePolicy, ctx, batchIndex > 0);
+        const selectedRuleIndex = selectAnyOfRules(batch, effectiveEventsByPath, ctx);
+        checkTypes(selectedRuleIndex, effectiveEventsByPath, ctx);
 
-    // Phase 5b: core v1 arity/cardinality checks for tuple/list/node containers
-    for (const [path, rule] of selectedRuleIndex) {
-        const { length_exact, min_children, max_children } = rule.constraints;
-        if (length_exact === undefined && min_children === undefined && max_children === undefined) continue;
-        const actualLength = containerArity.get(path);
-        if (actualLength === undefined) continue;
-        const span = eventsByPath.get(path)?.span ?? null;
-        if (typeof length_exact === 'number' && actualLength !== length_exact) {
-            emitError(ctx, createDiag(
-                path,
-                span,
-                `Container cardinality mismatch: expected exactly ${length_exact} children, got ${actualLength}`,
-                ErrorCodes.TUPLE_ARITY_MISMATCH
-            ));
-        }
-        if (typeof min_children === 'number' && actualLength < min_children) {
-            emitError(ctx, createDiag(
-                path,
-                span,
-                `Container cardinality mismatch: expected at least ${min_children} children, got ${actualLength}`,
-                ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
-            ));
-        }
-        if (typeof max_children === 'number' && actualLength > max_children) {
-            emitError(ctx, createDiag(
-                path,
-                span,
-                `Container cardinality mismatch: expected at most ${max_children} children, got ${actualLength}`,
-                ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
-            ));
-        }
-    }
-
-    checkLexicalLiteralConstraints(selectedRuleIndex, effectiveEventsByPath, ctx);
-
-    // Phase 5c: constraints that widen NumberLiteral type acceptance to infinity/NaN
-    for (const [path, rule] of selectedRuleIndex) {
-        const event = effectiveEventsByPath.get(path);
-        if (!event) continue;
-        if (event.type === 'InfinityLiteral' && rule.constraints.allow_infinity !== true) {
-            continue;
-        }
-        if (event.type === 'NaNLiteral' && rule.constraints.allow_nan !== true) {
-            continue;
-        }
-        if ((event.type === 'InfinityLiteral' || event.type === 'NaNLiteral')
-            && rule.constraints.type !== undefined
-            && !isNumericExpectedType(rule.constraints.type)) {
+        // Phase 5b: core v1 arity/cardinality checks for tuple/list/node containers
+        for (const [path, rule] of selectedRuleIndex) {
+            const { length_exact, min_children, max_children } = rule.constraints;
+            if (length_exact === undefined && min_children === undefined && max_children === undefined) continue;
+            const actualLength = containerArity.get(path);
+            if (actualLength === undefined) continue;
             const span = eventsByPath.get(path)?.span ?? null;
-            emitError(ctx, createDiag(
-                path,
-                span,
-                `Type mismatch: expected ${rule.constraints.type}, got ${event.type}`,
-                ErrorCodes.TYPE_MISMATCH
-            ));
+            if (typeof length_exact === 'number' && actualLength !== length_exact) {
+                emitError(ctx, createDiag(
+                    path,
+                    span,
+                    `Container cardinality mismatch: expected exactly ${length_exact} children, got ${actualLength}`,
+                    ErrorCodes.TUPLE_ARITY_MISMATCH
+                ));
+            }
+            if (typeof min_children === 'number' && actualLength < min_children) {
+                emitError(ctx, createDiag(
+                    path,
+                    span,
+                    `Container cardinality mismatch: expected at least ${min_children} children, got ${actualLength}`,
+                    ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
+                ));
+            }
+            if (typeof max_children === 'number' && actualLength > max_children) {
+                emitError(ctx, createDiag(
+                    path,
+                    span,
+                    `Container cardinality mismatch: expected at most ${max_children} children, got ${actualLength}`,
+                    ErrorCodes.CONTAINER_CARDINALITY_MISMATCH
+                ));
+            }
         }
+
+        checkLexicalLiteralConstraints(selectedRuleIndex, effectiveEventsByPath, ctx);
+
+        // Phase 5c: constraints that widen NumberLiteral type acceptance to infinity/NaN
+        for (const [path, rule] of selectedRuleIndex) {
+            const event = effectiveEventsByPath.get(path);
+            if (!event) continue;
+            if (event.type === 'InfinityLiteral' && rule.constraints.allow_infinity !== true) {
+                continue;
+            }
+            if (event.type === 'NaNLiteral' && rule.constraints.allow_nan !== true) {
+                continue;
+            }
+            if ((event.type === 'InfinityLiteral' || event.type === 'NaNLiteral')
+                && rule.constraints.type !== undefined
+                && !isNumericExpectedType(rule.constraints.type)) {
+                const span = eventsByPath.get(path)?.span ?? null;
+                emitError(ctx, createDiag(
+                    path,
+                    span,
+                    `Type mismatch: expected ${rule.constraints.type}, got ${event.type}`,
+                    ErrorCodes.TYPE_MISMATCH
+                ));
+            }
+        }
+
+        // Phase 6: Numeric form constraints (sign, digit count)
+        checkNumericForm(selectedRuleIndex, effectiveEventsByPath, ctx);
+
+        // Phase 7: String form constraints (length, pattern)
+        checkStringForm(selectedRuleIndex, effectiveEventsByPath, ctx);
+        checkPatterns(selectedRuleIndex, effectiveEventsByPath, ctx);
+        checkedBatches.push({rules: selectedRuleIndex, events: effectiveEventsByPath});
     }
-
-    // Phase 6: Numeric form constraints (sign, digit count)
-    checkNumericForm(selectedRuleIndex, effectiveEventsByPath, ctx);
-
-    // Phase 7: String form constraints (length, pattern)
-    checkStringForm(selectedRuleIndex, effectiveEventsByPath, ctx);
-    checkPatterns(selectedRuleIndex, effectiveEventsByPath, ctx);
-    checkAttributePolicy(schema, selectedRuleIndex, effectiveEventsByPath, ctx);
-    checkAttributeConstraints(selectedRuleIndex, effectiveEventsByPath, schema.datatype_rules, ctx);
-    checkDatatypeRules(schema.datatype_rules, effectiveEventsByPath, ctx);
+    function* selectedRuleEntries(): Generator<[string, SchemaRule]> {
+        for (const batch of checkedBatches) yield* batch.rules;
+    }
+    const primaryEvents = checkedBatches[0]!.events;
+    checkAttributePolicy(schema, selectedRuleEntries(), primaryEvents, ctx);
+    for (const batch of checkedBatches) checkAttributeConstraints(batch.rules, batch.events, schema.datatype_rules, ctx);
+    checkDatatypeRules(schema.datatype_rules, primaryEvents, ctx);
 
     if (ctx.errors.length > 0) {
         return createFailingEnvelope(ctx.errors, ctx.warnings, {});
@@ -772,8 +785,13 @@ function resolveReferenceFormEvents(
     eventsByPath: ReadonlyMap<string, EventInfo>,
     resourcePolicy: Required<ResourcePolicyV1>,
     ctx: ReturnType<typeof createDiagContext>,
+    selectedOnly = false,
 ): ReadonlyMap<string, EventInfo> {
-    const resolved = new Map(eventsByPath);
+    const resolved = selectedOnly ? new Map<string, EventInfo>() : new Map(eventsByPath);
+    if (selectedOnly) for (const path of ruleIndex.keys()) {
+        const event = eventsByPath.get(path);
+        if (event) resolved.set(path, event);
+    }
     for (const [path, rule] of ruleIndex.entries()) {
         if ((rule.constraints as any).resolve_reference_form !== true) continue;
         const event = eventsByPath.get(path);
@@ -820,6 +838,11 @@ function expandSelectorRules(
             }
             if (!expanded.has(actualPath)) {
                 expanded.set(actualPath, { ...rule, path: actualPath });
+            } else if (identityState.propertySelectors.has(rule.selector)) {
+                // Selection caching never removes a matching rule's constraints.
+                const layer = identityState.propertyRuleCounts.get(actualPath) ?? 0;
+                identityState.propertyRuleCounts.set(actualPath, layer + 1);
+                (identityState.propertyRuleBatches[layer] ??= new Map()).set(actualPath, {...rule, path: actualPath});
             }
         }
         if (!matched && rule.constraints.required === true) {
@@ -986,15 +1009,16 @@ function resolveSansaSelectorPathSet(
     const parsed = selector.includes('\\') || selector.includes('&') ? parseAddress(selector) : undefined;
     const hasIdentity = parsed?.ok === true && parsed.address.selectors.some(s => s.type === 'childIdentity');
     const hasProperty = parsed?.ok === true && parsed.address.selectors.some(s => s.type === 'propertyFilter');
+    if (hasProperty) identityState.propertySelectors.add(selector);
     if (hasProperty && !identityState.propertyTopology) {
         emitError(ctx, createDiag(selector, null, 'Property selectors require the portable AES/Telex validation entry point', ErrorCodes.INVALID_SCHEMA_POLICY));
         return null;
     }
     // A failed validation cannot gain guarantees; stop further new property work.
     // Syntax and resource-policy preflight has already run for the whole schema.
-    if (hasProperty && ctx.errors.length > 0) return null;
     const cached = hasIdentity || hasProperty;
     if (cached && identityState.cache.has(selector)) return identityState.cache.get(selector)!;
+    if (hasProperty && ctx.errors.length > 0) return null;
     const namespace = hasProperty
         ? (identityState.propertyNamespace ??= createAeosSansaResolveNamespace(eventsByPath, identityState, true))
         : hasIdentity
@@ -1026,7 +1050,7 @@ function createAeosSansaResolveNamespace(
     identityState?: IdentitySelectorState,
     withProperties = false,
 ): SansaResolveNamespace<AeosSansaResolveBinding> {
-    const root = buildAeosSansaResolveTree(eventsByPath);
+    const root = buildAeosSansaResolveTree(eventsByPath, withProperties);
     let properties: PropertyAccess<AeosSansaResolveBinding> | undefined;
     if (withProperties && identityState) {
         const parents = new Map<AeosSansaResolveBinding, AeosSansaResolveBinding | undefined>([[root, undefined]]);
@@ -1053,7 +1077,7 @@ function createAeosSansaResolveNamespace(
                     || binding.info?.type !== 'NodeHead')) return 'outside';
                 return binding === context.scopeRoot ? 'root' : 'inside';
             },
-            key: binding => binding.name,
+            key: binding => binding.info?.type === 'NodeHead' ? undefined : binding.name,
             nodeKind: binding => binding.info?.type === 'NodeLiteral' ? 'NodeLiteral' : binding.info?.type === 'NodeHead' ? 'NodeHead' : 'Other',
             nodeTag(binding) {
                 const tag = binding.info?.nodeTag;
@@ -1078,16 +1102,17 @@ function createAeosSansaResolveNamespace(
     };
 }
 
-function buildAeosSansaResolveTree(eventsByPath: ReadonlyMap<string, EventInfo>): AeosSansaResolveBinding {
+function buildAeosSansaResolveTree(eventsByPath: ReadonlyMap<string, EventInfo>, portable = false): AeosSansaResolveBinding {
     const root: AeosSansaResolveBinding = { path: '$', children: [] };
     for (const [path, info] of [...eventsByPath.entries()].sort((a, b) => a[0].length - b[0].length)) {
-        insertAeosSansaResolvePath(root, path, info);
+        insertAeosSansaResolvePath(root, path, info, portable);
     }
     return root;
 }
 
-function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string, info: EventInfo): void {
-    const parsed = parseAddress(path);
+function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string, info: EventInfo, portable: boolean): void {
+    // Source event positions are not selector literals; keep their admitted range.
+    const parsed = parseAddress(path, portable ? {maxPositionIndex: Number.MAX_SAFE_INTEGER} : undefined);
     if (!parsed.ok) return;
     if (parsed.address.root.kind !== 'absolute') return;
 
@@ -1112,6 +1137,7 @@ function insertAeosSansaResolvePath(root: AeosSansaResolveBinding, path: string,
                 return;
         }
     }
+    current.path = path;
     current.info = info;
     if (info.identity !== undefined) current.identity = info.identity;
 }
@@ -1132,7 +1158,7 @@ function getOrCreateChildBinding(
     return child;
 }
 
-function collectAllowedAttributePaths(ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>): string[] {
+function collectAllowedAttributePaths(ruleIndex: Iterable<[string, { constraints: ConstraintsV1 }]>): string[] {
     const allowed: string[] = [];
     function visit(basePath: string, constraints: ConstraintsV1): void {
         if (basePath.includes('.@.')) {
@@ -1170,7 +1196,7 @@ function collectAttributeEntries(
 
 function checkAttributePolicy(
     schema: SchemaV1,
-    ruleIndex: ReadonlyMap<string, { constraints: ConstraintsV1 }>,
+    ruleIndex: Iterable<[string, { constraints: ConstraintsV1 }]>,
     eventsByPath: ReadonlyMap<string, EventInfo>,
     ctx: ReturnType<typeof createDiagContext>,
 ): void {
@@ -1297,14 +1323,16 @@ function mergeDatatypeRules(
     ruleIndex: RuleIndex,
     datatypeRules: Readonly<Record<string, ConstraintsV1>> | undefined,
     eventsByPath: ReadonlyMap<string, EventInfo>,
+    selectedOnly = false,
 ): RuleIndex {
     if (!datatypeRules) return ruleIndex;
     const merged = new Map<string, SchemaRule>();
     for (const [path, rule] of ruleIndex.entries()) {
         merged.set(path, { ...rule, constraints: { ...rule.constraints } });
     }
-    for (const [path, event] of eventsByPath.entries()) {
-        if (!event.datatype) continue;
+    const entries = selectedOnly ? [...ruleIndex.keys()].map(path => [path, eventsByPath.get(path)] as const) : eventsByPath.entries();
+    for (const [path, event] of entries) {
+        if (!event?.datatype) continue;
         const datatypeRule = datatypeRules[datatypeBase(event.datatype).toLowerCase()];
         if (!datatypeRule) continue;
         const existing = merged.get(path);
