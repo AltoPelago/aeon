@@ -970,7 +970,7 @@ def enforce_mode(
                     errors.append(UntypedValueInStrictModeError(format_path(binding.path), binding.span))
             continue
         expected = expected_kinds_for_reserved_datatype(binding.datatype)
-        actual_kind = datatype_check_kind(binding, lookup, binding.datatype)
+        actual_kind = datatype_check_kind(binding.value, lookup, binding.datatype)
         if datatype_base(binding.datatype) == "switch" and actual_kind == "ToggleLiteral":
             errors.append(
                 CustomToggleAliasNotAllowedError(
@@ -1211,20 +1211,25 @@ def reference_is_self(source: list[object], target: list[object]) -> bool:
 
 
 def datatype_check_kind(
-    binding: ResolvedBinding,
+    value: Value,
     lookup: dict[str, ResolvedBinding],
     datatype: str,
-    stack: tuple[str, ...] = (),
 ) -> str:
-    resolved = resolve_reference_value(binding.value, lookup)
-    if resolved is None:
-        return datatype_value_kind(datatype, binding.value)
-    if isinstance(resolved, (CloneReference, PointerReference)):
-        resolution = resolve_mode_reference_target(resolved.path, lookup)
-        if resolution is None or resolution[0] in stack:
-            return value_kind(resolved)
-        return datatype_check_kind(resolution[1], lookup, datatype, (*stack, resolution[0]))
-    return datatype_value_kind(datatype, resolved)
+    current = unwrap_typed_value(value)
+    seen: set[int] | None = None
+    while isinstance(current, (CloneReference, PointerReference)):
+        # Sibling attributes can share an owning path. Track each reference value.
+        if seen is None:
+            seen = set()
+        identity = id(current)
+        if identity in seen:
+            break
+        seen.add(identity)
+        target = resolve_reference_value(current, lookup)
+        if target is None:
+            break
+        current = unwrap_typed_value(target)
+    return datatype_value_kind(datatype, current)
 
 
 def validate_annotation_entries(
@@ -1254,7 +1259,7 @@ def validate_annotation_entries(
                 errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
             else:
                 if value is not None and hasattr(value, "type"):
-                    actual_kind = datatype_value_kind(datatype, resolve_reference_value(value, lookup) or value)
+                    actual_kind = datatype_check_kind(value, lookup, datatype)
                     if expected is None:
                         expected = expected_kinds_for_custom_datatype(datatype)
                     if expected is not None and actual_kind not in expected:

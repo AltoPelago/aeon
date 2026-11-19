@@ -268,7 +268,7 @@ export function enforceMode(
         }
 
         const expectedKinds = expectedKindsForReservedDatatype(event.datatype);
-        const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex, event.datatype) ?? event.value.type;
+        const actualKind = resolveDatatypeCheckKind(event.value, events, pathToIndex, event.datatype);
         if (datatypeBase(event.datatype) === 'switch' && actualKind === 'ToggleLiteral') {
             errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
@@ -360,29 +360,23 @@ function isIndexedElementEvent(event: AssignmentEvent): boolean {
 }
 
 function resolveDatatypeCheckKind(
-    event: AssignmentEvent,
+    value: Value,
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
-    datatype: string,
-    stack: readonly string[] = []
-): string | null {
-    const resolved = resolveReferenceValue(event.value, events, pathToIndex);
-    if (!resolved) {
-        return null;
+    datatype: string
+): string {
+    let current = unwrapTypedValue(value);
+    let seen: Set<Value> | undefined;
+    while (current.type === 'CloneReference' || current.type === 'PointerReference') {
+        // Sibling attributes can share an owning path. Track each reference value.
+        seen ??= new Set();
+        if (seen.has(current)) break;
+        seen.add(current);
+        const target = resolveReferenceValue(current, events, pathToIndex);
+        if (!target) break;
+        current = unwrapTypedValue(target);
     }
-
-    if ((resolved.type === 'CloneReference' || resolved.type === 'PointerReference')) {
-        const resolution = resolveReferenceTarget(resolved.path, events, pathToIndex);
-        if (!resolution || stack.includes(resolution.targetPath)) {
-            return resolved.type;
-        }
-        if (!resolution.event) {
-            return resolved.type;
-        }
-        return resolveDatatypeCheckKind(resolution.event, events, pathToIndex, datatype, [...stack, resolution.targetPath]) ?? resolved.type;
-    }
-
-    return resolvedValueKind(resolved, datatype);
+    return resolvedValueKind(current, datatype);
 }
 
 function resolvedValueKind(value: Value, datatype?: string): string {
@@ -584,8 +578,7 @@ function validateAnnotationEntries(
             if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
-                const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
-                const actualKind = resolvedValueKind(resolved, entry.datatype);
+                const actualKind = resolveDatatypeCheckKind(entry.value, events, pathToIndex, entry.datatype);
                 if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(
                         span,

@@ -4334,6 +4334,109 @@ z = 7"###,
     }
 
     #[test]
+    fn accepts_typed_attribute_reference_chains() {
+        let source = concat!(
+            "aeon:mode = \"transport\"\n",
+            "target:list = [1]\n",
+            "alias:list = ~>target\n",
+            "item@{first:list = ~>alias, second:list = ~item.@.first, third:list = ~>item.@.second}:number = 1\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions::default(),
+                implementation,
+            );
+            assert!(
+                result.errors.is_empty(),
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+            let item = result
+                .events
+                .iter()
+                .find(|event| event.key == "item")
+                .unwrap();
+            for (key, kind) in [
+                ("first", "PointerReference"),
+                ("second", "CloneReference"),
+                ("third", "PointerReference"),
+            ] {
+                assert_eq!(
+                    item.annotations[key].value.as_ref().unwrap().value_kind(),
+                    kind
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reports_terminal_kind_of_mismatched_attribute_reference_chain() {
+        let source = concat!(
+            "aeon:mode = \"transport\"\n",
+            "target:list = [1]\n",
+            "alias:list = ~>target\n",
+            "item@{value:number = ~>alias}:number = 1\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions::default(),
+                implementation,
+            );
+            assert!(result.events.is_empty(), "{implementation:?}");
+            assert_eq!(
+                result.errors.len(),
+                1,
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+            assert_eq!(
+                result.errors[0].code, "DATATYPE_LITERAL_MISMATCH",
+                "{implementation:?}"
+            );
+            assert_eq!(
+                result.errors[0].message,
+                "Datatype/literal mismatch at '$.item.@.value': datatype ':number' expects NumberLiteral, got ListNode",
+                "{implementation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolves_typed_attribute_reference_chains_without_emitting_annotations() {
+        let source = concat!(
+            "source@{items:list = [1], metadata:object = { code:number = 2 }}:number = 0\n",
+            "item@{itemsAlias:list = ~>source.@.items, metadataAlias:object = ~source.@.metadata}:number = 1\n",
+            "next@{items:list = ~item.@.itemsAlias, metadata:object = ~>item.@.metadataAlias}:number = 2\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            for shallow_event_values in [false, true] {
+                let options = CompileOptions {
+                    include_event_annotations: false,
+                    include_header: !shallow_event_values,
+                    emit_binding_projections: !shallow_event_values,
+                    shallow_event_values,
+                    ..CompileOptions::default()
+                };
+                let result =
+                    compile_owned_with_implementation(source.to_owned(), options, implementation);
+                assert!(
+                    result.errors.is_empty(),
+                    "{implementation:?}: {:?}",
+                    result.errors
+                );
+                assert!(
+                    result
+                        .events
+                        .iter()
+                        .all(|event| event.annotations.is_empty())
+                );
+            }
+        }
+    }
+
+    #[test]
     fn strict_mode_rejects_untyped_attribute_entries() {
         let result = compile(
             "aeon:mode = \"strict\"\nb@{n=3}:n = 3\n",

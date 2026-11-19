@@ -15,10 +15,11 @@ use crate::token_parser::{
 #[cfg(feature = "sofia")]
 use crate::utf8_decoder::Utf8Decoder;
 use crate::validation::{
-    CompactDatatypeValue, CompactReferenceStep, compact_reference_steps,
-    validate_attribute_datatypes, validate_compact_reference_datatype,
-    validate_compact_reference_steps, validate_direct_event_datatype,
-    validate_duplicate_object_member_keys, validate_typed_mode_rules,
+    AttributeDatatypeCheck, CompactDatatypeValue, CompactReferenceStep,
+    collect_attribute_datatype_checks, compact_reference_steps,
+    validate_compact_reference_datatype, validate_compact_reference_steps,
+    validate_direct_event_datatype, validate_duplicate_object_member_keys,
+    validate_typed_mode_rules,
 };
 use crate::{
     AssignmentEvent, BehaviorMode, Binding, BindingProjection, CanonicalPath, CompileOptions,
@@ -53,11 +54,21 @@ impl ProvisionalEventBatch {
     }
 }
 
-#[derive(Debug, Default)]
-struct ModeDiagnosticLedger {
-    transport: Vec<Diagnostic>,
-    strict: Vec<Diagnostic>,
-    custom: Vec<Diagnostic>,
+#[derive(Debug)]
+struct ModeDiagnosticLedger<T = Diagnostic> {
+    transport: Vec<T>,
+    strict: Vec<T>,
+    custom: Vec<T>,
+}
+
+impl<T> Default for ModeDiagnosticLedger<T> {
+    fn default() -> Self {
+        Self {
+            transport: Vec::new(),
+            strict: Vec::new(),
+            custom: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -104,8 +115,8 @@ impl CompactReferenceDatatypeClaim {
     }
 }
 
-impl ModeDiagnosticLedger {
-    fn errors(&self, mode: BehaviorMode) -> &[Diagnostic] {
+impl<T> ModeDiagnosticLedger<T> {
+    fn errors(&self, mode: BehaviorMode) -> &[T] {
         match mode {
             BehaviorMode::Transport => &self.transport,
             BehaviorMode::Strict => &self.strict,
@@ -113,7 +124,7 @@ impl ModeDiagnosticLedger {
         }
     }
 
-    fn errors_mut(&mut self, mode: BehaviorMode) -> &mut Vec<Diagnostic> {
+    fn errors_mut(&mut self, mode: BehaviorMode) -> &mut Vec<T> {
         match mode {
             BehaviorMode::Transport => &mut self.transport,
             BehaviorMode::Strict => &mut self.strict,
@@ -140,7 +151,7 @@ struct ProgressiveValidationState {
     event_path_error: Option<Diagnostic>,
     duplicate_errors: Vec<Diagnostic>,
     datatype_event_errors: ModeOrderedDiagnosticLedger,
-    datatype_attribute_errors: ModeDiagnosticLedger,
+    datatype_attribute_checks: ModeDiagnosticLedger<AttributeDatatypeCheck>,
     gp_profile_errors: Vec<Diagnostic>,
     gp_unprojected_errors: Vec<Diagnostic>,
     reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
@@ -190,7 +201,7 @@ impl ProgressiveValidationState {
             event_path_error: None,
             duplicate_errors: Vec::new(),
             datatype_event_errors: ModeOrderedDiagnosticLedger::default(),
-            datatype_attribute_errors: ModeDiagnosticLedger::default(),
+            datatype_attribute_checks: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
             gp_unprojected_errors: Vec::new(),
             reference_datatype_claims: Vec::new(),
@@ -235,13 +246,13 @@ impl ProgressiveValidationState {
                 if body_start == body_end {
                     break;
                 }
-                validate_attribute_datatypes(
+                collect_attribute_datatype_checks(
                     &bindings[body_start..body_end],
                     mode,
                     self.options.datatype_policy,
                     self.options.effective_max_clarifier_values(),
                     self.options.max_generic_depth,
-                    self.datatype_attribute_errors.errors_mut(mode),
+                    self.datatype_attribute_checks.errors_mut(mode),
                 );
                 body_start = body_end;
             }
@@ -323,10 +334,15 @@ impl ProgressiveValidationState {
     fn observe_references(&mut self, targets: &HashSet<String>, steps: &[ValidationReferenceStep]) {
         self.reference_targets.extend(targets.iter().cloned());
         for step in steps {
-            if let ValidationReferenceStep::ValidateValue { path, value, .. } = step {
-                let _ = self
-                    .datatype_targets
-                    .insert(path.clone(), CompactDatatypeValue::from_value(value));
+            match step {
+                ValidationReferenceStep::ValidateValue { path, value, .. } => {
+                    self.datatype_targets
+                        .insert(path.clone(), CompactDatatypeValue::from_value(value));
+                }
+                ValidationReferenceStep::DatatypeTarget { path, value } => {
+                    self.datatype_targets.insert(path.clone(), value.clone());
+                }
+                ValidationReferenceStep::VisibleTarget(_) => {}
             }
         }
         self.reference_steps.extend(compact_reference_steps(steps));
@@ -370,7 +386,7 @@ impl ProgressiveValidationState {
         if !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.effective_datatype_event_errors());
         }
-        errors.extend(self.effective_datatype_attribute_errors().iter().cloned());
+        errors.extend(self.effective_datatype_attribute_errors());
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.gp_profile_errors.iter().cloned());
             errors.extend(self.gp_unprojected_errors.iter().cloned());
@@ -443,8 +459,17 @@ impl ProgressiveValidationState {
         }
     }
 
-    fn effective_datatype_attribute_errors(&self) -> &[Diagnostic] {
-        self.datatype_attribute_errors.errors(self.effective_mode())
+    fn effective_datatype_attribute_errors(&self) -> impl Iterator<Item = Diagnostic> + '_ {
+        self.datatype_attribute_checks
+            .errors(self.effective_mode())
+            .iter()
+            .filter_map(|check| {
+                check.diagnostic(|value| {
+                    self.resolve_compact_datatype_reference(&CompactDatatypeValue::from_value(
+                        value,
+                    ))
+                })
+            })
     }
 
     fn effective_typed_mode_errors(&self) -> &[Diagnostic] {
@@ -499,7 +524,7 @@ impl ProgressiveValidationState {
                 .map(CompactReferenceStep::retained_string_bytes)
                 .sum(),
             retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
-                + self.datatype_attribute_errors.retained_error_count()
+                + self.datatype_attribute_checks.retained_error_count()
                 + self.gp_profile_errors.len()
                 + self.gp_unprojected_errors.len()
                 + self.typed_mode_errors.retained_error_count(),

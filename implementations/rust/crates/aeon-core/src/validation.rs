@@ -419,6 +419,7 @@ pub(crate) fn compact_reference_steps(
             ValidationReferenceStep::VisibleTarget(path) => {
                 compact.push(CompactReferenceStep::VisibleTarget(path.clone()));
             }
+            ValidationReferenceStep::DatatypeTarget { .. } => {}
         }
     }
     compact
@@ -720,9 +721,8 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
             }
         }
     }
-    validate_attribute_datatypes_in_scope(
+    validate_resolved_attribute_datatypes(
         bindings,
-        &CanonicalPath::root(),
         mode,
         datatype_policy,
         max_separator_depth,
@@ -922,24 +922,22 @@ pub(crate) fn validate_compact_reference_datatype(
     )
 }
 
-pub(crate) fn validate_attribute_datatypes(
+pub(crate) fn collect_attribute_datatype_checks(
     bindings: &[Binding],
     mode: BehaviorMode,
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
-    validate_datatypes::<String>(
-        &[],
-        &[],
-        &BTreeMap::new(),
+    validate_attribute_datatypes_in_scope(
         bindings,
-        Some(mode),
-        datatype_policy,
+        &CanonicalPath::root(),
+        mode,
+        effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
         max_generic_depth,
-        errors,
+        checks,
     );
 }
 
@@ -1032,9 +1030,8 @@ pub(crate) fn validate_datatypes_light(
             }
         }
     }
-    validate_attribute_datatypes_in_scope(
+    validate_resolved_attribute_datatypes(
         bindings,
-        &CanonicalPath::root(),
         mode,
         datatype_policy,
         max_separator_depth,
@@ -1089,8 +1086,9 @@ fn resolve_reference_value<'a>(
     events: &'a [AssignmentEvent],
     event_lookup: &BTreeMap<String, usize>,
 ) -> Option<&'a Value> {
-    let mut seen = HashSet::new();
-    resolve_reference_value_inner(value, events, event_lookup, &mut seen)
+    resolve_reference_chain(value, |segments| {
+        resolve_reference_target_value(segments, events, event_lookup)
+    })
 }
 
 fn resolve_reference_value_light<'a>(
@@ -1098,48 +1096,28 @@ fn resolve_reference_value_light<'a>(
     events: &'a [ValidationEvent],
     event_lookup: &BTreeMap<String, usize>,
 ) -> Option<&'a Value> {
+    resolve_reference_chain(value, |segments| {
+        resolve_reference_target_value_light(segments, events, event_lookup)
+    })
+}
+
+fn resolve_reference_chain<'a>(
+    mut value: &'a Value,
+    lookup: impl Fn(&[ReferenceSegment]) -> Option<&'a Value>,
+) -> Option<&'a Value> {
     let mut seen = HashSet::new();
-    resolve_reference_value_light_inner(value, events, event_lookup, &mut seen)
-}
-
-fn resolve_reference_value_inner<'a>(
-    value: &'a Value,
-    events: &'a [AssignmentEvent],
-    event_lookup: &BTreeMap<String, usize>,
-    seen: &mut HashSet<String>,
-) -> Option<&'a Value> {
-    let segments = match value {
-        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-            segments
+    loop {
+        match value {
+            Value::TypedValue { value: inner, .. } => value = inner,
+            Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
+                if !seen.insert(std::ptr::from_ref(value)) {
+                    return Some(value);
+                }
+                value = lookup(segments)?;
+            }
+            _ => return Some(value),
         }
-        _ => return Some(value),
-    };
-    let target = format_reference_target(segments);
-    if !seen.insert(target.clone()) {
-        return Some(value);
     }
-    let resolved = resolve_reference_target_value(segments, events, event_lookup)?;
-    resolve_reference_value_inner(resolved, events, event_lookup, seen)
-}
-
-fn resolve_reference_value_light_inner<'a>(
-    value: &'a Value,
-    events: &'a [ValidationEvent],
-    event_lookup: &BTreeMap<String, usize>,
-    seen: &mut HashSet<String>,
-) -> Option<&'a Value> {
-    let segments = match value {
-        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-            segments
-        }
-        _ => return Some(value),
-    };
-    let target = format_reference_target(segments);
-    if !seen.insert(target.clone()) {
-        return Some(value);
-    }
-    let resolved = resolve_reference_target_value_light(segments, events, event_lookup)?;
-    resolve_reference_value_light_inner(resolved, events, event_lookup, seen)
 }
 
 /// Borrowed one-hop binding data for the internal Core/Finalize boundary.
@@ -2002,6 +1980,90 @@ fn base64url_sextet(byte: u8) -> Option<u8> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) enum AttributeDatatypeCheck {
+    Error(Diagnostic),
+    Reference {
+        path: String,
+        datatype: String,
+        value: Value,
+    },
+}
+
+impl AttributeDatatypeCheck {
+    pub(crate) fn diagnostic(
+        &self,
+        resolve: impl FnOnce(&Value) -> CompactDatatypeValue,
+    ) -> Option<Diagnostic> {
+        match self {
+            Self::Error(error) => Some(error.clone()),
+            Self::Reference {
+                path,
+                datatype,
+                value,
+            } => {
+                let resolved = resolve(value);
+                (!datatype_matches_compact_value(datatype, &resolved)).then(|| {
+                    Diagnostic::new(
+                        "DATATYPE_LITERAL_MISMATCH",
+                        datatype_mismatch_message(path, datatype, resolved.value_kind()),
+                    )
+                    .at_path(path)
+                })
+            }
+        }
+    }
+}
+
+fn validate_resolved_attribute_datatypes(
+    bindings: &[Binding],
+    mode: BehaviorMode,
+    datatype_policy: DatatypePolicy,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    let mut checks = Vec::new();
+    collect_attribute_datatype_checks(
+        bindings,
+        mode,
+        Some(datatype_policy),
+        max_separator_depth,
+        max_generic_depth,
+        &mut checks,
+    );
+    // Resolve against the authored bindings even when event metadata is omitted.
+    let mut roots = None;
+    for check in checks {
+        errors.extend(check.diagnostic(|value| {
+            let roots: &BTreeMap<_, _> = roots.get_or_insert_with(|| {
+                bindings
+                    .iter()
+                    .map(|binding| (binding.key.as_str(), binding))
+                    .collect()
+            });
+            let resolved = resolve_reference_chain(value, |segments| {
+                let [ReferenceSegment::Key(root), rest @ ..] = segments else {
+                    return None;
+                };
+                let binding = roots.get(root.as_str())?;
+                let target = resolve_reference_remainder_target(
+                    &binding.value,
+                    Some(&binding.attributes),
+                    rest,
+                )?;
+                // Attribute objects store their members separately from scalar values.
+                static OBJECT: Value = Value::ObjectNode {
+                    bindings: Vec::new(),
+                };
+                Some(target.value().unwrap_or(&OBJECT))
+            })
+            .unwrap_or(value);
+            CompactDatatypeValue::from_value(resolved)
+        }));
+    }
+}
+
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &CanonicalPath,
@@ -2009,7 +2071,7 @@ fn validate_attribute_datatypes_in_scope(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     for binding in bindings {
         let path = parent.member(binding.key.clone());
@@ -2021,7 +2083,7 @@ fn validate_attribute_datatypes_in_scope(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
         validate_value_attribute_datatypes(
             &binding.value,
@@ -2030,7 +2092,7 @@ fn validate_attribute_datatypes_in_scope(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
     }
 }
@@ -2042,7 +2104,7 @@ fn validate_value_attribute_datatypes(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     match value {
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
@@ -2052,7 +2114,7 @@ fn validate_value_attribute_datatypes(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         ),
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
@@ -2063,7 +2125,7 @@ fn validate_value_attribute_datatypes(
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
-                    errors,
+                    checks,
                 );
             }
         }
@@ -2082,7 +2144,7 @@ fn validate_value_attribute_datatypes(
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
-                    errors,
+                    checks,
                 );
             }
             for (index, child) in children.iter().enumerate() {
@@ -2093,7 +2155,7 @@ fn validate_value_attribute_datatypes(
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
-                    errors,
+                    checks,
                 );
             }
         }
@@ -2109,7 +2171,7 @@ fn validate_attribute_datatype_map(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     for key in attribute_order {
         let Some(entry) = attributes.get(key) else {
@@ -2122,7 +2184,7 @@ fn validate_attribute_datatype_map(
         {
             if matches!(mode, BehaviorMode::Strict) && matches!(value, Value::ToggleLiteral { .. })
             {
-                errors.push(
+                checks.push(AttributeDatatypeCheck::Error(
                     Diagnostic::new(
                         "UNTYPED_TOGGLE_LITERAL",
                         format!(
@@ -2131,9 +2193,9 @@ fn validate_attribute_datatype_map(
                         ),
                     )
                     .at_path(attr_path.clone()),
-                );
+                ));
             } else {
-                errors.push(
+                checks.push(AttributeDatatypeCheck::Error(
                     Diagnostic::new(
                         "UNTYPED_VALUE_IN_STRICT_MODE",
                         format!(
@@ -2142,7 +2204,7 @@ fn validate_attribute_datatype_map(
                         ),
                     )
                     .at_path(attr_path.clone()),
-                );
+                ));
             }
         } else if let Some(datatype) = &entry.datatype
             && let Some(value) = &entry.value
@@ -2160,12 +2222,12 @@ fn validate_attribute_datatype_map(
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => attr_path.as_str(),
                 };
-                errors.push(error.at_path(path_override));
+                checks.push(AttributeDatatypeCheck::Error(error.at_path(path_override)));
                 continue;
             }
             if !is_reserved_datatype(datatype) {
                 if datatype_policy == DatatypePolicy::ReservedOnly {
-                    errors.push(
+                    checks.push(AttributeDatatypeCheck::Error(
                         Diagnostic::new(
                             "CUSTOM_DATATYPE_NOT_ALLOWED",
                             format!(
@@ -2174,16 +2236,25 @@ fn validate_attribute_datatype_map(
                             ),
                         )
                         .at_path(attr_path.clone()),
-                    );
+                    ));
                 }
+            } else if matches!(
+                value,
+                Value::CloneReference { .. } | Value::PointerReference { .. }
+            ) {
+                checks.push(AttributeDatatypeCheck::Reference {
+                    path: attr_path,
+                    datatype: datatype.clone(),
+                    value: value.clone(),
+                });
             } else if !datatype_matches_value(datatype, value) {
-                errors.push(
+                checks.push(AttributeDatatypeCheck::Error(
                     Diagnostic::new(
                         "DATATYPE_LITERAL_MISMATCH",
                         datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
                     )
                     .at_path(attr_path.clone()),
-                );
+                ));
             }
         }
         validate_attribute_datatype_map(
@@ -2194,7 +2265,7 @@ fn validate_attribute_datatype_map(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
         validate_attribute_datatype_map(
             &entry.object_members,
@@ -2204,7 +2275,7 @@ fn validate_attribute_datatype_map(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
         if let Some(value) = &entry.value {
             validate_value_attribute_datatypes(
@@ -2214,7 +2285,7 @@ fn validate_attribute_datatype_map(
                 datatype_policy,
                 max_separator_depth,
                 max_generic_depth,
-                errors,
+                checks,
             );
         }
     }

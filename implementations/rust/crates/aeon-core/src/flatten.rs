@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, HashSet};
 use crate::pathing::{
     format_path, render_child_index_path, render_child_member_path, render_member_segment,
 };
-use crate::validation::{CompactReferenceStep, append_compact_value_references};
+use crate::validation::{
+    CompactDatatypeValue, CompactReferenceStep, append_compact_value_references,
+};
 use crate::{
     AssignmentEvent, AttributeValue, Binding, BindingProjection, CanonicalPath, Span, Value,
 };
@@ -476,6 +478,10 @@ pub(crate) enum ValidationReferenceStep {
         path: String,
         owner_path: String,
         value: Box<Value>,
+    },
+    DatatypeTarget {
+        path: String,
+        value: CompactDatatypeValue,
     },
     VisibleTarget(String),
 }
@@ -1897,6 +1903,11 @@ fn collect_attribute_reference_steps(
                 false, // Metadata payloads have no separate flattened events.
                 steps,
             );
+        } else {
+            steps.push(ValidationReferenceStep::DatatypeTarget {
+                path: current_path.clone(),
+                value: CompactDatatypeValue::Object,
+            });
         }
         collect_attribute_object_reference_steps(
             base,
@@ -1943,6 +1954,11 @@ fn collect_attribute_object_reference_steps(
                 false, // Metadata payloads have no separate flattened events.
                 steps,
             );
+        } else {
+            steps.push(ValidationReferenceStep::DatatypeTarget {
+                path: current_path.clone(),
+                value: CompactDatatypeValue::Object,
+            });
         }
         collect_attribute_object_reference_steps(
             base,
@@ -2116,6 +2132,10 @@ fn append_ordered_validation_value_steps(
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
+            steps.push(ValidationReferenceStep::DatatypeTarget {
+                path: current_path.to_owned(),
+                value: CompactDatatypeValue::from_value(value),
+            });
             for (index, item) in items.iter().enumerate() {
                 let item_path = format!("{current_path}[{index}]");
                 append_ordered_validation_value_steps(item, &item_path, current_path, false, steps);
@@ -2123,6 +2143,10 @@ fn append_ordered_validation_value_steps(
             }
         }
         Value::ObjectNode { bindings } => {
+            steps.push(ValidationReferenceStep::DatatypeTarget {
+                path: current_path.to_owned(),
+                value: CompactDatatypeValue::Object,
+            });
             for binding in bindings {
                 let binding_path = format!("{current_path}{}", render_member_segment(&binding.key));
                 steps.push(ValidationReferenceStep::VisibleTarget(binding_path.clone()));

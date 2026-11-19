@@ -980,6 +980,34 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source("b@{n:string=3}:n = 3")
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
 
+    def test_typed_attributes_check_terminal_kind_of_reference_chains(self) -> None:
+        result = compile_source(
+            'aeon:mode = "transport"\n'
+            'target:list = [1]\n'
+            'alias:list = ~>target\n'
+            'item@{first:list = ~>alias, second:list = ~item.@.first, third:list = ~>item.@.second}:number = 1'
+        )
+        self.assertEqual([], [str(error) for error in result.errors])
+        item = next(event for event in result.internal_events if event["path"] == "$.item")
+        attributes = item["annotations"]
+        self.assertEqual("PointerReference", attributes["first"]["value"]["type"])
+        self.assertEqual("CloneReference", attributes["second"]["value"]["type"])
+        self.assertEqual("PointerReference", attributes["third"]["value"]["type"])
+
+    def test_attribute_reference_chain_mismatch_reports_terminal_kind(self) -> None:
+        result = compile_source(
+            'aeon:mode = "transport"\n'
+            'target:list = [1]\n'
+            'alias:list = ~>target\n'
+            'item@{value:number = ~>alias}:number = 1'
+        )
+        self.assertEqual([], result.events)
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertEqual(
+            "Datatype/literal mismatch at '$.item.@.value': datatype ':number' expects NumberLiteral, got ListNode",
+            str(result.errors[0]),
+        )
+
     def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
         self.assertIn("UNTYPED_VALUE_IN_STRICT_MODE", [error.code for error in result.errors])
