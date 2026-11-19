@@ -848,40 +848,60 @@ fn portable_records_to_aeos(records: &[TelexRecord]) -> Vec<AesEvent> {
             attributes.push((path, record));
             continue;
         }
-        if let Some((event_path, key)) = portable_event_path(path) {
-            body.push((
-                path.to_owned(),
-                AesEvent {
-                    path: event_path,
-                    key,
-                    source_plane: Some(AesSourcePlane::Body),
-                    structural_id: record.get("identity").map(str::to_owned),
-                    datatype: portable_datatype(record),
-                    annotations: BTreeMap::new(),
-                    value: portable_event_value(record),
-                    span: portable_span(record.get("span")),
-                },
-            ));
+        if let Some(event) = portable_aeos_event(path, record) {
+            body.push((path.to_owned(), event));
         }
     }
+    let mut by_address = if attributes.is_empty() {
+        BTreeMap::new()
+    } else {
+        body.iter()
+            .enumerate()
+            .map(|(index, (path, _))| (path.clone(), index))
+            .collect()
+    };
+    // Process actual attribute owners before their descendants, independent of
+    // input order. Missing owners remain navigation-only, without invented values.
+    attributes.sort_by_key(|(path, _)| path.len());
     for (path, record) in attributes {
         if let Some((owner, key)) = direct_attribute_owner(path)
-            && let Some((_, event)) = body.iter_mut().find(|(address, _)| address == &owner)
+            && let Some(index) = by_address.get(&owner)
         {
-            insert_portable_attribute(&mut event.annotations, &[key], record);
+            insert_portable_attribute(&mut body[*index].1.annotations, &[key], record);
         } else if let Some((owner, keys)) = split_attribute_path(path)
-            && let Some((_, event)) = body.iter_mut().find(|(address, _)| address == &owner)
+            && let Some(index) = by_address.get(&owner)
         {
-            insert_portable_attribute(&mut event.annotations, &keys, record);
+            insert_portable_attribute(&mut body[*index].1.annotations, &keys, record);
+        } else if let Some(event) = portable_aeos_event(path, record) {
+            // A partial stream may supply an attribute without its owner.
+            // Preserve that actual occurrence for indexing and constraints.
+            by_address.insert(path.to_owned(), body.len());
+            body.push((path.to_owned(), event));
         }
     }
     hydrate_portable_container_shapes(&mut body);
     body.into_iter().map(|(_, event)| event).collect()
 }
 
+fn portable_aeos_event(path: &str, record: &TelexRecord) -> Option<AesEvent> {
+    let (event_path, key) = portable_event_path(path)?;
+    Some(AesEvent {
+        path: event_path,
+        key,
+        source_plane: Some(AesSourcePlane::Body),
+        structural_id: record.get("identity").map(str::to_owned),
+        datatype: portable_datatype(record),
+        annotations: BTreeMap::new(),
+        value: portable_event_value(record),
+        span: portable_span(record.get("span")),
+    })
+}
+
 fn hydrate_portable_container_shapes(body: &mut [(String, AesEvent)]) {
     let values = body
         .iter()
+        // Attributes are not structural children of object containers.
+        .filter(|(address, _)| !is_attribute_record(address))
         .map(|(address, event)| (address.clone(), event.value.clone()))
         .collect::<BTreeMap<_, _>>();
     for (address, event) in body {
@@ -4094,11 +4114,21 @@ impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
         self.rows[*b].name.clone()
     }
     fn position(&self, b: &usize) -> Option<usize> {
-        // Portable records carry authoritative source positions. A named
-        // child has no positional coordinate in this profile.
-        self.rows[*b]
-            .index
-            .or(self.properties_enabled.then_some(usize::MAX))
+        self.rows[*b].index
+    }
+    fn positional_child(&self, binding: &usize, index: usize) -> Option<usize> {
+        let children = &self.rows[*binding].children;
+        children
+            .iter()
+            .copied()
+            .find(|child| self.rows[*child].index == Some(index))
+            .or_else(|| {
+                if self.properties_enabled {
+                    None
+                } else {
+                    children.get(index).copied()
+                }
+            })
     }
     fn supports_structural_identity(&self) -> bool {
         true
@@ -4178,33 +4208,8 @@ fn resolve_sansa_selector_path_set(
                 events_by_path,
             )
         });
-        // The generic resolver's single-index operation permits an ordinal
-        // fallback. Portable partial streams must instead use their explicit
-        // source coordinates; singleton ranges have exactly that behavior.
-        // Keep this bridge private to the portable property profile.
-        let Ok(mut address) = sansa_runtime::address::parse_address(selector) else {
-            emit_error(
-                ctx,
-                ValidationDiagnostic {
-                    path: Some(selector.into()),
-                    code: "invalid_schema_policy".into(),
-                    phase: "schema_validation".into(),
-                    span: None,
-                },
-            );
-            identity_state.cache.insert(selector.into(), None);
-            return None;
-        };
-        for step in &mut address.selectors {
-            if let sansa_runtime::address::Selector::Position { index } = *step {
-                *step = sansa_runtime::address::Selector::PositionRange {
-                    start: Some(index),
-                    end: Some(index),
-                };
-            }
-        }
-        let result = sansa_runtime::resolve::resolve_parsed_address(
-            &address,
+        let result = sansa_runtime::resolve::resolve_address(
+            selector,
             namespace,
             &sansa_runtime::resolve::ResolveOptions {
                 max_identity_inspections: identity_state.limit.saturating_sub(used_identity),

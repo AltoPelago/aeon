@@ -14,12 +14,21 @@ fn shared_portable_property_vectors() {
         "../../../../../test-fixtures/aeos-property-context-regressions.json"
     ))
     .expect("context regressions");
+    let range_attributes: JsonValue = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/aeos-property-range-attribute-regressions.json"
+    ))
+    .expect("range/attribute regressions");
     for case in suite["tests"]
         .as_array()
         .expect("tests")
         .iter()
         .chain(regressions["tests"].as_array().expect("regressions"))
         .chain(context["tests"].as_array().expect("context cases"))
+        .chain(
+            range_attributes["tests"]
+                .as_array()
+                .expect("range/attribute cases"),
+        )
     {
         let records: Vec<TelexRecord> = case["records"]
             .as_array()

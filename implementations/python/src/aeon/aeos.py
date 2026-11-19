@@ -482,24 +482,10 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
         if details.segments and details.segments[-1][0] == "attribute":
             attributes.append((address, record))
             continue
-        datatype = _portable_datatype(record)
-        segments = [{"type": "root"}, *[_portable_aeos_segment(segment) for segment in details.segments]]
-        body.append(
-            (
-                address,
-                {
-                    "path": {"segments": segments},
-                    "key": str(details.segments[-1][1]) if details.segments else "",
-                    "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
-                    "datatype": datatype,
-                    "annotations": {},
-                    "value": _portable_aeos_value(record),
-                    "span": _portable_span(record.get("span")),
-                },
-            )
-        )
+        body.append((address, _portable_aeos_event(record, details)))
 
     by_address = {address: event for address, event in body}
+    attributes.sort(key=lambda item: len(item[0]))
     for address, record in attributes:
         details = parse_canonical_path(address)
         owner = details.prefixes[-2]
@@ -509,18 +495,19 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
             _insert_portable_attribute(event["annotations"], [key], record)
             continue
         first_attribute = next((index for index, segment in enumerate(details.segments) if segment[0] == "attribute"), None)
-        if first_attribute is None or any(segment[0] != "attribute" for segment in details.segments[first_attribute:]):
-            continue
-        root_owner = "$" if first_attribute == 0 else details.prefixes[first_attribute - 1]
-        event = by_address.get(root_owner)
-        if event is not None:
-            _insert_portable_attribute(
-                event["annotations"],
-                [str(segment[1]) for segment in details.segments[first_attribute:]],
-                record,
-            )
+        if first_attribute is not None and all(segment[0] == "attribute" for segment in details.segments[first_attribute:]):
+            root_owner = "$" if first_attribute == 0 else details.prefixes[first_attribute - 1]
+            event = by_address.get(root_owner)
+            if event is not None:
+                _insert_portable_attribute(event["annotations"], [str(segment[1]) for segment in details.segments[first_attribute:]], record)
+                continue
+        # Preserve actual partial-stream attributes without fabricating owner values.
+        event = _portable_aeos_event(record, details)
+        body.append((address, event))
+        by_address[address] = event
 
-    values = {address: event["value"] for address, event in body}
+    attribute_paths = {address for address, _ in attributes}
+    values = {address: event["value"] for address, event in body if address not in attribute_paths}
     for address, event in body:
         value = event["value"]
         kind = value.get("type")
@@ -531,6 +518,16 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
         elif kind == "NodeLiteral":
             value["children"] = _portable_indexed_children(f"{address}[0]", values)
     return [event for _, event in body]
+
+
+def _portable_aeos_event(record, details):
+    return {
+        "path": {"segments": [{"type": "root"}, *[_portable_aeos_segment(segment) for segment in details.segments]]},
+        "key": str(details.segments[-1][1]) if details.segments else "",
+        "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
+        "datatype": _portable_datatype(record), "annotations": {},
+        "value": _portable_aeos_value(record), "span": _portable_span(record.get("span")),
+    }
 
 
 def _portable_aeos_segment(segment: tuple[str, str | int]) -> dict[str, object]:

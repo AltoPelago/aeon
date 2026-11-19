@@ -11,7 +11,7 @@ FIXTURES = Path(__file__).resolve().parents[3] / 'test-fixtures/aeos-property-se
 
 class AeosPropertyTests(unittest.TestCase):
     def test_shared_vectors(self):
-        suite = {'tests': json.loads(FIXTURES.read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-regressions.json').read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-context-regressions.json').read_text())['tests']}
+        suite = {'tests': json.loads(FIXTURES.read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-regressions.json').read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-context-regressions.json').read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-range-attribute-regressions.json').read_text())['tests']}
         for case in suite['tests']:
             with self.subTest(case=case['id']):
                 records, schema, options = copy.deepcopy(case['records']), copy.deepcopy(case['schema']), copy.deepcopy(case.get('options'))

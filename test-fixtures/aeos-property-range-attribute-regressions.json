@@ -1,0 +1,1646 @@
+{
+  "id": "aeos-property-range-attribute-regressions",
+  "tests": [
+    {
+      "id": "named-1-[0..]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[0..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.a"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-1-[1..]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[1..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-1-[3..]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[3..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-1-[..0]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[..0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.a"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-1-[1..4]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[1..4]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-1-[0]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-1-[1]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[1]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "range-before-property-1",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o[1..]&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n"
+    },
+    {
+      "id": "named-2-[0..]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[0..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.a"
+          },
+          {
+            "code": "type_mismatch",
+            "path": "$.o.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "named-2-[1..]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[1..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "named-2-[3..]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[3..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "named-2-[..0]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[..0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.a"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "named-2-[1..4]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[1..4]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "named-2-[0]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "named-2-[1]",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o&key(\"o\")[1]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "range-before-property-2",
+      "records": [
+        {
+          "path": "$.o",
+          "kind": "ObjectNode"
+        },
+        {
+          "path": "$.o.a",
+          "kind": "StringLiteral",
+          "value": "a"
+        },
+        {
+          "path": "$.o.b",
+          "kind": "StringLiteral",
+          "value": "b"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.o[1..]&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.o.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.o\nkind=ObjectNode\n\npath=$.o.a\nkind=StringLiteral\nvalue=a\n\npath=$.o.b\nkind=StringLiteral\nvalue=b\n"
+    },
+    {
+      "id": "sparse-coordinate-[0]",
+      "records": [
+        {
+          "path": "$.xs",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.xs[4]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.xs&key(\"xs\")[0]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.xs\nkind=ListNode\n\npath=$.xs[4]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-coordinate-[4]",
+      "records": [
+        {
+          "path": "$.xs",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.xs[4]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.xs&key(\"xs\")[4]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.xs[4]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.xs\nkind=ListNode\n\npath=$.xs[4]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-coordinate-[1..]",
+      "records": [
+        {
+          "path": "$.xs",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.xs[4]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.xs&key(\"xs\")[1..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.xs[4]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.xs\nkind=ListNode\n\npath=$.xs[4]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-coordinate-[5..]",
+      "records": [
+        {
+          "path": "$.xs",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.xs[4]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.xs&key(\"xs\")[5..]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.xs\nkind=ListNode\n\npath=$.xs[4]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-coordinate-[..3]",
+      "records": [
+        {
+          "path": "$.xs",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.xs[4]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.xs&key(\"xs\")[..3]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.xs\nkind=ListNode\n\npath=$.xs[4]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-coordinate-[..4]",
+      "records": [
+        {
+          "path": "$.xs",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.xs[4]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.xs&key(\"xs\")[..4]",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.xs[4]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.xs\nkind=ListNode\n\npath=$.xs[4]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-attribute-'a'",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-required-'a'",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "owner-present-'a'",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "owner"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=owner\n\npath=$.v.@.a\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-identity-'a'",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.\\attr1\\&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-attribute-''",
+      "records": [
+        {
+          "path": "$.v.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-required-''",
+      "records": [
+        {
+          "path": "$.v.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "owner-present-''",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "owner"
+        },
+        {
+          "path": "$.v.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=owner\n\npath=$.v.@.[\"\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-identity-''",
+      "records": [
+        {
+          "path": "$.v.@.[\"\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.\\attr1\\&key(\"\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-attribute-'é'",
+      "records": [
+        {
+          "path": "$.v.@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"é\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"é\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-required-'é'",
+      "records": [
+        {
+          "path": "$.v.@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"é\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"é\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "owner-present-'é'",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "owner"
+        },
+        {
+          "path": "$.v.@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"é\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=owner\n\npath=$.v.@.[\"é\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-identity-'é'",
+      "records": [
+        {
+          "path": "$.v.@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.\\attr1\\&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"é\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"é\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-attribute-'a\\nb'",
+      "records": [
+        {
+          "path": "$.v.@.[\"a\\nb\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\\nb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"a\\\\nb\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-required-'a\\nb'",
+      "records": [
+        {
+          "path": "$.v.@.[\"a\\nb\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\\nb\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"a\\\\nb\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "owner-present-'a\\nb'",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "owner"
+        },
+        {
+          "path": "$.v.@.[\"a\\nb\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\\nb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=owner\n\npath=$.v.@.[\"a\\\\nb\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-identity-'a\\nb'",
+      "records": [
+        {
+          "path": "$.v.@.[\"a\\nb\"]",
+          "kind": "StringLiteral",
+          "value": "x",
+          "identity": "attr1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.\\attr1\\&key(\"a\\nb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.[\"a\\\\nb\"]\nkind=StringLiteral\nidentity=attr1\nvalue=x\n"
+    },
+    {
+      "id": "orphan-accepted-type",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "type": "StringLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-nonmatching-key",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"missing\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-missing-required",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"missing\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.v.@.*&key(\"missing\")"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-legacy-selector",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.a",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-zero-property-budget",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 0
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.v.@.*&key(\"a\")"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-owner-$.items[2]",
+      "records": [
+        {
+          "path": "$.items[2].@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.items[2].@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.items[2].@.a"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.items[2].@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-owner-$.[\"é\"]",
+      "records": [
+        {
+          "path": "$.[\"é\"].@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.[\"é\"].@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"é\"].@.a"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.[\"é\"].@.a\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "orphan-head-tag",
+      "records": [
+        {
+          "path": "$.v.@.h",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.h"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.h\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "orphan-head-no-key",
+      "records": [
+        {
+          "path": "$.v.@.h",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"h\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.h\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "orphan-head-key-required",
+      "records": [
+        {
+          "path": "$.v.@.h",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"h\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.v.@.*&key(\"h\")"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.h\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "orphan-node-tag",
+      "records": [
+        {
+          "path": "$.v.@.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.v.@.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.n"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.n\nkind=NodeLiteral\n\npath=$.v.@.n[0]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "orphan-node-head",
+      "records": [
+        {
+          "path": "$.v.@.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.v.@.n[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.n[0]&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.n[0]"
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.n\nkind=NodeLiteral\n\npath=$.v.@.n[0]\nkind=NodeHead\nvalue=book\n"
+    }
+  ]
+}
