@@ -4113,6 +4113,126 @@ indexed:number = ~>["aeon:items"][0].leaf"#;
     }
 
     #[test]
+    fn datatype_references_use_body_values_regardless_of_header_order() {
+        let header = r#"aeon:x = {leaf = "header"}"#;
+        let body = r#""aeon:x" = {leaf = 3}"#;
+        for (first, second, target, datatype, value_kind) in [
+            (
+                header,
+                body,
+                r#"~["aeon:x"].leaf"#,
+                "number",
+                "NumberLiteral",
+            ),
+            (
+                body,
+                header,
+                r#"~["aeon:x"].leaf"#,
+                "number",
+                "NumberLiteral",
+            ),
+            (
+                r#"aeon:x = ["header"]"#,
+                r#""aeon:x" = [[]]"#,
+                r#"~["aeon:x"][0]"#,
+                "list",
+                "ListNode",
+            ),
+        ] {
+            let source =
+                format!("{first}\n{second}\nok:{datatype} = {target}\nbad:string = {target}");
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        CompileOptions {
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    let [error] = result.errors.as_slice() else {
+                        panic!(
+                            "{source}\n{implementation:?}, validation_only={validation_only}: {:?}",
+                            result.errors
+                        );
+                    };
+                    assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                    assert_eq!(error.path.as_deref(), Some("$.bad"));
+                    assert!(error.message.ends_with(value_kind), "{error:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reference_validation_publishes_metadata_only_for_visible_header_owners() {
+        let header = r#"aeon:header = {x = {leaf@{meta = 7} = 2}, items = [@{meta = 8} = 4]}"#;
+        for (body, expected) in [
+            (
+                r#""aeon:x" = {leaf = 3}
+out = ~>["aeon:x"].leaf.@.meta"#,
+                &["MISSING_REFERENCE_TARGET"][..],
+            ),
+            (
+                r#""aeon:items" = [3]
+out = ~>["aeon:items"][0].@.meta"#,
+                &["MISSING_REFERENCE_TARGET"][..],
+            ),
+            (
+                r#"out = ~>["aeon:x"].leaf.@.meta
+"aeon:x" = {leaf@{meta = 9} = 3}"#,
+                &["FORWARD_REFERENCE"][..],
+            ),
+            (
+                r#"out = ~>["aeon:x"].leaf
+"aeon:x" = {leaf = 3}"#,
+                &["FORWARD_REFERENCE"][..],
+            ),
+            (
+                r#""aeon:x" = {leaf@{meta = 9} = 3}
+out = ~>["aeon:x"].leaf.@.meta"#,
+                &[][..],
+            ),
+            (
+                r#""aeon:x" = 3
+out = ~>["aeon:x"].leaf.@.meta"#,
+                &[][..],
+            ),
+        ] {
+            let source = format!("{header}\n{body}");
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        CompileOptions {
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    let codes = result
+                        .errors
+                        .iter()
+                        .map(|error| error.code.as_str())
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        codes, expected,
+                        "{source}\n{implementation:?}, validation_only={validation_only}: {:?}",
+                        result.errors
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn validation_only_reports_duplicates_within_the_same_plane_after_an_overlap() {
         let source = r#""aeon:x" = [1]
 aeon:x = [2]
