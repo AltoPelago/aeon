@@ -81,9 +81,10 @@ The default seed is 1729 and the default workload is 32 pairs. A run accepts
 1–128 pairs, or one zero-based case index. Set `PYTHON` when `python3` selects
 an older or different interpreter.
 
-The runner asks Cargo where it placed the debug build, including when
-`CARGO_TARGET_DIR` is set. Set `AEON_52_CARDS_RUST_ADAPTER` to the path of an
-explicitly selected adapter, such as a release build.
+The runner uses Cargo to launch the locked debug example offline, honoring
+`CARGO_TARGET_DIR`, `CARGO_BUILD_TARGET`, and the workspace's Cargo configuration.
+Set `AEON_52_CARDS_RUST_ADAPTER` to run an explicitly selected binary, such as
+one built with a one-off `--target` or a release profile.
 
 Each pair renders the same model with different layout and an ordinary
 comment. The model contains a nested indexed target, an attribute target,
@@ -97,11 +98,13 @@ datatypes and values.
 On failure, the runner prints the seed, case index, runtime, original and
 reduced sources, expected graphs and mismatch. Reduction preserves both
 reference targets and requires the original mismatch or diagnostic to recur.
+Byte mismatches retain the full affected binding for context.
 When one runtime rejects the authored input, the other two must accept both
 variants before a reduction is kept.
 `--check-detector` verifies that all three runtimes detect a deliberately wrong
-expected reference kind and checks reduction against competing graph mismatches
-and authored rejection. The bounded CI run includes these controls.
+expected reference kind and checks reduction against competing graph mismatches,
+authored rejection, and byte mismatches that move between bindings. The bounded
+CI run includes these controls.
 
 ## Design
 

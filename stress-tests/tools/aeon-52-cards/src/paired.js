@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual, parseArgs } from 'node:util';
 import { adaptTypeScriptAssignmentEventsToPortableAes } from '../../../../implementations/typescript/packages/aes/dist/index.js';
@@ -14,8 +13,8 @@ const generator = '52-cards-reference-pairs-v1';
 const maxPairs = 128;
 const python = process.env.PYTHON ?? 'python3';
 const pythonAdapter = fileURLToPath(new URL('./evaluation/reference-pairs.py', import.meta.url));
-const rustExample = process.platform === 'win32' ? 'reference_pairs.exe' : 'reference_pairs';
 const rustWorkspace = fileURLToPath(new URL('../../../../implementations/rust/', import.meta.url));
+const rustAdapter = process.env.AEON_52_CARDS_RUST_ADAPTER;
 const { values: args } = parseArgs({
     options: {
         seed: { type: 'string', default: '1729' },
@@ -30,19 +29,6 @@ function integerOption(name, lower, upper) {
     const value = Number(raw);
     assert.ok(/^\d+$/.test(raw) && value >= lower && value <= upper, `--${name} must be an integer from ${lower} to ${upper}`);
     return value;
-}
-
-function findRustAdapter() {
-    const explicitPath = process.env.AEON_52_CARDS_RUST_ADAPTER;
-    if (explicitPath) return resolve(explicitPath);
-
-    // Use the same working directory as the documented cargo build so Cargo
-    // resolves relative target directories and local configuration identically.
-    const { target_directory: targetDirectory } = JSON.parse(execFileSync(
-        'cargo', ['metadata', '--format-version', '1', '--no-deps', '--offline'],
-        { cwd: rustWorkspace, encoding: 'utf8', timeout: 30_000 },
-    ));
-    return join(targetDirectory, 'debug', 'examples', rustExample);
 }
 
 function compileGraph(source) {
@@ -110,8 +96,9 @@ function checkRuntime(runtime, pair, expected) {
     return null;
 }
 
-function runAdapter(command, options, input) {
+function runAdapter(command, options, input, cwd) {
     return JSON.parse(execFileSync(command, options, {
+        cwd,
         input,
         encoding: 'utf8',
         timeout: 30_000,
@@ -120,7 +107,11 @@ function runAdapter(command, options, input) {
 }
 
 function runRust(input) {
-    return runAdapter(rustAdapter, [], input);
+    if (rustAdapter) return runAdapter(resolve(rustAdapter), [], input);
+    return runAdapter(
+        'cargo', ['run', '--locked', '--offline', '--quiet', '-p', 'aeon-canonical', '--example', 'reference_pairs'],
+        input, rustWorkspace,
+    );
 }
 
 function evaluate(pairs, inspectRust = runRust) {
@@ -149,9 +140,23 @@ function evaluate(pairs, inspectRust = runRust) {
     return { pythonVersion: pythonResult.version, rustVersion: rustResult.version, results };
 }
 
-function differingLines(expected, actual) {
-    const wanted = expected.split('\n');
-    const observed = actual.split('\n');
+function canonicalSections(text, model) {
+    // The pilot renders bare, distinct root keys. Keep the entire affected
+    // binding so identical line edits at different positions cannot match.
+    const keys = ['aeon:header', `a${model.index}`, `z${model.index}`];
+    if (model.competitor !== null) keys.push(`m${model.index}`);
+    const anchors = [...text.matchAll(/^[ \t]*(aeon:header|[amz]\d+)(?=[ \t:@=])/gm)];
+    if (!isDeepStrictEqual(anchors.map((match) => match[1]).sort(), keys.sort())) return null;
+    return [
+        text.slice(0, anchors[0].index),
+        ...anchors.map(({ index }, next) => text.slice(index, anchors[next + 1]?.index)),
+    ];
+}
+
+function differingSections(expected, actual, model) {
+    const wanted = canonicalSections(expected, model);
+    const observed = canonicalSections(actual, model);
+    if (!wanted || !observed) return [expected, actual];
     const limit = Math.min(wanted.length, observed.length);
     let start = 0;
     while (start < limit && wanted[start] === observed[start]) start += 1;
@@ -160,19 +165,19 @@ function differingLines(expected, actual) {
     return [wanted.slice(start, wanted.length - tail), observed.slice(start, observed.length - tail)];
 }
 
-function failureWitness(failure) {
+function failureWitness(failure, model) {
     if (failure.errors) {
         // Source positions can move when an unrelated binding is removed.
         return failure.errors.map(({ code, path, phase, message }) => ({ code, path, phase, message }));
     }
     if (failure.address !== undefined) return [failure.address, failure.expected, failure.actual];
-    return differingLines(failure.expected, failure.actual);
+    return differingSections(failure.expected, failure.actual, model);
 }
 
 function minimize(model, failure, render, evaluatePairs = evaluate) {
     let smallest = model;
     let pair = render(model);
-    const witness = failureWitness(failure);
+    const witness = failureWitness(failure, model);
     // Keep both reference targets, the reference-bearing list and every index
     // up to the selected target. Rerender the same reduced model twice.
     for (const change of [
@@ -188,7 +193,7 @@ function minimize(model, failure, render, evaluatePairs = evaluate) {
             accepted || (failure.kind === 'authored-rejected' && runtime === failure.runtime));
         const repeated = result.failures.find((observed) =>
             observed.kind === failure.kind && observed.runtime === failure.runtime && observed.variant === failure.variant
-            && isDeepStrictEqual(failureWitness(observed), witness));
+            && isDeepStrictEqual(failureWitness(observed, candidate), witness));
         if (inputsAccepted && repeated) {
             smallest = candidate;
             pair = candidatePair;
@@ -198,10 +203,10 @@ function minimize(model, failure, render, evaluatePairs = evaluate) {
     return { model: smallest, ...pair, failure };
 }
 
-function withRustControl(changeAuthored) {
+function withRustControl(changeBase) {
     return (pairs) => evaluate(pairs, (input) => {
         const result = runRust(input);
-        for (const [base] of result.pairs) changeAuthored(base.authored);
+        for (const [base] of result.pairs) changeBase(base);
         return result;
     });
 }
@@ -210,15 +215,21 @@ function checkReductionControls(model) {
     const competitorPath = `$.m${model.index}`;
     const labelPath = `$.z${model.index}.@.label`;
     const markerPath = `$.z${model.index}.@.marker`;
-    const unrelatedMismatch = withRustControl(({ records }) => {
+    const unrelatedMismatch = withRustControl(({ authored: { records } }) => {
         for (const record of records) {
             if (record.path === competitorPath || record.path === labelPath) record.value += ' wrong';
         }
     });
-    const authoredRejection = withRustControl((authored) => {
+    const authoredRejection = withRustControl(({ authored }) => {
         const code = authored.records.some(({ path }) => path === markerPath)
             ? 'PILOT_REJECTION' : 'PILOT_DIFFERENT_REJECTION';
         authored.errors.push({ code, path: `$.a${model.index}`, message: 'Injected authored diagnostic' });
+    });
+    const movingByteMismatch = withRustControl(({ authored, fixed }) => {
+        const key = authored.records.some(({ path }) => path === competitorPath) ? `z${model.index}` : `a${model.index}`;
+        const binding = new RegExp(`^${key}[:@][^\\n]*\\n[\\s\\S]*?^}`, 'm');
+        assert.match(fixed.text, binding);
+        fixed.text = fixed.text.replace(binding, '$& ');
     });
     const pair = renderReferencePair(model);
 
@@ -228,7 +239,7 @@ function checkReductionControls(model) {
     const reducedGraph = minimize(model, graphFailure, renderReferencePair, unrelatedMismatch);
     assert.equal(reducedGraph.model.competitor, model.competitor, 'keep the binding with the reported mismatch');
     assert.equal(reducedGraph.model.marker, null, 'remove an unrelated attribute');
-    assert.deepEqual(failureWitness(reducedGraph.failure), failureWitness(graphFailure));
+    assert.deepEqual(failureWitness(reducedGraph.failure, reducedGraph.model), failureWitness(graphFailure, model));
 
     const [rejectionResult] = authoredRejection([pair]).results;
     const [rejection] = rejectionResult.failures;
@@ -236,7 +247,14 @@ function checkReductionControls(model) {
     const reducedRejection = minimize(model, rejection, renderReferencePair, authoredRejection);
     assert.equal(reducedRejection.model.competitor, null, 'reduce when the other runtimes accept both inputs');
     assert.equal(reducedRejection.model.marker, model.marker, 'keep the attribute required by the original diagnostic');
-    assert.deepEqual(failureWitness(reducedRejection.failure), failureWitness(rejection));
+    assert.deepEqual(failureWitness(reducedRejection.failure, reducedRejection.model), failureWitness(rejection, model));
+
+    const [byteResult] = movingByteMismatch([pair]).results;
+    const [byteFailure] = byteResult.failures;
+    assert.equal(byteFailure.kind, 'fixed-point-bytes');
+    const reducedBytes = minimize(model, byteFailure, renderReferencePair, movingByteMismatch);
+    assert.equal(reducedBytes.model.competitor, model.competitor, 'keep the binding context of the original byte mismatch');
+    assert.deepEqual(failureWitness(reducedBytes.failure, reducedBytes.model), failureWitness(byteFailure, model));
 }
 
 const seed = integerOption('seed', 0, 0xffffffff);
@@ -246,8 +264,6 @@ const indexes = args['case-index'] === undefined
     : [integerOption('case-index', 0, maxPairs - 1)];
 const models = indexes.map((index) => buildReferencePairModel(seed, index));
 const pairs = models.map(renderReferencePair);
-const rustAdapter = findRustAdapter();
-assert.ok(existsSync(rustAdapter), `Rust adapter missing at ${rustAdapter}. Run cargo build --locked -p aeon-canonical --example reference_pairs in implementations/rust.`);
 const { pythonVersion, rustVersion, results } = evaluate(pairs);
 const failed = results.findIndex(({ failures }) => failures.length > 0);
 const context = { property, generator, seed, node: process.version, python: pythonVersion, rust: rustVersion };
@@ -283,6 +299,6 @@ if (failed !== -1) {
         assert.deepEqual(replay.failures.find(({ runtime }) => runtime === 'Rust'), reduced.failure);
         checkReductionControls(model);
         console.log(`52-Cards detector control: all three runtimes detected the wrong reference kind and the Rust failure was reduced (seed ${seed}, case ${model.index}).`);
-        console.log('52-Cards reduction controls: original graph mismatch and authored diagnostic preserved.');
+        console.log('52-Cards reduction controls: graph mismatch, authored diagnostic, and byte mismatch location preserved.');
     }
 }
