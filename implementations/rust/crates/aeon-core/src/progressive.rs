@@ -2602,6 +2602,61 @@ mod tests {
     }
 
     #[test]
+    fn typed_bindings_check_object_attribute_targets_in_all_compile_paths() {
+        for datatype in ["object", "number"] {
+            let source = format!(
+                "source@{{metadata = {{leaf = 7}}}}:number = 0\nitem:{datatype} = ~>source.@.metadata\n"
+            );
+            for options in [
+                CompileOptions::default(),
+                CompileOptions {
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+                CompileOptions {
+                    include_event_annotations: false,
+                    include_header: false,
+                    emit_binding_projections: false,
+                    shallow_event_values: true,
+                    ..CompileOptions::default()
+                },
+            ] {
+                let (_, streamed) = collect_progressive(&source, &options, 2);
+                assert!(streamed.parse_valid);
+                assert!(!streamed.retention_fallback);
+
+                for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia]
+                {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        options.clone(),
+                        implementation,
+                    );
+                    assert_eq!(
+                        result.errors, streamed.prevalidation_errors,
+                        "{implementation:?}"
+                    );
+                    if datatype == "object" {
+                        assert!(
+                            result.errors.is_empty(),
+                            "{implementation:?}: {:?}",
+                            result.errors
+                        );
+                    } else {
+                        let [error] = result.errors.as_slice() else {
+                            panic!("{implementation:?}: {:?}", result.errors);
+                        };
+                        assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                        assert_eq!(error.path.as_deref(), Some("$.item"));
+                        assert!(error.message.ends_with("got ObjectNode"), "{error:?}");
+                        assert!(result.events.is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn progressive_batches_match_final_event_order_and_payloads() {
         let source = concat!(
             "aeon:header = { mode = \"transport\", profile = \"core\" }\n",
@@ -2970,12 +3025,17 @@ mod tests {
     #[test]
     fn compact_mode_discards_source_while_matching_validation_only_results() {
         let cases = [
-            ("valid", "first = 1\nsecond:string = \"two\""),
-            ("semantic invalidation", "first = 1\ncopy = ~missing"),
-            ("syntax invalidation", "first = 1\nbroken = [2,,3]"),
+            ("valid", "first = 1\nsecond:string = \"two\"", Some(2)),
+            (
+                "object-valued attribute target",
+                "source@{metadata = {leaf = 7}}:number = 0\nitem:object = ~>source.@.metadata",
+                Some(2),
+            ),
+            ("semantic invalidation", "first = 1\ncopy = ~missing", None),
+            ("syntax invalidation", "first = 1\nbroken = [2,,3]", None),
         ];
 
-        for (name, source) in cases {
+        for (name, source, expected_event_count) in cases {
             let validation_options = CompileOptions {
                 shallow_event_values: true,
                 emit_binding_projections: false,
@@ -3016,12 +3076,11 @@ mod tests {
                     result,
                     event_count,
                 } => {
-                    assert_eq!(name, "valid");
-                    assert_eq!(event_count, 2);
+                    assert_eq!(Some(event_count), expected_event_count, "{name}");
                     assert_eq!(result, expected);
                 }
                 ProgressiveDisposition::Invalidated { result, .. } => {
-                    assert_ne!(name, "valid");
+                    assert_eq!(expected_event_count, None, "{name}");
                     assert_eq!(result, expected);
                 }
             }

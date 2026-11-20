@@ -692,6 +692,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     let mut terminal_values = HashMap::new();
+    let mut authored_targets = AuthoredDatatypeTargets::new(bindings);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
         let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
@@ -709,8 +710,17 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 continue;
             }
             let resolved_value =
-                resolve_reference_value(&event.value, events, event_lookup, &mut terminal_values)
-                    .unwrap_or(&event.value);
+                resolve_reference_chain(&event.value, &mut terminal_values, |segments| {
+                    if segments
+                        .iter()
+                        .any(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+                    {
+                        authored_targets.lookup(segments)
+                    } else {
+                        resolve_reference_target_value(segments, events, event_lookup)
+                    }
+                })
+                .unwrap_or(&event.value);
             if let Some(error) = datatype_value_error(
                 datatype,
                 &CompactDatatypeValue::from_value(resolved_value),
@@ -724,7 +734,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
         }
     }
     validate_resolved_attribute_datatypes(
-        bindings,
+        &mut authored_targets,
         mode,
         datatype_policy,
         max_separator_depth,
@@ -956,6 +966,7 @@ pub(crate) fn validate_datatypes_light(
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     let mut terminal_values = HashMap::new();
+    let mut authored_targets = AuthoredDatatypeTargets::new(bindings);
     for event in events {
         if let Some(datatype) = &event.datatype {
             if let Some(error) = validate_datatype_shape_light(
@@ -988,13 +999,18 @@ pub(crate) fn validate_datatypes_light(
                 );
                 continue;
             }
-            let resolved_value = resolve_reference_value_light(
-                &event.value,
-                events,
-                event_lookup,
-                &mut terminal_values,
-            )
-            .unwrap_or(&event.value);
+            let resolved_value =
+                resolve_reference_chain(&event.value, &mut terminal_values, |segments| {
+                    if segments
+                        .iter()
+                        .any(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+                    {
+                        authored_targets.lookup(segments)
+                    } else {
+                        resolve_reference_target_value_light(segments, events, event_lookup)
+                    }
+                })
+                .unwrap_or(&event.value);
             if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
             {
                 errors.push(
@@ -1039,7 +1055,7 @@ pub(crate) fn validate_datatypes_light(
         }
     }
     validate_resolved_attribute_datatypes(
-        bindings,
+        &mut authored_targets,
         mode,
         datatype_policy,
         max_separator_depth,
@@ -1089,32 +1105,10 @@ pub(crate) fn effective_datatype_policy(
     }
 }
 
-fn resolve_reference_value<'a>(
-    value: &'a Value,
-    events: &'a [AssignmentEvent],
-    event_lookup: &BTreeMap<String, usize>,
-    terminal_values: &mut HashMap<*const Value, &'a Value>,
-) -> Option<&'a Value> {
-    resolve_reference_chain(value, terminal_values, |segments| {
-        resolve_reference_target_value(segments, events, event_lookup)
-    })
-}
-
-fn resolve_reference_value_light<'a>(
-    value: &'a Value,
-    events: &'a [ValidationEvent],
-    event_lookup: &BTreeMap<String, usize>,
-    terminal_values: &mut HashMap<*const Value, &'a Value>,
-) -> Option<&'a Value> {
-    resolve_reference_chain(value, terminal_values, |segments| {
-        resolve_reference_target_value_light(segments, events, event_lookup)
-    })
-}
-
 fn resolve_reference_chain<'a>(
     mut value: &'a Value,
     terminal_values: &mut HashMap<*const Value, &'a Value>,
-    lookup: impl Fn(&[ReferenceSegment]) -> Option<&'a Value>,
+    mut lookup: impl FnMut(&[ReferenceSegment]) -> Option<&'a Value>,
 ) -> Option<&'a Value> {
     let mut seen = HashSet::new();
     loop {
@@ -1182,9 +1176,12 @@ pub fn resolve_assignment_reference_target<'a>(
         if remainder.is_empty() {
             return Some(AssignmentReferenceTarget::Value(&event.value));
         }
-        if let Some(value) =
-            resolve_reference_remainder_target(&event.value, Some(&event.annotations), remainder)
-        {
+        if let Some(value) = resolve_reference_remainder_target(
+            &event.value,
+            Some(&event.annotations),
+            remainder,
+            &mut find_object_member,
+        ) {
             return Some(value);
         }
     }
@@ -1235,14 +1232,19 @@ fn resolve_reference_remainder<'a>(
     annotations: Option<&'a BTreeMap<String, AttributeValue>>,
     remainder: &[ReferenceSegment],
 ) -> Option<&'a Value> {
-    resolve_reference_remainder_target(value, annotations, remainder)
+    resolve_reference_remainder_target(value, annotations, remainder, &mut find_object_member)
         .and_then(AssignmentReferenceTarget::value)
+}
+
+fn find_object_member<'a>(bindings: &'a [Binding], key: &str) -> Option<&'a Binding> {
+    bindings.iter().find(|binding| binding.key == key)
 }
 
 fn resolve_reference_remainder_target<'a>(
     value: &'a Value,
     annotations: Option<&'a BTreeMap<String, AttributeValue>>,
     remainder: &[ReferenceSegment],
+    member: &mut impl FnMut(&'a [Binding], &str) -> Option<&'a Binding>,
 ) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
         return Some(AssignmentReferenceTarget::Value(value));
@@ -1256,31 +1258,40 @@ fn resolve_reference_remainder_target<'a>(
         let annotations = annotations
             .filter(|entries| !entries.is_empty())
             .or(Some(attributes));
-        return resolve_reference_remainder_target(payload, annotations, remainder);
+        return resolve_reference_remainder_target(payload, annotations, remainder, member);
     }
     match &remainder[0] {
         ReferenceSegment::Attr(key) => {
             let attr = annotations?.get(key)?;
-            resolve_reference_remainder_from_attr_target(attr, &remainder[1..])
+            resolve_reference_remainder_from_attr_target(attr, &remainder[1..], member)
         }
         ReferenceSegment::Key(key) => {
             let Value::ObjectNode { bindings } = value else {
                 return None;
             };
-            let binding = bindings.iter().find(|candidate| candidate.key == *key)?;
+            let binding = member(bindings, key)?;
             resolve_reference_remainder_target(
                 &binding.value,
                 Some(&binding.attributes),
                 &remainder[1..],
+                member,
             )
         }
         ReferenceSegment::Index(index) => match value {
             Value::ListNode { items } | Value::TupleLiteral { items } => {
-                resolve_reference_remainder_target(items.get(*index)?, None, &remainder[1..])
+                resolve_reference_remainder_target(
+                    items.get(*index)?,
+                    None,
+                    &remainder[1..],
+                    member,
+                )
             }
-            Value::NodeLiteral { children, .. } => {
-                resolve_reference_remainder_target(children.get(*index)?, None, &remainder[1..])
-            }
+            Value::NodeLiteral { children, .. } => resolve_reference_remainder_target(
+                children.get(*index)?,
+                None,
+                &remainder[1..],
+                member,
+            ),
             _ => None,
         },
     }
@@ -1289,6 +1300,7 @@ fn resolve_reference_remainder_target<'a>(
 fn resolve_reference_remainder_from_attr_target<'a>(
     attr: &'a AttributeValue,
     remainder: &[ReferenceSegment],
+    member: &mut impl FnMut(&'a [Binding], &str) -> Option<&'a Binding>,
 ) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
         return Some(AssignmentReferenceTarget::Attribute(attr));
@@ -1297,16 +1309,17 @@ fn resolve_reference_remainder_from_attr_target<'a>(
         ReferenceSegment::Attr(key) => resolve_reference_remainder_from_attr_target(
             attr.nested_attrs.get(key)?,
             &remainder[1..],
+            member,
         ),
         ReferenceSegment::Key(key) => {
-            if let Some(member) = attr.object_members.get(key) {
-                resolve_reference_remainder_from_attr_target(member, &remainder[1..])
+            if let Some(entry) = attr.object_members.get(key) {
+                resolve_reference_remainder_from_attr_target(entry, &remainder[1..], member)
             } else {
-                resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder)
+                resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder, member)
             }
         }
         ReferenceSegment::Index(_) => {
-            resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder)
+            resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder, member)
         }
     }
 }
@@ -1888,6 +1901,53 @@ mod tests {
     }
 
     #[test]
+    fn authored_datatype_targets_reuse_one_index_for_distinct_object_members() {
+        let binding = |key: String, value: Value| crate::Binding {
+            key,
+            is_header: false,
+            structural_id: None,
+            datatype: None,
+            attributes: BTreeMap::new(),
+            attribute_order: Vec::new(),
+            value,
+            span: Span::zero(),
+        };
+        for width in [64, 128] {
+            let members = (0..width)
+                .map(|index| {
+                    binding(
+                        format!("member{index}"),
+                        Value::NumberLiteral {
+                            raw: index.to_string(),
+                        },
+                    )
+                })
+                .collect();
+            let roots = [binding(
+                "source".into(),
+                Value::ObjectNode { bindings: members },
+            )];
+            let mut targets = AuthoredDatatypeTargets::new(&roots);
+            assert!(targets.object_members.is_empty());
+            for index in (0..width).rev() {
+                let target = [
+                    ReferenceSegment::Key("source".into()),
+                    ReferenceSegment::Key(format!("member{index}")),
+                ];
+                let expected = Value::NumberLiteral {
+                    raw: index.to_string(),
+                };
+                assert_eq!(targets.lookup(&target), Some(&expected));
+                assert_eq!(targets.object_members.len(), 1);
+                assert_eq!(
+                    targets.object_members.values().next().map(HashMap::len),
+                    Some(width)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
@@ -2067,8 +2127,59 @@ impl AttributeDatatypeCheck {
     }
 }
 
+struct AuthoredDatatypeTargets<'a> {
+    bindings: &'a [Binding],
+    roots: Option<BTreeMap<&'a str, &'a Binding>>,
+    object_members: HashMap<*const Binding, HashMap<&'a str, &'a Binding>>,
+}
+
+impl<'a> AuthoredDatatypeTargets<'a> {
+    fn new(bindings: &'a [Binding]) -> Self {
+        Self {
+            bindings,
+            roots: None,
+            object_members: HashMap::new(),
+        }
+    }
+
+    fn lookup(&mut self, segments: &[ReferenceSegment]) -> Option<&'a Value> {
+        let [ReferenceSegment::Key(root), remainder @ ..] = segments else {
+            return None;
+        };
+        let roots = self.roots.get_or_insert_with(|| {
+            self.bindings
+                .iter()
+                .map(|binding| (binding.key.as_str(), binding))
+                .collect()
+        });
+        let binding = roots.get(root.as_str())?;
+        let object_members = &mut self.object_members;
+        let target = resolve_reference_remainder_target(
+            &binding.value,
+            Some(&binding.attributes),
+            remainder,
+            &mut |bindings, key| {
+                let members = object_members.entry(bindings.as_ptr()).or_insert_with(|| {
+                    let mut members = HashMap::with_capacity(bindings.len());
+                    for binding in bindings {
+                        // Keep the first match, including in recovery with duplicate keys.
+                        members.entry(binding.key.as_str()).or_insert(binding);
+                    }
+                    members
+                });
+                members.get(key).copied()
+            },
+        )?;
+        // Attribute objects have a member map rather than a scalar value slot.
+        static OBJECT: Value = Value::ObjectNode {
+            bindings: Vec::new(),
+        };
+        Some(target.value().unwrap_or(&OBJECT))
+    }
+}
+
 fn validate_resolved_attribute_datatypes(
-    bindings: &[Binding],
+    authored_targets: &mut AuthoredDatatypeTargets<'_>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2077,39 +2188,18 @@ fn validate_resolved_attribute_datatypes(
 ) {
     let mut checks = Vec::new();
     collect_attribute_datatype_checks(
-        bindings,
+        authored_targets.bindings,
         mode,
         Some(datatype_policy),
         max_separator_depth,
         max_generic_depth,
         &mut checks,
     );
-    // Resolve against the authored bindings even when event metadata is omitted.
-    let mut roots = None;
     let mut terminal_values = HashMap::new();
     for check in &checks {
         errors.extend(check.diagnostic(|value| {
-            let roots: &BTreeMap<_, _> = roots.get_or_insert_with(|| {
-                bindings
-                    .iter()
-                    .map(|binding| (binding.key.as_str(), binding))
-                    .collect()
-            });
             let resolved = resolve_reference_chain(value, &mut terminal_values, |segments| {
-                let [ReferenceSegment::Key(root), rest @ ..] = segments else {
-                    return None;
-                };
-                let binding = roots.get(root.as_str())?;
-                let target = resolve_reference_remainder_target(
-                    &binding.value,
-                    Some(&binding.attributes),
-                    rest,
-                )?;
-                // Attribute objects store their members separately from scalar values.
-                static OBJECT: Value = Value::ObjectNode {
-                    bindings: Vec::new(),
-                };
-                Some(target.value().unwrap_or(&OBJECT))
+                authored_targets.lookup(segments)
             })
             .unwrap_or(value);
             CompactDatatypeValue::from_value(resolved)
