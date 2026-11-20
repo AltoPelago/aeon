@@ -730,7 +730,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
-    let mut terminal_values = HashMap::new();
+    let mut references = DatatypeReferenceCache::default();
     let mut authored_targets = AuthoredDatatypeTargets::new(bindings, recovery);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
         let path = path.as_ref();
@@ -748,17 +748,15 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
-            let resolved_value =
-                resolve_reference_chain(&event.value, &mut terminal_values, |segments| {
-                    resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
-                        let event = &events[*event_lookup.get(path)?];
-                        (event.source_plane == SourcePlane::Body).then_some(&event.value)
-                    })
+            let resolved_value = references.resolve(&event.value, |segments| {
+                resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
+                    let event = &events[*event_lookup.get(path)?];
+                    (event.source_plane == SourcePlane::Body).then_some(&event.value)
                 })
-                .unwrap_or(&event.value);
+            });
             if let Some(error) = datatype_value_error(
                 datatype,
-                &CompactDatatypeValue::from_value(resolved_value),
+                &resolved_value,
                 path,
                 event.span,
                 mode,
@@ -866,10 +864,14 @@ impl CompactDatatypeValue {
             Value::HexLiteral { raw } => Self::Hex(has_valid_literal_underscores(raw)),
             Value::SeparatorLiteral { .. } => Self::Separator,
             Value::SymbolicLiteral { .. } => Self::Symbolic,
-            Value::EncodingLiteral { raw } => Self::Encoding {
-                literal_valid: has_valid_encoding_literal(raw),
-                base64_valid: has_valid_base64url_literal(raw),
-            },
+            Value::EncodingLiteral { raw } => {
+                #[cfg(test)]
+                tests::ENCODING_CLASSIFICATIONS.with(|count| count.set(count.get() + 1));
+                Self::Encoding {
+                    literal_valid: has_valid_encoding_literal(raw),
+                    base64_valid: has_valid_base64url_literal(raw),
+                }
+            }
             Value::RadixLiteral { raw } => Self::Radix(has_valid_radix_literal(raw)),
             Value::DateLiteral { .. } => Self::Date,
             Value::DateTimeLiteral { raw } => {
@@ -1000,7 +1002,7 @@ pub(crate) fn validate_datatypes_light(
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
-    let mut terminal_values = HashMap::new();
+    let mut references = DatatypeReferenceCache::default();
     let mut authored_targets = AuthoredDatatypeTargets::new(bindings, false);
     for event in events {
         if let Some(datatype) = &event.datatype {
@@ -1034,15 +1036,14 @@ pub(crate) fn validate_datatypes_light(
                 );
                 continue;
             }
-            let resolved_value =
-                resolve_reference_chain(event.value, &mut terminal_values, |segments| {
-                    resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
-                        let event = &events[*event_lookup.get(path)?];
-                        (event.source_plane == SourcePlane::Body).then_some(event.value)
-                    })
+            let resolved_value = references.resolve(event.value, |segments| {
+                resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
+                    let event = &events[*event_lookup.get(path)?];
+                    (event.source_plane == SourcePlane::Body).then_some(event.value)
                 })
-                .unwrap_or(event.value);
-            if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
+            });
+            if datatype_base(datatype) == "switch"
+                && matches!(resolved_value, CompactDatatypeValue::Toggle)
             {
                 errors.push(
                     Diagnostic::new(
@@ -1059,7 +1060,7 @@ pub(crate) fn validate_datatypes_light(
             }
             if !is_reserved_datatype(datatype)
                 && mode == BehaviorMode::Strict
-                && resolved_value.value_kind() == "ToggleLiteral"
+                && matches!(resolved_value, CompactDatatypeValue::Toggle)
             {
                 errors.push(
                     Diagnostic::new(
@@ -1074,7 +1075,7 @@ pub(crate) fn validate_datatypes_light(
                 );
                 continue;
             }
-            if !datatype_matches_value(datatype, resolved_value) {
+            if !datatype_matches_compact_value(datatype, &resolved_value) {
                 let message =
                     datatype_mismatch_message(&event.path, datatype, resolved_value.value_kind());
                 errors.push(
@@ -1133,6 +1134,40 @@ pub(crate) fn effective_datatype_policy(
             BehaviorMode::Transport | BehaviorMode::Custom => DatatypePolicy::AllowCustom,
             BehaviorMode::Strict => DatatypePolicy::ReservedOnly,
         },
+    }
+}
+
+#[derive(Default)]
+struct DatatypeReferenceCache<'a> {
+    terminals: HashMap<*const Value, &'a Value>,
+    literal_facts: HashMap<*const Value, CompactDatatypeValue>,
+}
+
+impl<'a> DatatypeReferenceCache<'a> {
+    fn resolve(
+        &mut self,
+        value: &'a Value,
+        lookup: impl FnMut(&[ReferenceSegment]) -> Option<&'a Value>,
+    ) -> CompactDatatypeValue {
+        let resolved = resolve_reference_chain(value, &mut self.terminals, lookup).unwrap_or(value);
+        if !std::ptr::eq(value, resolved)
+            && matches!(
+                resolved,
+                Value::EncodingLiteral { .. }
+                    | Value::HexLiteral { .. }
+                    | Value::RadixLiteral { .. }
+                    | Value::DateTimeLiteral { .. }
+            )
+        {
+            // The same literal can terminate several chains. Its validity
+            // depends on the authored bytes, so classify it by identity once.
+            return self
+                .literal_facts
+                .entry(std::ptr::from_ref(resolved))
+                .or_insert_with(|| CompactDatatypeValue::from_value(resolved))
+                .clone();
+        }
+        CompactDatatypeValue::from_value(resolved)
     }
 }
 
@@ -1877,6 +1912,13 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
 mod tests {
     use super::*;
 
+    thread_local! {
+        pub(super) static ENCODING_CLASSIFICATIONS: std::cell::Cell<usize> =
+            const { std::cell::Cell::new(0) };
+        pub(super) static AUTHORED_SEQUENCE_READS: std::cell::Cell<usize> =
+            const { std::cell::Cell::new(0) };
+    }
+
     #[test]
     fn reference_chain_reuses_terminal_values_across_claims() {
         let count = 64;
@@ -1898,6 +1940,47 @@ mod tests {
             assert_eq!(terminal, values.first());
         }
         assert_eq!(lookups.get(), count);
+    }
+
+    #[test]
+    fn typed_attributes_classify_each_shared_encoding_once() {
+        use std::fmt::Write as _;
+
+        let payload = "A".repeat(8192);
+        let mut source = format!("valid = &{payload}TQ\ninvalid = &{payload}TR\nvia = ~>valid\n");
+        for index in 0..64 {
+            writeln!(
+                source,
+                "item{index}@{{encoded:encoding = ~>valid, base:base64 = ~via}} = 1"
+            )
+            .expect("append claims");
+        }
+        source.push_str("last@{bad:base64 = ~>invalid} = 1");
+
+        for validation_only in [false, true] {
+            ENCODING_CLASSIFICATIONS.with(|count| count.set(0));
+            let result = crate::compile(
+                &source,
+                crate::CompileOptions {
+                    shallow_event_values: validation_only,
+                    emit_binding_projections: !validation_only,
+                    include_header: !validation_only,
+                    include_event_annotations: !validation_only,
+                    ..crate::CompileOptions::default()
+                },
+            );
+            let [error] = result.errors.as_slice() else {
+                panic!("validation_only={validation_only}: {:?}", result.errors);
+            };
+            assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+            assert_eq!(error.path.as_deref(), Some("$.last.@.bad"));
+            assert!(error.message.ends_with("got EncodingLiteral"), "{error:?}");
+            assert_eq!(
+                ENCODING_CLASSIFICATIONS.with(std::cell::Cell::get),
+                2,
+                "validation_only={validation_only}"
+            );
+        }
     }
 
     #[test]
@@ -1971,6 +2054,7 @@ mod tests {
             assert_eq!(children.items.len(), 1);
             assert!(children.items.contains_key(&(width - 1)));
             assert!(children.members.is_none());
+            assert!(children.sequences.is_none());
         }
     }
 
@@ -2001,6 +2085,100 @@ mod tests {
         let children = owner.children.as_ref().expect("coverage is cached");
         assert_eq!(children.body_sequence_len, Some(4));
         assert!(children.items.is_empty());
+    }
+
+    #[test]
+    fn header_visibility_does_not_rescan_short_occurrences_for_covered_descendants() {
+        let width = 128;
+        let source = format!(
+            "aeon:x = [0]\n\"aeon:x\" = [{}{{leaf = 1}}]\n",
+            "{leaf = 1}, ".repeat(width - 1)
+        );
+        let mut bindings = crate::parse_document(&source, &crate::AeonCompileLimits::default())
+            .expect("header and body may overlap");
+        let mut shorter = bindings[1].clone();
+        shorter.value = Value::TupleLiteral {
+            items: vec![Value::NumberLiteral { raw: "1".into() }],
+        };
+        bindings.extend(std::iter::repeat_n(shorter, width));
+        let mut scalar = bindings[1].clone();
+        scalar.value = Value::NumberLiteral { raw: "2".into() };
+        bindings.extend(std::iter::repeat_n(scalar, width));
+
+        let root = CanonicalPath::root().member("aeon:x");
+        let mut paths = AuthoredPayloadPaths::for_header_collisions(&bindings);
+        AUTHORED_SEQUENCE_READS.with(|count| count.set(0));
+        for index in (0..width).rev() {
+            let slot = root.index(index);
+            assert!(paths.body_shadows_header(&slot.member("leaf")), "{index}");
+        }
+        assert_eq!(
+            AUTHORED_SEQUENCE_READS.with(std::cell::Cell::get),
+            2 * (bindings.len() - 1)
+        );
+    }
+
+    #[test]
+    fn sparse_sequence_traversal_yields_covering_occurrences_in_authored_order() {
+        let widths = [2, 3, 0, 2, 5, 1, 4, 3, 0, 4, 5];
+        let values: Vec<_> = widths
+            .iter()
+            .enumerate()
+            .map(|(ordinal, &width)| Value::ListNode {
+                items: vec![
+                    Value::NumberLiteral {
+                        raw: ordinal.to_string()
+                    };
+                    width
+                ],
+            })
+            .collect();
+        let sequences = AuthoredSequenceIndex::new(values.iter().map(|value| AuthoredPayload {
+            value,
+            annotations: None,
+            is_header: false,
+        }));
+        for slot in 0..=5 {
+            let actual: Vec<_> = sequences.items_at(slot).map(|item| item.value).collect();
+            let expected: Vec<_> = values
+                .iter()
+                .filter_map(|value| {
+                    let Value::ListNode { items } = value else {
+                        unreachable!("test constructs only lists");
+                    };
+                    items.get(slot)
+                })
+                .collect();
+            assert_eq!(actual, expected, "slot {slot}");
+        }
+    }
+
+    #[test]
+    fn indexed_collisions_keep_authored_order_and_unique_descendants() {
+        let limits = crate::AeonCompileLimits::default();
+        let mut bindings =
+            crate::parse_document("source = [@{meta = 1} = 0]", &limits).expect("short source");
+        bindings.extend(
+            crate::parse_document("source = [@{meta = 2} = 0, @{meta = 3} = 0]", &limits)
+                .expect("long source"),
+        );
+
+        for (recovery, shared) in [(true, "1"), (false, "2")] {
+            let mut targets = AuthoredDatatypeTargets::new(&bindings, recovery);
+            for (index, expected) in [(1, "3"), (0, shared)] {
+                let target = [
+                    ReferenceSegment::Key("source".into()),
+                    ReferenceSegment::Index(index),
+                    ReferenceSegment::Attr("meta".into()),
+                ];
+                assert_eq!(
+                    targets.lookup(&target),
+                    Some(&Value::NumberLiteral {
+                        raw: expected.into()
+                    })
+                );
+            }
+        }
     }
 
     #[test]
@@ -2208,6 +2386,8 @@ impl<'a> AuthoredPayload<'a> {
     }
 
     fn sequence(self) -> Option<&'a [Value]> {
+        #[cfg(test)]
+        tests::AUTHORED_SEQUENCE_READS.with(|count| count.set(count.get() + 1));
         match self.payload() {
             Value::ListNode { items } | Value::TupleLiteral { items } => Some(items),
             Value::NodeLiteral { children, .. } => Some(children),
@@ -2233,10 +2413,92 @@ struct AuthoredPayloadPath<'a> {
     children: Option<Box<AuthoredPayloadChildren<'a>>>,
 }
 
+struct AuthoredSequence<'a> {
+    items: &'a [Value],
+    is_header: bool,
+    left: Option<usize>,
+    right: Option<usize>,
+}
+
+impl<'a> AuthoredSequence<'a> {
+    fn item(&self, index: usize) -> AuthoredPayload<'a> {
+        AuthoredPayload {
+            value: &self.items[index],
+            annotations: None,
+            is_header: self.is_header,
+        }
+    }
+}
+
+// This Cartesian tree preserves authored order in an in-order traversal.
+// The longest sequence is at the root of each subtree, so a short root
+// rules out every sequence below it for the requested index.
+struct AuthoredSequenceIndex<'a> {
+    sequences: Vec<AuthoredSequence<'a>>,
+    root: Option<usize>,
+}
+
+impl<'a> AuthoredSequenceIndex<'a> {
+    fn new(owners: impl Iterator<Item = AuthoredPayload<'a>>) -> Self {
+        let mut sequences: Vec<AuthoredSequence<'a>> = Vec::new();
+        let mut right_branch: Vec<usize> = Vec::new();
+        for owner in owners {
+            let Some(items) = owner.sequence().filter(|items| !items.is_empty()) else {
+                continue;
+            };
+            let index = sequences.len();
+            let mut left = None;
+            while let Some(&parent) = right_branch.last()
+                && sequences[parent].items.len() < items.len()
+            {
+                left = right_branch.pop();
+            }
+            if let Some(&parent) = right_branch.last() {
+                sequences[parent].right = Some(index);
+            }
+            sequences.push(AuthoredSequence {
+                items,
+                is_header: owner.is_header,
+                left,
+                right: None,
+            });
+            right_branch.push(index);
+        }
+        Self {
+            sequences,
+            root: right_branch.first().copied(),
+        }
+    }
+
+    fn items_at(&self, index: usize) -> impl Iterator<Item = AuthoredPayload<'a>> + '_ {
+        let covers = move |branch: Option<usize>| {
+            branch.filter(|&sequence| index < self.sequences[sequence].items.len())
+        };
+        let mut next = covers(self.root);
+        let mut parents = Vec::new();
+        std::iter::from_fn(move || {
+            while let Some(current) = next {
+                let sequence = &self.sequences[current];
+                next = covers(sequence.left);
+                if next.is_some() {
+                    parents.push(current);
+                    continue;
+                }
+                next = covers(sequence.right);
+                return Some(sequence.item(index));
+            }
+            let sequence = &self.sequences[parents.pop()?];
+            next = covers(sequence.right);
+            Some(sequence.item(index))
+        })
+    }
+}
+
 #[derive(Default)]
 struct AuthoredPayloadChildren<'a> {
     members: Option<HashMap<&'a str, AuthoredPayloadPath<'a>>>,
     items: HashMap<usize, AuthoredPayloadPath<'a>>,
+    sequences: Option<AuthoredSequenceIndex<'a>>,
     body_sequence_len: Option<usize>,
 }
 
@@ -2312,10 +2574,15 @@ impl<'a> AuthoredPayloadPath<'a> {
         match children.items.entry(index) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
             Entry::Vacant(entry) => {
-                // Probe only this index in each occurrence of the parent.
-                let mut items = std::iter::once(self.first)
-                    .chain(self.later.iter().copied())
-                    .filter_map(|owner| owner.item(index));
+                if self.later.is_empty() {
+                    return Some(entry.insert(Self::new(self.first.item(index)?)));
+                }
+                let sequences = children.sequences.get_or_insert_with(|| {
+                    AuthoredSequenceIndex::new(
+                        std::iter::once(self.first).chain(self.later.iter().copied()),
+                    )
+                });
+                let mut items = sequences.items_at(index);
                 let mut path = Self::new(items.next()?);
                 for item in items {
                     path.add(item, recovery);
@@ -2492,14 +2759,10 @@ fn validate_resolved_attribute_datatypes(
         max_generic_depth,
         &mut checks,
     );
-    let mut terminal_values = HashMap::new();
+    let mut references = DatatypeReferenceCache::default();
     for check in &checks {
         errors.extend(check.diagnostic(|value| {
-            let resolved = resolve_reference_chain(value, &mut terminal_values, |segments| {
-                authored_targets.lookup(segments)
-            })
-            .unwrap_or(value);
-            CompactDatatypeValue::from_value(resolved)
+            references.resolve(value, |segments| authored_targets.lookup(segments))
         }));
     }
 }
