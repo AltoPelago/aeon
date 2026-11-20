@@ -4408,14 +4408,18 @@ z = 7"###,
                 .events
                 .iter()
                 .find(|event| event.key == "item")
-                .unwrap();
+                .expect("compiled document must contain the item binding");
             for (key, kind) in [
                 ("first", "PointerReference"),
                 ("second", "CloneReference"),
                 ("third", "PointerReference"),
             ] {
                 assert_eq!(
-                    item.annotations[key].value.as_ref().unwrap().value_kind(),
+                    item.annotations[key]
+                        .value
+                        .as_ref()
+                        .expect("typed attribute must retain its value")
+                        .value_kind(),
                     kind
                 );
             }
