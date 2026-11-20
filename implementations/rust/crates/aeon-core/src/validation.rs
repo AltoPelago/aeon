@@ -30,22 +30,24 @@ pub(crate) fn build_validation_event_lookup(
     errors: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, usize> {
     let mut event_lookup = BTreeMap::new();
-    let mut duplicate_indexes = Vec::new();
+    let mut planes_at_colliding_paths = HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        if event_lookup.insert(event.path.clone(), index).is_some() {
-            duplicate_indexes.push(index);
+        let path = event.path.as_str();
+        if let Some(previous) = event_lookup.insert(event.path.clone(), index) {
+            // Preserve lookup order for references. Track both planes only
+            // when a path repeats, including when their events are interleaved.
+            planes_at_colliding_paths.insert((events[previous].source_plane, path));
+            if !planes_at_colliding_paths.insert((event.source_plane, path)) {
+                errors.push(
+                    Diagnostic::new(
+                        "DUPLICATE_KEY",
+                        format!("Duplicate key: '{}'", key_from_path(path)),
+                    )
+                    .at_path(path)
+                    .with_span(event.span),
+                );
+            }
         }
-    }
-    for index in duplicate_indexes {
-        let path = &events[index].path;
-        errors.push(
-            Diagnostic::new(
-                "DUPLICATE_KEY",
-                format!("Duplicate key: '{}'", key_from_path(path)),
-            )
-            .at_path(path)
-            .with_span(events[index].span),
-        );
     }
     event_lookup
 }

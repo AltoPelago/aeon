@@ -4083,6 +4083,75 @@ value:number = ~>["aeon:x"][0].@.meta"#,
     }
 
     #[test]
+    fn validation_only_accepts_header_and_body_at_the_same_descendant_path() {
+        let source = r#"aeon:header = {
+  x = {leaf@{meta = "header"} = "header"}
+  items = [{leaf = "header"}]
+}
+"aeon:x" = {leaf@{meta = 7} = 3}
+"aeon:items" = [{leaf = 4}]
+value@{metadata:number = ~>["aeon:x"].leaf.@.meta}:number = ~>["aeon:x"].leaf
+indexed:number = ~>["aeon:items"][0].leaf"#;
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions {
+                    shallow_event_values: true,
+                    emit_binding_projections: false,
+                    include_header: false,
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+                implementation,
+            );
+            assert!(
+                result.errors.is_empty(),
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+        }
+    }
+
+    #[test]
+    fn validation_only_reports_duplicates_within_the_same_plane_after_an_overlap() {
+        let source = r#""aeon:x" = [1]
+aeon:x = [2]
+"aeon:x" = [3]"#;
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions {
+                    shallow_event_values: true,
+                    emit_binding_projections: false,
+                    include_header: false,
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+                implementation,
+            );
+            let diagnostics = result
+                .errors
+                .iter()
+                .map(|error| {
+                    (
+                        error.code.as_str(),
+                        error.path.as_deref(),
+                        error.span.map(|span| span.start.line),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                diagnostics,
+                [
+                    ("DUPLICATE_KEY", Some(r#"$.["aeon:x"]"#), Some(3)),
+                    ("DUPLICATE_KEY", Some(r#"$.["aeon:x"][0]"#), Some(3)),
+                ],
+                "{implementation:?}"
+            );
+        }
+    }
+
+    #[test]
     fn recovery_checks_datatypes_against_retained_duplicate_descendants() {
         let source = r#"source = {earlier = 1, shared@{metadata = 7}:number = 1}
 source = {child@{metadata = 7}:number = 2, shared@{metadata = "discarded"}:number = 2}

@@ -9,7 +9,8 @@ use crate::validation::{
     CompactDatatypeValue, CompactReferenceStep, append_compact_value_references,
 };
 use crate::{
-    AssignmentEvent, AttributeValue, Binding, BindingProjection, CanonicalPath, Span, Value,
+    AssignmentEvent, AttributeValue, Binding, BindingProjection, CanonicalPath, SourcePlane, Span,
+    Value,
 };
 
 #[derive(Debug, Clone)]
@@ -466,6 +467,7 @@ fn into_unwrapped_value(mut value: Value) -> Value {
 #[derive(Debug, Clone)]
 pub(crate) struct ValidationEvent {
     pub(crate) path: String,
+    pub(crate) source_plane: SourcePlane,
     pub(crate) datatype: Option<String>,
     pub(crate) annotations: BTreeMap<String, AttributeValue>,
     pub(crate) value: Value,
@@ -709,6 +711,7 @@ pub(crate) fn flatten_validation_document(
     flatten_validation_bindings(
         bindings,
         root,
+        SourcePlane::Body,
         shallow_event_values,
         track_references,
         &mut events,
@@ -881,6 +884,7 @@ fn track_compact_reference_sequence_item(
 fn flatten_validation_bindings(
     bindings: &[Binding],
     parent: &CanonicalPath,
+    inherited_source_plane: SourcePlane,
     shallow_event_values: bool,
     track_references: bool,
     events: &mut Vec<ValidationEvent>,
@@ -890,6 +894,11 @@ fn flatten_validation_bindings(
     events.reserve(bindings.iter().filter(|binding| !binding.is_header).count());
     let parent_path = format_path(parent);
     for binding in bindings {
+        let source_plane = if binding.is_header {
+            SourcePlane::Header
+        } else {
+            inherited_source_plane
+        };
         let path = parent.member(binding.key.clone());
         let path_text = render_child_member_path(&parent_path, &binding.key);
         if track_references {
@@ -908,6 +917,7 @@ fn flatten_validation_bindings(
         if !binding.is_header {
             events.push(ValidationEvent {
                 path: path_text.clone(),
+                source_plane,
                 datatype: binding.datatype.clone(),
                 annotations: binding.attributes.clone(),
                 value: clone_validation_value(&binding.value, shallow_event_values),
@@ -933,6 +943,7 @@ fn flatten_validation_bindings(
                     if !is_container_value(item) {
                         events.push(ValidationEvent {
                             path: render_child_index_path(&path_text, index),
+                            source_plane,
                             datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(
@@ -946,6 +957,7 @@ fn flatten_validation_bindings(
                         unwrap_typed_value(item),
                         &item_path,
                         binding.span,
+                        source_plane,
                         shallow_event_values,
                         track_references,
                         events,
@@ -971,6 +983,7 @@ fn flatten_validation_bindings(
                     if !is_container_value(item) {
                         events.push(ValidationEvent {
                             path: render_child_index_path(&path_text, index),
+                            source_plane,
                             datatype: typed_datatype(item),
                             annotations: BTreeMap::new(),
                             value: clone_validation_value(
@@ -984,6 +997,7 @@ fn flatten_validation_bindings(
                         unwrap_typed_value(item),
                         &item_path,
                         binding.span,
+                        source_plane,
                         shallow_event_values,
                         track_references,
                         events,
@@ -996,6 +1010,7 @@ fn flatten_validation_bindings(
                 flatten_validation_bindings(
                     nested,
                     &path,
+                    source_plane,
                     shallow_event_values,
                     track_references,
                     events,
@@ -1019,6 +1034,7 @@ fn flatten_validation_bindings(
                     }
                     events.push(ValidationEvent {
                         path: render_child_index_path(&path_text, index),
+                        source_plane,
                         datatype: typed_datatype(child),
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(
@@ -1031,6 +1047,7 @@ fn flatten_validation_bindings(
                         unwrap_typed_value(child),
                         &child_path,
                         binding.span,
+                        source_plane,
                         shallow_event_values,
                         track_references,
                         events,
@@ -1048,6 +1065,7 @@ fn flatten_validation_value(
     value: &Value,
     parent: &CanonicalPath,
     owner_span: Span,
+    source_plane: SourcePlane,
     shallow_event_values: bool,
     track_references: bool,
     events: &mut Vec<ValidationEvent>,
@@ -1058,6 +1076,7 @@ fn flatten_validation_value(
         Value::ObjectNode { bindings } => flatten_validation_bindings(
             bindings,
             parent,
+            source_plane,
             shallow_event_values,
             track_references,
             events,
@@ -1082,6 +1101,7 @@ fn flatten_validation_value(
                 if !is_container_value(item) {
                     events.push(ValidationEvent {
                         path: render_child_index_path(&parent_path, index),
+                        source_plane,
                         datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(
@@ -1095,6 +1115,7 @@ fn flatten_validation_value(
                     unwrap_typed_value(item),
                     &item_path,
                     owner_span,
+                    source_plane,
                     shallow_event_values,
                     track_references,
                     events,
@@ -1120,6 +1141,7 @@ fn flatten_validation_value(
                 }
                 events.push(ValidationEvent {
                     path: render_child_index_path(&parent_path, index),
+                    source_plane,
                     datatype: typed_datatype(child),
                     annotations: BTreeMap::new(),
                     value: clone_validation_value(unwrap_typed_value(child), shallow_event_values),
@@ -1129,6 +1151,7 @@ fn flatten_validation_value(
                     unwrap_typed_value(child),
                     &child_path,
                     owner_span,
+                    source_plane,
                     shallow_event_values,
                     track_references,
                     events,
@@ -1155,6 +1178,7 @@ fn flatten_validation_value(
                 if !is_container_value(item) {
                     events.push(ValidationEvent {
                         path: render_child_index_path(&parent_path, index),
+                        source_plane,
                         datatype: typed_datatype(item),
                         annotations: BTreeMap::new(),
                         value: clone_validation_value(
@@ -1168,6 +1192,7 @@ fn flatten_validation_value(
                     unwrap_typed_value(item),
                     &item_path,
                     owner_span,
+                    source_plane,
                     shallow_event_values,
                     track_references,
                     events,
