@@ -67,7 +67,8 @@ interface TypedValue {
 export function checkTypes(
     ruleIndex: RuleIndex,
     events: ReadonlyMap<string, TypedValue>,
-    ctx: DiagContext
+    ctx: DiagContext,
+    parentContext: ReadonlyMap<string, Pick<TypedValue, 'type'>> = events,
 ): void {
     for (const [path, rule] of ruleIndex) {
         const expectedType = rule.constraints.type;
@@ -109,7 +110,7 @@ export function checkTypes(
         // Check if actual type satisfies expected type
         if (!typeMatches(actualType, expectedType, event.raw, rule.constraints)) {
             const parentPath = path.replace(/\[\d+\]$/, '');
-            const parentType = parentPath !== path ? events.get(parentPath)?.type : undefined;
+            const parentType = parentPath !== path ? parentContext.get(parentPath)?.type : undefined;
             emitError(ctx, createDiag(
                 path,
                 event.span,

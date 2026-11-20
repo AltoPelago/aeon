@@ -45,6 +45,16 @@ Structural identity remains selection metadata and never becomes part of the
 path. The validator CLI likewise accepts either an `aes` array or a `telex`
 string in its JSON request.
 
+The development property-selector profile is available through `validateTelex`
+and the exported `validateTelexRecords(records, schema, options?)` API. The latter
+accepts already decoded, event-locally valid Telex records or portable AES events;
+it does not replace transport validation. These entry points admit `key`, `tag`
+and `headTag` in rule selectors with a private validation-wide property-inspection
+allowance. Native-event `validate` and structural `path` fields retain their
+existing property-selector denial. See the [profile, budgets and target
+boundaries](../../../../docs/aeos-property-selectors.md). This development profile
+does not establish released conformance.
+
 ## What AEOS Does
 
 AEOS answers: "Is this AES structurally and representationally valid?"

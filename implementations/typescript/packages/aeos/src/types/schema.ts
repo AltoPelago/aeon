@@ -201,6 +201,8 @@ export interface ResourcePolicyV1 {
     readonly max_selector_expansions?: number;
     /** Whole-validation logical identity inspections; default 10000. */
     readonly max_identity_inspections?: number;
+    /** Portable selector profile: whole-validation property inspections, 0..1000000; default10000. */
+    readonly max_property_inspections?: number;
     readonly max_string_length_default?: number;
     readonly max_container_children_default?: number;
 }

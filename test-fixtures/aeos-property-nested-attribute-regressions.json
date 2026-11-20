@@ -1,0 +1,1352 @@
+{
+  "tests": [
+    {
+      "id": "root-only-False-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "root-only-False-True",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "root-only-True-False",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "root-only-True-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "no-root-False-False",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "no-root-False-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "no-root-True-False",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "no-root-True-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "all-present-False-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "all-present-False-True",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "all-present-True-False",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "all-present-True-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "middle-only-False-False",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "middle-only-False-True",
+      "records": [
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "middle-only-True-False",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n"
+    },
+    {
+      "id": "middle-only-True-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\leaf1\\&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n"
+    },
+    {
+      "id": "depth3-root-only-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b.@.c",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "deep1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*.@.*&key(\"c\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 3
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b.@.c"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b.@.c\nkind=StringLiteral\nidentity=deep1\nvalue=leaf\n"
+    },
+    {
+      "id": "depth3-root-only-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b.@.c",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "deep1"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*.@.*&key(\"c\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 3
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b.@.c"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b.@.c\nkind=StringLiteral\nidentity=deep1\nvalue=leaf\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "depth3-first-present-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v.@.a.@.b.@.c",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "deep1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*.@.*&key(\"c\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 3
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b.@.c"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v.@.a.@.b.@.c\nkind=StringLiteral\nidentity=deep1\nvalue=leaf\n"
+    },
+    {
+      "id": "depth3-first-present-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b.@.c",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "deep1"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*.@.*&key(\"c\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 3
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b.@.c"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b.@.c\nkind=StringLiteral\nidentity=deep1\nvalue=leaf\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "depth3-all-present-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "middle2"
+        },
+        {
+          "path": "$.v.@.a.@.b.@.c",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "deep1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*.@.*&key(\"c\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 3
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b.@.c"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nvalue=middle2\n\npath=$.v.@.a.@.b.@.c\nkind=StringLiteral\nidentity=deep1\nvalue=leaf\n"
+    },
+    {
+      "id": "depth3-all-present-True",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b.@.c",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "deep1"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "middle2"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*.@.*&key(\"c\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 3
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b.@.c"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b.@.c\nkind=StringLiteral\nidentity=deep1\nvalue=leaf\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nvalue=middle2\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    },
+    {
+      "id": "escaped-''-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.[\"\"].@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "escaped1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\"].@.[\"é\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.[\"\"].@.[\"é\"]\nkind=StringLiteral\nidentity=escaped1\nvalue=leaf\n"
+    },
+    {
+      "id": "escaped-''-True",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.[\"\"].@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "escaped1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\escaped1\\&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\"].@.[\"é\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.[\"\"].@.[\"é\"]\nkind=StringLiteral\nidentity=escaped1\nvalue=leaf\n"
+    },
+    {
+      "id": "escaped-'a\\nb'-False",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.[\"a\\nb\"].@.[\"b\\r\"]",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "escaped1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\\r\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"].@.[\"b\\r\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.[\"a\\\\nb\"].@.[\"b\\\\r\"]\nkind=StringLiteral\nidentity=escaped1\nvalue=leaf\n"
+    },
+    {
+      "id": "escaped-'a\\nb'-True",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.[\"a\\nb\"].@.[\"b\\r\"]",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "escaped1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.\\escaped1\\&key(\"b\\r\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"].@.[\"b\\r\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.[\"a\\\\nb\"].@.[\"b\\\\r\"]\nkind=StringLiteral\nidentity=escaped1\nvalue=leaf\n"
+    },
+    {
+      "id": "nested-head-tag",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "nested-head-key-absent",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "nested-container-tag",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.v.@.a.@.b[0]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&tag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=NodeLiteral\n\npath=$.v.@.a.@.b[0]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "nested-zero-budget",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*.@.*&key(\"b\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": false
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 0
+        }
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "invalid_schema_policy",
+            "path": "$.v.@.*.@.*&key(\"b\")"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "omitted-intermediate-is-not-a-result",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        },
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf",
+          "identity": "leaf1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "required": true
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.v.@.*&key(\"a\")"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=root\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nidentity=leaf1\nvalue=leaf\n"
+    },
+    {
+      "id": "actual-parent-retains-child-attribute-constraint",
+      "records": [
+        {
+          "path": "$.v.@.a.@.b",
+          "kind": "StringLiteral",
+          "value": "leaf"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "middle"
+        },
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "root"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\")",
+            "constraints": {
+              "attributes": {
+                "b": {
+                  "type": "NumberLiteral"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "limits": {
+        "maxAttributeDepth": 2
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.a.@.b"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v.@.a.@.b\nkind=StringLiteral\nvalue=leaf\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=middle\n\npath=$.v\nkind=StringLiteral\nvalue=root\n"
+    }
+  ]
+}

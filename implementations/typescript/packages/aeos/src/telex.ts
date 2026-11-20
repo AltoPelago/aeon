@@ -1,14 +1,16 @@
 import {
     parseTelex,
-    validateTelexRecords,
+    validateTelexRecords as validatePortableRecords,
     type TelexLimitOptions,
     type TelexSyntaxError,
+    type TelexRecord,
+    type PortableAesEvent,
 } from '@altopelago/aeon-aes';
 import { createDiag } from './diag/emit.js';
 import { createFailingEnvelope, type ResultEnvelope } from './types/envelope.js';
 import type { SchemaV1 } from './types/schema.js';
 import type { PortableAesBodyEvent } from './types/aes.js';
-import { validate, type ValidateOptions } from './validate.js';
+import { validatePortableAes, type ValidateOptions } from './validate.js';
 
 export interface ValidateTelexOptions extends ValidateOptions, TelexLimitOptions {
     readonly registeredFields?: readonly string[];
@@ -34,7 +36,7 @@ export function validateTelex(
         ]);
     }
 
-    const portable = validateTelexRecords(parsed.records, {
+    const portable = validatePortableRecords(parsed.records, {
         ...options,
         profile: parsed.profile,
         projection: parsed.projection,
@@ -48,11 +50,18 @@ export function validateTelex(
         )));
     }
 
-    return validate(
-        parsed.records.filter((record): record is PortableAesBodyEvent => (
+    return validateTelexRecords(parsed.records, schema, options);
+}
+
+/** Apply AEOS to already-decoded, event-locally valid portable AES records. */
+export function validateTelexRecords(
+    records: readonly (TelexRecord | PortableAesEvent)[], schema: SchemaV1, options: ValidateOptions = {},
+): ResultEnvelope {
+    return validatePortableAes(
+        records.filter((record): record is PortableAesBodyEvent => (
             typeof record.path === 'string'
             && typeof record.kind === 'string'
-            && record.header === undefined
+            && (!('header' in record) || record.header === undefined)
         )),
         schema,
         options,

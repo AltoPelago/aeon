@@ -1,0 +1,1539 @@
+{
+  "id": "aeos-property-qa-regressions",
+  "tests": [
+    {
+      "id": "literal-key-\\xe9",
+      "records": [
+        {
+          "path": "$.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"é\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"é\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-\\u03b1",
+      "records": [
+        {
+          "path": "$.[\"α\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"α\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"α\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"α\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-\\u6f22",
+      "records": [
+        {
+          "path": "$.[\"漢\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"漢\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"漢\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"漢\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-e\\u0301",
+      "records": [
+        {
+          "path": "$.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"é\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"é\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-\\U0001f600",
+      "records": [
+        {
+          "path": "$.[\"😀\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"😀\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"😀\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"😀\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-a\\nb",
+      "records": [
+        {
+          "path": "$.[\"a\\nb\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"a\\nb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"a\\nb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"a\\\\nb\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-a\\rb",
+      "records": [
+        {
+          "path": "$.[\"a\\rb\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"a\\rb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"a\\rb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"a\\\\rb\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-a\\tb",
+      "records": [
+        {
+          "path": "$.[\"a\\tb\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"a\\tb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"a\\tb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"a\\\\tb\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-\\x00",
+      "records": [
+        {
+          "path": "$.[\"\\u0000\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"\\u0000\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"\\u0000\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"\\\\u0000\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-a\"b",
+      "records": [
+        {
+          "path": "$.[\"a\\\"b\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"a\\\"b\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"a\\\"b\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"a\\\\\"b\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "literal-key-a\\\\b",
+      "records": [
+        {
+          "path": "$.[\"a\\\\b\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"a\\\\b\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.[\"a\\\\b\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.[\"a\\\\\\\\b\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "attribute-key-\\xe9",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.[\"é\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"é\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"é\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.[\"é\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "attribute-key-a\\nb",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.[\"a\\nb\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\\nb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\nb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.[\"a\\\\nb\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "attribute-key-a\\rb",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.[\"a\\rb\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\\rb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\rb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.[\"a\\\\rb\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "attribute-key-a\\tb",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.[\"a\\tb\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"a\\tb\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"a\\tb\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.[\"a\\\\tb\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "attribute-key-\\x00",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.[\"\\u0000\"]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.*&key(\"\\u0000\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.[\"\\u0000\"]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.[\"\\\\u0000\"]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "sparse-head-999999",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[999999]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n.*&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.n[999999]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[999999]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "sparse-head-1000000",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[1000000]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n.*&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.n[1000000]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[1000000]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "sparse-head-9007199254740991",
+      "records": [
+        {
+          "path": "$.n",
+          "kind": "NodeLiteral"
+        },
+        {
+          "path": "$.n[9007199254740991]",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.n.*&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.n[9007199254740991]"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.n\nkind=NodeLiteral\n\npath=$.n[9007199254740991]\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "partial-head-has-no-member-key",
+      "records": [
+        {
+          "path": "$.head",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.head&key(\"head\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.head\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "partial-head-tag-remains-visible",
+      "records": [
+        {
+          "path": "$.head",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.head&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.head"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.head\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "ordinary-member-retains-key",
+      "records": [
+        {
+          "path": "$.head",
+          "kind": "StringLiteral",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.head&key(\"head\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.head"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.head\nkind=StringLiteral\nvalue=book\n"
+    },
+    {
+      "id": "overlap-same-selector",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-same-selector-reverse",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-distinct-overlap",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.v&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-property-and-exact",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "path": "$.v",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-three-rules",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-length",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "max_length": 1
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "string_length_violation",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-any-of",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "any_of": [
+                {
+                  "type": "NumberLiteral"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "cached-coverage-after-presence-error",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "path": "$.absent",
+            "constraints": {
+              "required": true
+            }
+          }
+        ],
+        "world": "closed"
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.absent"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "cached-coverage-after-type-error",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "world": "closed"
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "cached-coverage-after-overlap-error",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "world": "closed"
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-cache-keeps-budget",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ],
+        "resource_policy": {
+          "max_property_inspections": 1
+        }
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-two-failures",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "BooleanLiteral"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          },
+          {
+            "code": "type_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-pattern",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "pattern": "xyz"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "pattern_mismatch",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-required-attribute",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "StringLiteral"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "attributes": {
+                "needed": {
+                  "required": true
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "missing_required_field",
+            "path": "$.v.@.needed"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n"
+    },
+    {
+      "id": "overlap-arity",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "ListNode"
+        },
+        {
+          "path": "$.v[0]",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "type": "ListNode"
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "length_exact": 2
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "TUPLE_ARITY_MISMATCH",
+            "path": "$.v"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=ListNode\n\npath=$.v[0]\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "overlap-attribute-coverage",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "abc"
+        },
+        {
+          "path": "$.v.@.a",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.b",
+          "kind": "StringLiteral",
+          "value": "x"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "attributes": {
+                "a": {
+                  "type": "StringLiteral"
+                }
+              }
+            }
+          },
+          {
+            "selector": "$.*&key(\"v\")",
+            "constraints": {
+              "attributes": {
+                "b": {
+                  "type": "StringLiteral"
+                }
+              }
+            }
+          },
+          {
+            "selector": "$.v.@.*",
+            "constraints": {}
+          }
+        ],
+        "world": "closed"
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.v\nkind=StringLiteral\nvalue=abc\n\npath=$.v.@.a\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.b\nkind=StringLiteral\nvalue=x\n"
+    },
+    {
+      "id": "partial-attribute-head-has-no-key",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.head",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.head&key(\"head\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.head\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "partial-attribute-head-tag",
+      "records": [
+        {
+          "path": "$.v",
+          "kind": "StringLiteral",
+          "value": "x"
+        },
+        {
+          "path": "$.v.@.head",
+          "kind": "NodeHead",
+          "value": "book"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.v.@.head&headTag(\"book\")",
+            "constraints": {
+              "type": "NumberLiteral"
+            }
+          }
+        ]
+      },
+      "profile": "aes.partial.v1",
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "type_mismatch",
+            "path": "$.v.@.head"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\nprofile=aes.partial.v1\n\npath=$.v\nkind=StringLiteral\nvalue=x\n\npath=$.v.@.head\nkind=NodeHead\nvalue=book\n"
+    },
+    {
+      "id": "overlap-reference-constraint",
+      "records": [
+        {
+          "path": "$.copy",
+          "kind": "PointerReference",
+          "value": "$.v"
+        },
+        {
+          "path": "$.v",
+          "kind": "NumberLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "type": "PointerReference"
+            }
+          },
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "reference": "forbid"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "reference_forbidden",
+            "path": "$.copy"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.copy\nkind=PointerReference\nvalue=$.v\n\npath=$.v\nkind=NumberLiteral\nvalue=1\n"
+    },
+    {
+      "id": "overlap-reference-form-views",
+      "records": [
+        {
+          "path": "$.copy",
+          "kind": "PointerReference",
+          "value": "$.v"
+        },
+        {
+          "path": "$.v",
+          "kind": "NumberLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "type": "PointerReference"
+            }
+          },
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "resolve_reference_form": true
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.copy\nkind=PointerReference\nvalue=$.v\n\npath=$.v\nkind=NumberLiteral\nvalue=1\n"
+    },
+    {
+      "id": "overlap-reference-form-views-reverse",
+      "records": [
+        {
+          "path": "$.copy",
+          "kind": "PointerReference",
+          "value": "$.v"
+        },
+        {
+          "path": "$.v",
+          "kind": "NumberLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "type": "NumberLiteral",
+              "resolve_reference_form": true
+            }
+          },
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "type": "PointerReference"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "errors": []
+      },
+      "telex": "telex.aes=1\n\npath=$.copy\nkind=PointerReference\nvalue=$.v\n\npath=$.v\nkind=NumberLiteral\nvalue=1\n"
+    },
+    {
+      "id": "overlap-global-reference-policy-once",
+      "records": [
+        {
+          "path": "$.copy",
+          "kind": "PointerReference",
+          "value": "$.v"
+        },
+        {
+          "path": "$.v",
+          "kind": "NumberLiteral",
+          "value": "1"
+        }
+      ],
+      "schema": {
+        "rules": [
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "required": true
+            }
+          },
+          {
+            "selector": "$.copy&key(\"copy\")",
+            "constraints": {
+              "required": true
+            }
+          }
+        ],
+        "reference_policy": "forbid"
+      },
+      "expected": {
+        "ok": false,
+        "errors": [
+          {
+            "code": "reference_forbidden",
+            "path": "$.copy"
+          }
+        ]
+      },
+      "telex": "telex.aes=1\n\npath=$.copy\nkind=PointerReference\nvalue=$.v\n\npath=$.v\nkind=NumberLiteral\nvalue=1\n"
+    }
+  ]
+}

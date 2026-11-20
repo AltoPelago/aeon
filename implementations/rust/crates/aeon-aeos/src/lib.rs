@@ -4,6 +4,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sansa_runtime::property::{
+    PropertyAccess, PropertyAccessContext, PropertyAccessError, PropertyHeads, PropertyNodeKind,
+    PropertyScopeRole,
+};
+
+#[cfg(test)]
+mod property_selector_tests;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -209,6 +216,7 @@ struct ResourcePolicy {
     max_reference_resolution_steps: usize,
     max_selector_expansions: usize,
     max_identity_inspections: usize,
+    max_property_inspections: usize,
     max_string_length_default: usize,
     max_container_children_default: usize,
 }
@@ -224,6 +232,7 @@ impl Default for ResourcePolicy {
             max_reference_resolution_steps: 64,
             max_selector_expansions: 100_000,
             max_identity_inspections: 10_000,
+            max_property_inspections: 10_000,
             max_string_length_default: 10_000_000,
             max_container_children_default: 1_000_000,
         }
@@ -260,6 +269,23 @@ fn normalize_resource_policy(
         return;
     };
     for (key, value) in map {
+        if key == "max_property_inspections" {
+            if let Some(number) = value.as_f64()
+                && number.is_finite()
+                && number.fract() == 0.0
+                && (0.0..=1_000_000.0).contains(&number)
+            {
+                policy.max_property_inspections = number as usize;
+            } else {
+                emit_resource_error(
+                    ctx,
+                    "$",
+                    "max_property_inspections must be an integer in0..1000000".into(),
+                    None,
+                );
+            }
+            continue;
+        }
         let Some(number) = value.as_u64() else {
             emit_resource_error(
                 ctx,
@@ -736,7 +762,12 @@ const KNOWN_CONSTRAINT_KEYS: &[&str] = &[
 
 #[must_use]
 pub fn validate(envelope: &ValidationEnvelope) -> ResultEnvelope {
-    validate_inner(&envelope.aes, envelope.schema.as_ref(), &envelope.options)
+    validate_inner(
+        &envelope.aes,
+        envelope.schema.as_ref(),
+        &envelope.options,
+        None,
+    )
 }
 
 /// Decode and validate Telex before applying an AEOS schema to its body plane.
@@ -789,11 +820,7 @@ pub fn validate_telex_records(
     options: ValidationOptions,
 ) -> ResultEnvelope {
     let aes = portable_records_to_aeos(records);
-    validate(&ValidationEnvelope {
-        aes,
-        schema,
-        options,
-    })
+    validate_inner(&aes, schema.as_ref(), &options, Some(records))
 }
 
 fn failing_telex_envelope(code: &'static str) -> ResultEnvelope {
@@ -821,40 +848,60 @@ fn portable_records_to_aeos(records: &[TelexRecord]) -> Vec<AesEvent> {
             attributes.push((path, record));
             continue;
         }
-        if let Some((event_path, key)) = portable_event_path(path) {
-            body.push((
-                path.to_owned(),
-                AesEvent {
-                    path: event_path,
-                    key,
-                    source_plane: Some(AesSourcePlane::Body),
-                    structural_id: record.get("identity").map(str::to_owned),
-                    datatype: portable_datatype(record),
-                    annotations: BTreeMap::new(),
-                    value: portable_event_value(record),
-                    span: portable_span(record.get("span")),
-                },
-            ));
+        if let Some(event) = portable_aeos_event(path, record) {
+            body.push((path.to_owned(), event));
         }
     }
+    let mut by_address = if attributes.is_empty() {
+        BTreeMap::new()
+    } else {
+        body.iter()
+            .enumerate()
+            .map(|(index, (path, _))| (path.clone(), index))
+            .collect()
+    };
+    // Process actual attribute owners before their descendants, independent of
+    // input order. Missing owners remain navigation-only, without invented values.
+    attributes.sort_by_key(|(path, _)| path.len());
     for (path, record) in attributes {
         if let Some((owner, key)) = direct_attribute_owner(path)
-            && let Some((_, event)) = body.iter_mut().find(|(address, _)| address == &owner)
+            && let Some(index) = by_address.get(&owner)
         {
-            insert_portable_attribute(&mut event.annotations, &[key], record);
+            insert_portable_attribute(&mut body[*index].1.annotations, &[key], record);
         } else if let Some((owner, keys)) = split_attribute_path(path)
-            && let Some((_, event)) = body.iter_mut().find(|(address, _)| address == &owner)
+            && let Some(index) = by_address.get(&owner)
         {
-            insert_portable_attribute(&mut event.annotations, &keys, record);
+            insert_portable_attribute(&mut body[*index].1.annotations, &keys, record);
+        } else if let Some(event) = portable_aeos_event(path, record) {
+            // A partial stream may supply an attribute without its owner.
+            // Preserve that actual occurrence for indexing and constraints.
+            by_address.insert(path.to_owned(), body.len());
+            body.push((path.to_owned(), event));
         }
     }
     hydrate_portable_container_shapes(&mut body);
     body.into_iter().map(|(_, event)| event).collect()
 }
 
+fn portable_aeos_event(path: &str, record: &TelexRecord) -> Option<AesEvent> {
+    let (event_path, key) = portable_event_path(path)?;
+    Some(AesEvent {
+        path: event_path,
+        key,
+        source_plane: Some(AesSourcePlane::Body),
+        structural_id: record.get("identity").map(str::to_owned),
+        datatype: portable_datatype(record),
+        annotations: BTreeMap::new(),
+        value: portable_event_value(record),
+        span: portable_span(record.get("span")),
+    })
+}
+
 fn hydrate_portable_container_shapes(body: &mut [(String, AesEvent)]) {
     let values = body
         .iter()
+        // Attributes are not structural children of object containers.
+        .filter(|(address, _)| !is_attribute_record(address))
         .map(|(address, event)| (address.clone(), event.value.clone()))
         .collect::<BTreeMap<_, _>>();
     for (address, event) in body {
@@ -1127,6 +1174,7 @@ fn validate_inner(
     aes: &[AesEvent],
     schema: Option<&Schema>,
     options: &ValidationOptions,
+    portable_records: Option<&[TelexRecord]>,
 ) -> ResultEnvelope {
     let mut ctx = DiagContext::default();
     let resource_policy = resolve_resource_policy(
@@ -1336,7 +1384,11 @@ fn validate_inner(
     if ctx.errors.len() > error_count_before_schema_index {
         return finalize_result(ctx, &bound_paths, &events_by_path);
     }
-    let mut identity_state = IdentitySelectorState::new(resource_policy.max_identity_inspections);
+    let mut identity_state = IdentitySelectorState::new(
+        resource_policy.max_identity_inspections,
+        resource_policy.max_property_inspections,
+        portable_records,
+    );
     let mut expansion_budget = 0usize;
     let expanded_rule_index = expand_selector_rules(
         &rule_index,
@@ -1353,32 +1405,56 @@ fn validate_inner(
         &events_by_path,
     );
     check_presence(&effective_rule_index, &bound_paths, &mut ctx);
-    check_reference_forms(schema, &effective_rule_index, &events_by_path, &mut ctx);
-    let effective_events_by_path = resolve_reference_form_events(
-        &effective_rule_index,
-        &events_by_path,
-        &resource_policy,
-        &mut ctx,
-    );
-    let selected_rule_index =
-        select_any_of_rules(&effective_rule_index, &effective_events_by_path, &mut ctx);
-    check_types(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_tuple_arity(
-        &selected_rule_index,
-        &container_arity,
-        &effective_events_by_path,
-        &mut ctx,
-    );
-    check_literal_lexical_constraints(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_numeric_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_string_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_patterns(&selected_rule_index, &effective_events_by_path, &mut ctx);
-    check_attribute_constraints(
-        &selected_rule_index,
-        &effective_events_by_path,
-        &schema.datatype_rules,
-        &mut ctx,
-    );
+    let mut batches = vec![effective_rule_index];
+    for batch in std::mem::take(&mut identity_state.property_rule_batches) {
+        batches.push(merge_datatype_rules_inner(
+            &batch,
+            &schema.datatype_rules,
+            &events_by_path,
+            true,
+        ));
+    }
+    for (batch_index, batch) in batches.into_iter().enumerate() {
+        check_reference_forms(schema, &batch, &events_by_path, &mut ctx, batch_index == 0);
+        let effective_events_by_path = resolve_reference_form_events(
+            &batch,
+            &events_by_path,
+            &resource_policy,
+            &mut ctx,
+            batch_index > 0,
+        );
+        let selected_rule_index = select_any_of_rules(&batch, &effective_events_by_path, &mut ctx);
+        check_types(
+            &selected_rule_index,
+            &effective_events_by_path,
+            &mut ctx,
+            if batch_index == 0 {
+                &effective_events_by_path
+            } else {
+                &events_by_path
+            },
+        );
+        check_tuple_arity(
+            &selected_rule_index,
+            &container_arity,
+            &effective_events_by_path,
+            &mut ctx,
+        );
+        check_literal_lexical_constraints(
+            &selected_rule_index,
+            &effective_events_by_path,
+            &mut ctx,
+        );
+        check_numeric_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_string_form(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_patterns(&selected_rule_index, &effective_events_by_path, &mut ctx);
+        check_attribute_constraints(
+            &selected_rule_index,
+            &effective_events_by_path,
+            &schema.datatype_rules,
+            &mut ctx,
+        );
+    }
     check_world_policy(
         schema,
         aes,
@@ -2119,9 +2195,27 @@ fn merge_datatype_rules(
     datatype_rules: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
 ) -> BTreeMap<String, JsonValue> {
+    merge_datatype_rules_inner(rule_index, datatype_rules, events_by_path, false)
+}
+
+fn merge_datatype_rules_inner(
+    rule_index: &BTreeMap<String, JsonValue>,
+    datatype_rules: &BTreeMap<String, JsonValue>,
+    events_by_path: &BTreeMap<String, EventInfo>,
+    selected_only: bool,
+) -> BTreeMap<String, JsonValue> {
     let mut merged = rule_index.clone();
 
-    for (path, event) in events_by_path {
+    let entries: Box<dyn Iterator<Item = (&String, &EventInfo)> + '_> = if selected_only {
+        Box::new(
+            rule_index
+                .keys()
+                .filter_map(|path| events_by_path.get(path).map(|event| (path, event))),
+        )
+    } else {
+        Box::new(events_by_path.iter())
+    };
+    for (path, event) in entries {
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
         };
@@ -2177,6 +2271,7 @@ fn check_types(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    parent_context: &BTreeMap<String, EventInfo>,
 ) {
     for (path, constraints) in rule_index {
         let Some(event) = events_by_path.get(path) else {
@@ -2219,7 +2314,7 @@ fn check_types(
         if let Some(expected_type) = constraints.get("type").and_then(JsonValue::as_str)
             && !type_matches(expected_type, &event.value_type, constraints)
         {
-            let code = if is_tuple_element_path(path, events_by_path) {
+            let code = if is_tuple_element_path(path, parent_context) {
                 "TUPLE_ELEMENT_TYPE_MISMATCH"
             } else {
                 "type_mismatch"
@@ -2242,8 +2337,9 @@ fn check_reference_forms(
     rule_index: &BTreeMap<String, JsonValue>,
     events_by_path: &BTreeMap<String, EventInfo>,
     ctx: &mut DiagContext,
+    global_policy: bool,
 ) {
-    if schema.reference_policy.as_deref().unwrap_or("allow") == "forbid" {
+    if global_policy && schema.reference_policy.as_deref().unwrap_or("allow") == "forbid" {
         for (path, event) in events_by_path {
             if !is_reference_type(&event.value_type) {
                 continue;
@@ -3461,8 +3557,20 @@ fn resolve_reference_form_events(
     events_by_path: &BTreeMap<String, EventInfo>,
     resource_policy: &ResourcePolicy,
     ctx: &mut DiagContext,
+    selected_only: bool,
 ) -> BTreeMap<String, EventInfo> {
-    let mut resolved = events_by_path.clone();
+    let mut resolved = if selected_only {
+        rule_index
+            .keys()
+            .filter_map(|path| {
+                events_by_path
+                    .get(path)
+                    .map(|event| (path.clone(), event.clone()))
+            })
+            .collect()
+    } else {
+        events_by_path.clone()
+    };
     for (path, constraints) in rule_index {
         if constraints
             .get("resolve_reference_form")
@@ -3549,9 +3657,27 @@ fn expand_selector_rules(
                 );
                 return expanded;
             }
-            expanded
-                .entry(actual_path)
-                .or_insert_with(|| rule.constraints.clone());
+            match expanded.entry(actual_path) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(rule.constraints.clone());
+                }
+                std::collections::btree_map::Entry::Occupied(entry)
+                    if identity_state.property_selectors.contains(selector) =>
+                {
+                    let actual_path = entry.key().clone();
+                    let layer = identity_state
+                        .property_rule_counts
+                        .entry(actual_path.clone())
+                        .or_default();
+                    if *layer == identity_state.property_rule_batches.len() {
+                        identity_state.property_rule_batches.push(BTreeMap::new());
+                    }
+                    identity_state.property_rule_batches[*layer]
+                        .insert(actual_path, rule.constraints.clone());
+                    *layer += 1;
+                }
+                _ => {}
+            }
         }
         if !matched
             && rule
@@ -3755,18 +3881,39 @@ struct IdentitySelectorState {
     limit: usize,
     namespace: Option<IdentitySelectorNamespace>,
     cache: BTreeMap<String, Option<BTreeSet<String>>>,
+    property_namespace: Option<IdentitySelectorNamespace>,
+    property_topology: bool,
+    original_paths: Option<BTreeSet<String>>,
+    property_limit: usize,
+    property_selectors: BTreeSet<String>,
+    property_rule_batches: Vec<BTreeMap<String, JsonValue>>,
+    property_rule_counts: BTreeMap<String, usize>,
 }
 impl IdentitySelectorState {
-    fn new(limit: usize) -> Self {
+    fn new(limit: usize, property_limit: usize, portable_records: Option<&[TelexRecord]>) -> Self {
         Self {
             limit,
             namespace: None,
             cache: BTreeMap::new(),
+            property_namespace: None,
+            property_topology: portable_records.is_some(),
+            original_paths: portable_records.map(|records| {
+                records
+                    .iter()
+                    .filter_map(|record| record.get("path").map(str::to_owned))
+                    .collect()
+            }),
+            property_limit,
+            property_selectors: BTreeSet::new(),
+            property_rule_batches: Vec::new(),
+            property_rule_counts: BTreeMap::new(),
         }
     }
 }
 #[derive(Default)]
 struct IdentitySelectorRow {
+    parent: Option<usize>,
+    tag: Option<JsonValue>,
     address: Option<String>,
     name: Option<String>,
     index: Option<usize>,
@@ -3779,26 +3926,31 @@ struct IdentitySelectorRow {
 struct IdentitySelectorNamespace {
     rows: Vec<IdentitySelectorRow>,
     inspections: Cell<usize>,
+    property_inspections: Cell<usize>,
+    properties_enabled: bool,
+    direct_heads: BTreeMap<usize, Vec<usize>>,
 }
 impl IdentitySelectorNamespace {
     fn new(root: SansaResolveBinding) -> Self {
         let mut rows = vec![IdentitySelectorRow::default()];
-        let mut pending = vec![(0, root)];
-        while let Some((index, node)) = pending.pop() {
+        let mut pending = vec![(0, None, root)];
+        while let Some((index, parent, node)) = pending.pop() {
             let mut children = Vec::new();
             for child in node.children {
                 let i = rows.len();
                 rows.push(IdentitySelectorRow::default());
                 children.push(i);
-                pending.push((i, child));
+                pending.push((i, Some(index), child));
             }
             let attribute_space = node.attribute_space.map(|attr| {
                 let i = rows.len();
                 rows.push(IdentitySelectorRow::default());
-                pending.push((i, *attr));
+                pending.push((i, Some(index), *attr));
                 i
             });
             rows[index] = IdentitySelectorRow {
+                parent,
+                tag: None,
                 address: node.address,
                 name: node.name,
                 index: node.index,
@@ -3812,11 +3964,143 @@ impl IdentitySelectorNamespace {
         Self {
             rows,
             inspections: Cell::new(0),
+            property_inspections: Cell::new(0),
+            properties_enabled: false,
+            direct_heads: BTreeMap::new(),
         }
+    }
+
+    fn with_properties(root: SansaResolveBinding, events: &BTreeMap<String, EventInfo>) -> Self {
+        let mut namespace = Self::new(root);
+        namespace.properties_enabled = true;
+        for index in 0..namespace.rows.len() {
+            let row = &mut namespace.rows[index];
+            row.tag = row
+                .address
+                .as_ref()
+                .and_then(|path| events.get(path))
+                .filter(|_| row.kind.as_deref() == Some("NodeHead"))
+                .and_then(|info| info.value.clone());
+            let mut children = std::mem::take(&mut row.children);
+            children.sort_by_key(|child| namespace.rows[*child].index);
+            if namespace.rows[index].kind.as_deref() == Some("NodeLiteral")
+                && children
+                    .iter()
+                    .any(|child| namespace.rows[*child].kind.is_none())
+            {
+                namespace.direct_heads.insert(
+                    index,
+                    children
+                        .iter()
+                        .copied()
+                        .filter(|child| namespace.rows[*child].kind.is_some())
+                        .collect(),
+                );
+            }
+            namespace.rows[index].children = children;
+        }
+        namespace
+    }
+
+    fn inside(&self, binding: usize, boundary: usize) -> bool {
+        if self.rows.get(binding).is_none() || self.rows.get(boundary).is_none() {
+            return false;
+        }
+        let mut current = Some(binding);
+        while let Some(index) = current {
+            if index == boundary {
+                return true;
+            }
+            current = self.rows[index].parent;
+        }
+        false
+    }
+}
+impl PropertyAccess for IdentitySelectorNamespace {
+    type Binding = usize;
+    fn supports_key(&self) -> bool {
+        true
+    }
+    fn supports_nodes(&self) -> bool {
+        true
+    }
+    fn scope(
+        &self,
+        binding: &usize,
+        context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<PropertyScopeRole, PropertyAccessError> {
+        self.property_inspections
+            .set(self.property_inspections.get() + 1);
+        if !self.inside(*binding, *context.scope_root)
+            || !self.inside(*context.evaluation_root, *context.scope_root)
+        {
+            return Ok(PropertyScopeRole::Outside);
+        }
+        if let Some(owner) = context.direct_head_of
+            && (!self.inside(*owner, *context.scope_root)
+                || self.rows[*owner].kind.as_deref() != Some("NodeLiteral")
+                || self.rows[*binding].parent != Some(*owner)
+                || self.rows[*binding].kind.as_deref() != Some("NodeHead"))
+        {
+            return Ok(PropertyScopeRole::Outside);
+        }
+        Ok(if binding == context.scope_root {
+            PropertyScopeRole::Root
+        } else {
+            PropertyScopeRole::Inside
+        })
+    }
+    fn key(
+        &self,
+        binding: &usize,
+        _context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<Option<String>, PropertyAccessError> {
+        Ok((self.rows[*binding].kind.as_deref() != Some("NodeHead"))
+            .then(|| self.rows[*binding].name.clone())
+            .flatten())
+    }
+    fn node_kind(
+        &self,
+        binding: &usize,
+        _context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<PropertyNodeKind, PropertyAccessError> {
+        Ok(match self.rows[*binding].kind.as_deref() {
+            Some("NodeLiteral") => PropertyNodeKind::NodeLiteral,
+            Some("NodeHead") => PropertyNodeKind::NodeHead,
+            _ => PropertyNodeKind::Other,
+        })
+    }
+    fn node_tag(
+        &self,
+        binding: &usize,
+        _context: &PropertyAccessContext<'_, usize>,
+    ) -> Result<Option<String>, PropertyAccessError> {
+        match &self.rows[*binding].tag {
+            None => Ok(None),
+            Some(JsonValue::String(tag)) => Ok(Some(tag.clone())),
+            _ => Err(PropertyAccessError::InvalidMetadata),
+        }
+    }
+    fn node_heads<'a>(
+        &'a self,
+        binding: &'a usize,
+        _context: &'a PropertyAccessContext<'a, usize>,
+    ) -> Result<PropertyHeads<'a, usize>, PropertyAccessError> {
+        Ok(Box::new(
+            self.direct_heads
+                .get(binding)
+                .unwrap_or(&self.rows[*binding].children)
+                .iter()
+                .copied()
+                .map(Ok),
+        ))
     }
 }
 impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
     type Binding = usize;
+    fn properties(&self) -> Option<&dyn PropertyAccess<Binding = usize>> {
+        self.properties_enabled.then_some(self)
+    }
     fn identity_children<'a>(&'a self, b: &'a usize) -> Box<dyn Iterator<Item = usize> + 'a> {
         Box::new(self.rows[*b].children.iter().copied())
     }
@@ -3831,6 +4115,20 @@ impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
     }
     fn position(&self, b: &usize) -> Option<usize> {
         self.rows[*b].index
+    }
+    fn positional_child(&self, binding: &usize, index: usize) -> Option<usize> {
+        let children = &self.rows[*binding].children;
+        children
+            .iter()
+            .copied()
+            .find(|child| self.rows[*child].index == Some(index))
+            .or_else(|| {
+                if self.properties_enabled {
+                    None
+                } else {
+                    children.get(index).copied()
+                }
+            })
     }
     fn supports_structural_identity(&self) -> bool {
         true
@@ -3862,14 +4160,17 @@ fn resolve_sansa_selector_path_set(
     ctx: &mut DiagContext,
     identity_state: &mut IdentitySelectorState,
 ) -> Option<BTreeSet<String>> {
-    if selector.contains('&')
+    let has_property = selector.contains('&')
         && parse_sansa_address(selector).is_ok_and(|address| {
             address
                 .selectors
                 .iter()
                 .any(|s| matches!(s, SansaSelector::PropertyFilter { .. }))
-        })
-    {
+        });
+    if has_property {
+        identity_state.property_selectors.insert(selector.into());
+    }
+    if has_property && !identity_state.property_topology {
         emit_error(
             ctx,
             ValidationDiagnostic {
@@ -3881,6 +4182,68 @@ fn resolve_sansa_selector_path_set(
         );
         return None;
     }
+    if has_property {
+        if let Some(paths) = identity_state.cache.get(selector) {
+            return paths.clone();
+        }
+        if !ctx.errors.is_empty() {
+            return None;
+        }
+        let used_identity = identity_state
+            .namespace
+            .as_ref()
+            .map_or(0, |ns| ns.inspections.get())
+            + identity_state
+                .property_namespace
+                .as_ref()
+                .map_or(0, |ns| ns.inspections.get());
+        let original_paths = identity_state.original_paths.as_ref();
+        let namespace = identity_state.property_namespace.get_or_insert_with(|| {
+            IdentitySelectorNamespace::with_properties(
+                build_aeos_sansa_resolve_tree_with_source_limits(
+                    events_by_path,
+                    true,
+                    original_paths,
+                ),
+                events_by_path,
+            )
+        });
+        let result = sansa_runtime::resolve::resolve_address(
+            selector,
+            namespace,
+            &sansa_runtime::resolve::ResolveOptions {
+                max_identity_inspections: identity_state.limit.saturating_sub(used_identity),
+                max_property_inspections: identity_state
+                    .property_limit
+                    .saturating_sub(namespace.property_inspections.get())
+                    as u32,
+                ..sansa_runtime::resolve::ResolveOptions::default()
+            },
+        );
+        let paths = if result.is_ok() {
+            Some(
+                result
+                    .bindings
+                    .iter()
+                    .filter_map(|binding| namespace.rows[*binding].address.clone())
+                    .filter(|path| original_paths.is_some_and(|paths| paths.contains(path)))
+                    .collect(),
+            )
+        } else {
+            emit_error(
+                ctx,
+                ValidationDiagnostic {
+                    path: Some(selector.into()),
+                    code: "invalid_schema_policy".into(),
+                    phase: "schema_validation".into(),
+                    span: None,
+                },
+            );
+            None
+        };
+        identity_state.cache.insert(selector.into(), paths.clone());
+        return paths;
+    }
     if selector.contains('\\')
         && parse_sansa_address(selector).is_ok_and(|a| {
             a.selectors
@@ -3891,6 +4254,10 @@ fn resolve_sansa_selector_path_set(
         if let Some(paths) = identity_state.cache.get(selector) {
             return paths.clone();
         }
+        let property_identity = identity_state
+            .property_namespace
+            .as_ref()
+            .map_or(0, |ns| ns.inspections.get());
         let ns = identity_state.namespace.get_or_insert_with(|| {
             IdentitySelectorNamespace::new(build_aeos_sansa_resolve_tree(events_by_path))
         });
@@ -3898,7 +4265,9 @@ fn resolve_sansa_selector_path_set(
             selector,
             ns,
             &sansa_runtime::resolve::ResolveOptions {
-                max_identity_inspections: identity_state.limit.saturating_sub(ns.inspections.get()),
+                max_identity_inspections: identity_state
+                    .limit
+                    .saturating_sub(ns.inspections.get() + property_identity),
                 ..sansa_runtime::resolve::ResolveOptions::default()
             },
         );
@@ -3962,26 +4331,70 @@ fn create_aeos_sansa_resolve_namespace(
 fn build_aeos_sansa_resolve_tree(
     events_by_path: &BTreeMap<String, EventInfo>,
 ) -> SansaResolveBinding {
+    build_aeos_sansa_resolve_tree_with_source_limits(events_by_path, false, None)
+}
+
+fn build_aeos_sansa_resolve_tree_with_source_limits(
+    events_by_path: &BTreeMap<String, EventInfo>,
+    portable: bool,
+    original_paths: Option<&BTreeSet<String>>,
+) -> SansaResolveBinding {
     let mut root = SansaResolveBinding {
         address: Some(String::from("$")),
         children: Vec::new(),
         ..SansaResolveBinding::default()
     };
-    let mut entries = events_by_path.iter().collect::<Vec<_>>();
+    let mut entries = events_by_path
+        .iter()
+        .filter(|(path, _)| original_paths.is_none_or(|paths| paths.contains(*path)))
+        .collect::<Vec<_>>();
     entries.sort_by_key(|(path, _)| path.len());
     for (path, info) in entries {
-        insert_aeos_sansa_resolve_path(&mut root, path, info);
+        insert_aeos_sansa_resolve_path(&mut root, path, info, portable);
     }
     root
 }
 
-fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, info: &EventInfo) {
-    let Ok(address) = parse_sansa_address(path) else {
-        return;
+fn insert_aeos_sansa_resolve_path(
+    root: &mut SansaResolveBinding,
+    path: &str,
+    info: &EventInfo,
+    portable: bool,
+) {
+    let selectors = if portable {
+        use sansa_runtime::address::{ParseOptions, Selector, parse_address_with_options};
+        let Ok(parsed) = parse_address_with_options(
+            path,
+            ParseOptions {
+                max_position_index: usize::MAX,
+            },
+        ) else {
+            return;
+        };
+        let Some(selectors) = parsed
+            .address
+            .selectors
+            .into_iter()
+            .map(|selector| match selector {
+                Selector::Member { name, quoted } => Some(SansaSelector::Member { name, quoted }),
+                Selector::Position { index } => Some(SansaSelector::Position { index }),
+                Selector::AttributeSpace => Some(SansaSelector::AttributeSpace),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        selectors
+    } else {
+        let Ok(address) = parse_sansa_address(path) else {
+            return;
+        };
+        address.selectors
     };
     let mut current = root;
     let mut current_path = String::from("$");
-    for selector in address.selectors {
+    for selector in selectors {
         match selector {
             SansaSelector::Member { name, .. } => {
                 current_path.push_str(&format_member_selector(&name));
@@ -4009,6 +4422,9 @@ fn insert_aeos_sansa_resolve_path(root: &mut SansaResolveBinding, path: &str, in
             }
             _ => return,
         }
+    }
+    if portable {
+        current.address = Some(path.to_owned());
     }
     current.identity = info.identity.clone();
     current.structural_identity = info.identity.clone();
@@ -4701,7 +5117,8 @@ fn is_identifier(key: &str) -> bool {
 }
 
 fn escape_quoted_key(key: &str) -> String {
-    key.replace('\\', "\\\\").replace('"', "\\\"")
+    let quoted = serde_json::to_string(key).expect("string JSON encoding");
+    quoted[1..quoted.len() - 1].to_owned()
 }
 
 impl AesEvent {

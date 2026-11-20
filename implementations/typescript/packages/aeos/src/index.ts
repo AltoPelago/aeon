@@ -25,7 +25,7 @@
 
 export { validate } from './validate.js';
 export type { ValidateOptions } from './validate.js';
-export { validateTelex } from './telex.js';
+export { validateTelex, validateTelexRecords } from './telex.js';
 export type { ValidateTelexOptions } from './telex.js';
 export {
     normalizeSchemaObject,

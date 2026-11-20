@@ -683,10 +683,11 @@ export function buildRuleIndex(schema: SchemaV1, ctx: DiagContext): RuleIndex {
 
         // New selector syntax must not widen the structural path profile.
         // Leave unrelated legacy invalid-path handling unchanged.
-        if (hasPath && rule.path!.includes('\\')) {
+        if (hasPath && (rule.path!.includes('\\') || rule.path!.includes('&'))) {
             const parsedPath = parseAddress(rule.path!);
-            if (parsedPath.ok && parsedPath.address.selectors.some(selector => selector.type === 'childIdentity')) {
-                emitError(ctx, createDiag(rule.path!, null, 'Child identity selectors are not admitted in AEOS path rules', ErrorCodes.INVALID_SCHEMA_POLICY));
+            if (parsedPath.ok && parsedPath.address.selectors.some(selector => selector.type === 'childIdentity' || selector.type === 'propertyFilter')) {
+                const identity = parsedPath.address.selectors.some(selector => selector.type === 'childIdentity');
+                emitError(ctx, createDiag(rule.path!, null, identity ? 'Child identity selectors are not admitted in AEOS path rules' : 'Property selectors are not admitted in AEOS path rules', ErrorCodes.INVALID_SCHEMA_POLICY));
                 continue;
             }
         }

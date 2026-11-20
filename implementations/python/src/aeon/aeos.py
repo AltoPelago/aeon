@@ -6,6 +6,9 @@ import re
 from ._compat import dataclass
 from ._radix import resolve_radix_base_from_datatype
 from .sansa import parse_address as parse_sansa_address, resolve_consumer_address as resolve_sansa_address
+from .sansa import resolve_address as resolve_property_address
+from ._sansa_properties import valid_limit as valid_property_limit
+from ._sansa_properties import SansaPropertyAccessError
 
 
 KNOWN_CONSTRAINT_KEYS = {
@@ -57,6 +60,7 @@ RESOURCE_POLICY_KEYS = {
     "max_reference_resolution_steps",
     "max_selector_expansions",
     "max_identity_inspections",
+    "max_property_inspections",
     "max_string_length_default",
     "max_container_children_default",
 }
@@ -69,6 +73,7 @@ DEFAULT_RESOURCE_POLICY = {
     "max_reference_resolution_steps": 64,
     "max_selector_expansions": 100_000,
     "max_identity_inspections": 10_000,
+    "max_property_inspections": 10_000,
     "max_string_length_default": 10_000_000,
     "max_container_children_default": 1_000_000,
 }
@@ -242,6 +247,10 @@ class DiagContext:
 
 
 def validate(aes: list[dict[str, object]], schema: dict[str, object], options: dict[str, object] | None = None) -> dict[str, object]:
+    return _validate(aes, schema, options, False)
+
+
+def _validate(aes, schema, options, property_topology, portable_records=None):
     opts = options or {}
     trailing_policy = str(opts.get("trailingSeparatorDelimiterPolicy", "off"))
     ctx = DiagContext(errors=[], warnings=[])
@@ -278,6 +287,7 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
             value = event.get("value")
             if isinstance(value, dict) and isinstance(value.get("type"), str):
                 info = {
+                    "property_tag": value.get("value") if value.get("type") == "NodeHead" else None,
                     "type": value.get("type"),
                     "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
@@ -336,34 +346,41 @@ def validate(aes: list[dict[str, object]], schema: dict[str, object], options: d
     rule_index = build_rule_index(schema, ctx)
     if len(ctx.errors) > error_count_before_schema_index:
         return {"ok": False, "errors": ctx.errors, "warnings": ctx.warnings, "guarantees": {}}
-    identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None}
+    identity_state = {"limit": resource_policy["max_identity_inspections"], "counter": {"inspections": 0}, "cache": {}, "namespace": None,
+                      "property_topology": property_topology,
+                      "original_paths": frozenset(record["path"] for record in portable_records if isinstance(record.get("path"), str)) if portable_records is not None else None, "property_limit": resource_policy["max_property_inspections"],
+                      "property_counter": {"inspections": 0}, "property_namespace": None,
+                      "property_selectors": set(), "property_rule_batches": [], "property_rule_counts": {}}
     expansion_budget = {"count": 0}
     expanded_rule_index = expand_selector_rules(rule_index, schema, events_by_path, ctx, resource_policy, expansion_budget, identity_state)
     effective_rule_index = merge_datatype_rules(expanded_rule_index, schema.get("datatype_rules"), events_by_path)
     check_presence(effective_rule_index, bound_paths, ctx)
-    check_reference_forms(schema, effective_rule_index, events_by_path, ctx)
-    effective_events_by_path = resolve_reference_form_events(effective_rule_index, events_by_path, resource_policy, ctx)
-    selected_rule_index = select_any_of_rules(effective_rule_index, effective_events_by_path, ctx)
-    check_types(selected_rule_index, effective_events_by_path, ctx)
+    batches = [effective_rule_index] + [merge_datatype_rules(batch, schema.get("datatype_rules"), events_by_path, selected_only=True)
+                                       for batch in identity_state["property_rule_batches"]]
+    for batch_index, batch in enumerate(batches):
+        check_reference_forms(schema if batch_index == 0 else {**schema, "reference_policy": "allow"}, batch, events_by_path, ctx)
+        effective_events_by_path = resolve_reference_form_events(batch, events_by_path, resource_policy, ctx, selected_only=batch_index > 0)
+        selected_rule_index = select_any_of_rules(batch, effective_events_by_path, ctx)
+        check_types(selected_rule_index, effective_events_by_path, ctx, effective_events_by_path if batch_index == 0 else events_by_path)
 
-    for path, rule in selected_rule_index.items():
-        constraints = rule.get("constraints", {})
-        expected_length = constraints.get("length_exact") if isinstance(constraints, dict) else None
-        min_children = constraints.get("min_children") if isinstance(constraints, dict) else None
-        max_children = constraints.get("max_children") if isinstance(constraints, dict) else None
-        actual_length = container_arity.get(path)
-        if isinstance(expected_length, int) and actual_length is not None and actual_length != expected_length:
-            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Tuple/List arity mismatch: expected {expected_length}, got {actual_length}", ERROR_CODES["tuple_arity_mismatch"]))
-        if isinstance(min_children, int) and actual_length is not None and actual_length < min_children:
-            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at least {min_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
-        if isinstance(max_children, int) and actual_length is not None and actual_length > max_children:
-            emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at most {max_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
+        for path, rule in selected_rule_index.items():
+            constraints = rule.get("constraints", {})
+            expected_length = constraints.get("length_exact") if isinstance(constraints, dict) else None
+            min_children = constraints.get("min_children") if isinstance(constraints, dict) else None
+            max_children = constraints.get("max_children") if isinstance(constraints, dict) else None
+            actual_length = container_arity.get(path)
+            if isinstance(expected_length, int) and actual_length is not None and actual_length != expected_length:
+                emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Tuple/List arity mismatch: expected {expected_length}, got {actual_length}", ERROR_CODES["tuple_arity_mismatch"]))
+            if isinstance(min_children, int) and actual_length is not None and actual_length < min_children:
+                emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at least {min_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
+            if isinstance(max_children, int) and actual_length is not None and actual_length > max_children:
+                emit_error(ctx, create_diag(path, events_by_path.get(path, {}).get("span"), f"Container cardinality mismatch: expected at most {max_children}, got {actual_length}", ERROR_CODES["container_cardinality_mismatch"]))
 
-    check_literal_lexical_constraints(selected_rule_index, effective_events_by_path, ctx)
-    check_numeric_form(selected_rule_index, effective_events_by_path, ctx)
-    check_string_form(selected_rule_index, effective_events_by_path, ctx)
-    check_patterns(selected_rule_index, effective_events_by_path, ctx)
-    check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
+        check_literal_lexical_constraints(selected_rule_index, effective_events_by_path, ctx)
+        check_numeric_form(selected_rule_index, effective_events_by_path, ctx)
+        check_string_form(selected_rule_index, effective_events_by_path, ctx)
+        check_patterns(selected_rule_index, effective_events_by_path, ctx)
+        check_attribute_constraints(selected_rule_index, effective_events_by_path, schema.get("datatype_rules"), ctx)
     check_world_policy(schema, aes, bound_paths, events_by_path, ctx, identity_state)
 
     if ctx.errors:
@@ -447,7 +464,7 @@ def validate_telex_records(
 ) -> dict[str, object]:
     """Apply AEOS to decoded portable AES records without reparsing AEON."""
 
-    return validate(portable_records_to_aeos(records), schema, options)
+    return _validate(portable_records_to_aeos(records), schema, options, True, records)
 
 
 def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -465,45 +482,29 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
         if details.segments and details.segments[-1][0] == "attribute":
             attributes.append((address, record))
             continue
-        datatype = _portable_datatype(record)
-        segments = [{"type": "root"}, *[_portable_aeos_segment(segment) for segment in details.segments]]
-        body.append(
-            (
-                address,
-                {
-                    "path": {"segments": segments},
-                    "key": str(details.segments[-1][1]) if details.segments else "",
-                    "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
-                    "datatype": datatype,
-                    "annotations": {},
-                    "value": _portable_aeos_value(record),
-                    "span": _portable_span(record.get("span")),
-                },
-            )
-        )
+        body.append((address, _portable_aeos_event(record, details)))
 
     by_address = {address: event for address, event in body}
+    attributes.sort(key=lambda item: len(item[0]))
     for address, record in attributes:
         details = parse_canonical_path(address)
         owner = details.prefixes[-2]
         key = str(details.segments[-1][1])
         event = by_address.get(owner)
         if event is not None:
-            _insert_portable_attribute(event["annotations"], [key], record)
+            # Index actual supplied attribute entries as owners too. A missing
+            # intermediate owner must not hide a real descendant in a scaffold.
+            entry = _portable_attribute_entry(record)
+            event["annotations"][key] = entry
+            by_address[address] = entry
             continue
-        first_attribute = next((index for index, segment in enumerate(details.segments) if segment[0] == "attribute"), None)
-        if first_attribute is None or any(segment[0] != "attribute" for segment in details.segments[first_attribute:]):
-            continue
-        root_owner = "$" if first_attribute == 0 else details.prefixes[first_attribute - 1]
-        event = by_address.get(root_owner)
-        if event is not None:
-            _insert_portable_attribute(
-                event["annotations"],
-                [str(segment[1]) for segment in details.segments[first_attribute:]],
-                record,
-            )
+        # Preserve actual partial-stream attributes without fabricating owner values.
+        event = _portable_aeos_event(record, details)
+        body.append((address, event))
+        by_address[address] = event
 
-    values = {address: event["value"] for address, event in body}
+    attribute_paths = {address for address, _ in attributes}
+    values = {address: event["value"] for address, event in body if address not in attribute_paths}
     for address, event in body:
         value = event["value"]
         kind = value.get("type")
@@ -514,6 +515,15 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
         elif kind == "NodeLiteral":
             value["children"] = _portable_indexed_children(f"{address}[0]", values)
     return [event for _, event in body]
+
+
+def _portable_aeos_event(record, details):
+    return {
+        "path": {"segments": [{"type": "root"}, *[_portable_aeos_segment(segment) for segment in details.segments]]},
+        "key": str(details.segments[-1][1]) if details.segments else "",
+        **_portable_attribute_entry(record),
+        "span": _portable_span(record.get("span")),
+    }
 
 
 def _portable_aeos_segment(segment: tuple[str, str | int]) -> dict[str, object]:
@@ -542,29 +552,13 @@ def _portable_aeos_value(record: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def _insert_portable_attribute(target: object, keys: list[str], record: dict[str, object]) -> None:
-    if not isinstance(target, dict) or not keys:
-        return
-    key, rest = keys[0], keys[1:]
-    existing = target.get(key)
-    if not isinstance(existing, dict):
-        existing = {"annotations": {}}
-        target[key] = existing
-    annotations = existing.get("annotations")
-    if not isinstance(annotations, dict):
-        annotations = {}
-        existing["annotations"] = annotations
-    if rest:
-        _insert_portable_attribute(annotations, rest, record)
-        return
-    existing.update(
-        {
-            "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
-            "datatype": _portable_datatype(record),
-            "value": _portable_aeos_value(record),
-            "annotations": annotations,
-        }
-    )
+def _portable_attribute_entry(record):
+    return {
+        "structuralId": record.get("identity") if isinstance(record.get("identity"), str) else None,
+        "datatype": _portable_datatype(record),
+        "value": _portable_aeos_value(record),
+        "annotations": {},
+    }
 
 
 def _portable_parent(path: str) -> str | None:
@@ -648,6 +642,12 @@ def normalize_resource_policy(policy: object, source: str, ctx: DiagContext) -> 
     for key, value in policy.items():
         if key not in RESOURCE_POLICY_KEYS:
             emit_resource_error(ctx, "$", f"Unknown {source} resource policy key: {key}")
+            continue
+        if key == "max_property_inspections":
+            if not valid_property_limit(value):
+                emit_resource_error(ctx, "$", f"{source} resource policy max_property_inspections must be an integer in0..1000000")
+                continue
+            normalized[str(key)] = int(value)
             continue
         if not isinstance(value, int) or value < 0 or key == "max_identity_inspections" and (type(value) is not int or value > 9_007_199_254_740_991):
             emit_resource_error(ctx, "$", f"{source} resource policy {key} must be a non-negative integer")
@@ -931,7 +931,8 @@ def check_presence(rule_index: dict[str, dict[str, object]], bound_paths: set[st
             emit_error(ctx, create_diag(path, None, f"Missing required field: {path}", ERROR_CODES["missing_required_field"]))
 
 
-def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> None:
+def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext, parent_context=None) -> None:
+    parent_context = events if parent_context is None else parent_context
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
         if not isinstance(constraints, dict):
@@ -956,7 +957,7 @@ def check_types(rule_index: dict[str, dict[str, object]], events: dict[str, dict
             emit_error(ctx, create_diag(path, event.get("span"), f"Datatype mismatch: expected {expected_datatype}, got {actual_datatype if isinstance(actual_datatype, str) else 'none'}", ERROR_CODES["type_mismatch"]))
         if isinstance(expected_type, str):
             if not type_matches(expected_type, actual_type, constraints):
-                code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, events) else ERROR_CODES["type_mismatch"]
+                code = ERROR_CODES["tuple_element_type_mismatch"] if is_tuple_element_path(path, parent_context) else ERROR_CODES["type_mismatch"]
                 emit_error(ctx, create_diag(path, event.get("span"), f"Type mismatch: expected {expected_type}, got {actual_type}", code))
 
 
@@ -1348,7 +1349,7 @@ def merge_datatype_rule_constraints(constraints: dict[str, object], datatype: ob
     return {**rule, **constraints}
 
 
-def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rules: object, events: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rules: object, events: dict[str, dict[str, object]], selected_only=False) -> dict[str, dict[str, object]]:
     if not isinstance(datatype_rules, dict):
         return rule_index
     merged = {
@@ -1356,7 +1357,7 @@ def merge_datatype_rules(rule_index: dict[str, dict[str, object]], datatype_rule
         for path, rule in rule_index.items()
         if isinstance(rule, dict)
     }
-    for path, event in events.items():
+    for path, event in (((path, events[path]) for path in rule_index if path in events) if selected_only else events.items()):
         datatype = event.get("datatype")
         if not isinstance(datatype, str):
             continue
@@ -1470,8 +1471,8 @@ def build_guarantees(bound_paths: set[str], events: dict[str, dict[str, object]]
     return guarantees
 
 
-def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], resource_policy: dict[str, int], ctx: DiagContext) -> dict[str, dict[str, object]]:
-    resolved = dict(events)
+def resolve_reference_form_events(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], resource_policy: dict[str, int], ctx: DiagContext, selected_only=False) -> dict[str, dict[str, object]]:
+    resolved = {path: events[path] for path in rule_index if path in events} if selected_only else dict(events)
     for path, rule in rule_index.items():
         constraints = rule.get("constraints")
         if not isinstance(constraints, dict) or constraints.get("resolve_reference_form") is not True:
@@ -1522,7 +1523,15 @@ def expand_selector_rules(
             if expansion_budget["count"] > resource_policy["max_selector_expansions"]:
                 emit_resource_error(ctx, selector, f"Selector expansion count exceeds max_selector_expansions {resource_policy['max_selector_expansions']}")
                 return expanded
-            expanded.setdefault(actual_path, {**rule, "path": actual_path})
+            if actual_path not in expanded:
+                expanded[actual_path] = {**rule, "path": actual_path}
+            elif selector in identity_state["property_selectors"]:
+                layer = identity_state["property_rule_counts"].get(actual_path, 0)
+                identity_state["property_rule_counts"][actual_path] = layer + 1
+                batches = identity_state["property_rule_batches"]
+                if layer == len(batches):
+                    batches.append({})
+                batches[layer][actual_path] = {**rule, "path": actual_path}
         constraints = rule.get("constraints")
         if not matched and isinstance(constraints, dict) and constraints.get("required") is True:
             emit_error(ctx, create_diag(selector, None, f"Missing required field: {selector}", ERROR_CODES["missing_required_field"]))
@@ -1531,26 +1540,39 @@ def expand_selector_rules(
 
 def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, object]], ctx: DiagContext, identity_state: dict) -> set[str] | None:
     parsed = parse_sansa_address(selector) if "\\" in selector or "&" in selector else {}
-    if parsed.get("ok") and any(s.get("type") == "propertyFilter" for s in parsed["address"]["selectors"]):
-        emit_error(ctx, create_diag(selector, None, "Property selectors are not admitted in AEOS rules", ERROR_CODES["invalid_schema_policy"]))
+    has_property = parsed.get("ok") and any(s.get("type") == "propertyFilter" for s in parsed["address"]["selectors"])
+    if has_property:
+        identity_state["property_selectors"].add(selector)
+    if has_property and not identity_state["property_topology"]:
+        emit_error(ctx, create_diag(selector, None, "Property selectors require the portable AES/Telex validation entry point", ERROR_CODES["invalid_schema_policy"]))
         return None
     has_identity = parsed.get("ok") and any(s.get("type") == "childIdentity" for s in parsed["address"]["selectors"])
-    if has_identity and selector in identity_state["cache"]:
+    cached = has_identity or has_property
+    if cached and selector in identity_state["cache"]:
         return identity_state["cache"][selector]
-    if has_identity:
+    if has_property and ctx.errors:
+        return None
+    if has_property:
+        if identity_state["property_namespace"] is None:
+            identity_state["property_namespace"] = create_aeos_sansa_resolve_namespace(events, identity_state, True)
+        namespace = identity_state["property_namespace"]
+    elif has_identity:
         if identity_state["namespace"] is None:
             identity_state["namespace"] = create_aeos_sansa_resolve_namespace(events, identity_state)
         namespace = identity_state["namespace"]
     else:
         namespace = create_aeos_sansa_resolve_namespace(events)
-    result = resolve_sansa_address(selector, namespace, {"maxIdentityInspections": max(0, identity_state["limit"] - identity_state["counter"]["inspections"])} if has_identity else None)
+    options = {"maxIdentityInspections": max(0, identity_state["limit"] - identity_state["counter"]["inspections"]),
+               "maxPropertyInspections": max(0, identity_state["property_limit"] - identity_state["property_counter"]["inspections"])} if cached else None
+    resolver = resolve_property_address if has_property else resolve_sansa_address
+    result = resolver(selector, namespace, options)
     if not result.get("ok"):
         errors = result.get("errors")
         first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else None
         message = first.get("message") if isinstance(first, dict) else None
         detail = f"Invalid or unsupported SANSA selector: {message}" if isinstance(message, str) else f"Invalid or unsupported SANSA selector: {selector}"
         emit_error(ctx, create_diag(selector, None, detail, ERROR_CODES["invalid_schema_policy"]))
-        if has_identity:
+        if cached:
             identity_state["cache"][selector] = None
         return None
     bindings = result.get("bindings")
@@ -1561,23 +1583,23 @@ def resolve_sansa_selector_path_set(selector: str, events: dict[str, dict[str, o
         for binding in bindings
         if isinstance(binding, dict)
         for path in [binding.get("path") or binding.get("address")]
-        if isinstance(path, str) and path in events
+        if isinstance(path, str) and path in events and (not has_property or path in identity_state["original_paths"])
     }
 
-    if has_identity:
+    if cached:
         identity_state["cache"][selector] = paths
     return paths
 
 
-def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], identity_state: dict | None = None) -> dict[str, object]:
+def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], identity_state: dict | None = None, with_properties=False) -> dict[str, object]:
     counter = identity_state["counter"] if identity_state is not None else None
     def identity(binding):
         if counter is not None:
             counter["inspections"] += 1
         return binding.get("info", {}).get("structuralId")
-    return {
+    namespace = {
         **({"identity": identity} if identity_state is not None else {}),
-        "root": build_aeos_sansa_resolve_tree(events),
+        "root": build_aeos_sansa_resolve_tree(events, with_properties, identity_state["original_paths"] if with_properties else None),
         "children": lambda binding: binding.get("children", []) if isinstance(binding, dict) else [],
         "member": lambda binding, name: next(
             (
@@ -1601,17 +1623,85 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
         "semanticType": lambda binding: (binding.get("info") or {}).get("datatype") if isinstance(binding, dict) else None,
         "representationKind": lambda binding: (binding.get("info") or {}).get("type") if isinstance(binding, dict) else None,
     }
+    if with_properties:
+        parents = {id(namespace["root"]): None}
+        pending = [namespace["root"]]
+        direct_heads = {}
+        while pending:
+            binding = pending.pop()
+            children = binding.get("children", [])
+            if children and all(type(child.get("index")) is int for child in children):
+                children.sort(key=lambda child: child["index"])
+            if (binding.get("info") or {}).get("type") == "NodeLiteral" and any("info" not in child for child in children):
+                direct_heads[id(binding)] = tuple(child for child in children if "info" in child)
+            for child in children:
+                parents[id(child)] = binding
+                pending.append(child)
+            attributes = binding.get("attributeSpace")
+            if attributes is not None:
+                parents[id(attributes)] = binding
+                pending.append(attributes)
+
+        def inside(binding, boundary):
+            if id(binding) not in parents or id(boundary) not in parents:
+                return False
+            while binding is not None:
+                if binding is boundary:
+                    return True
+                binding = parents[id(binding)]
+            return False
+
+        def scope(binding, context):
+            identity_state["property_counter"]["inspections"] += 1
+            boundary = context["scopeRoot"]
+            if not inside(binding, boundary) or not inside(context["evaluationRoot"], boundary):
+                return "outside"
+            owner = context.get("directHeadOf")
+            if owner is not None and (not inside(owner, boundary) or (owner.get("info") or {}).get("type") != "NodeLiteral"
+                                      or parents[id(binding)] is not owner or (binding.get("info") or {}).get("type") != "NodeHead"):
+                return "outside"
+            return "root" if binding is boundary else "inside"
+
+        def tag(binding, context):
+            value = (binding.get("info") or {}).get("property_tag")
+            if value is not None and type(value) is not str:
+                raise SansaPropertyAccessError("invalidMetadata")
+            return value
+
+        namespace["properties"] = {
+            "scope": scope,
+            "key": lambda binding, context: None if (binding.get("info") or {}).get("type") == "NodeHead" else binding.get("name"),
+            "nodeKind": lambda binding, context: (binding.get("info") or {}).get("type") if (binding.get("info") or {}).get("type") in {"NodeLiteral", "NodeHead"} else "Other",
+            "nodeTag": tag,
+            "nodeHeads": lambda binding, context: iter(direct_heads.get(id(binding), binding.get("children", []))),
+        }
+    return namespace
 
 
-def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]]) -> dict[str, object]:
+def build_aeos_sansa_resolve_tree(events: dict[str, dict[str, object]], portable=False, original_paths=None) -> dict[str, object]:
     root: dict[str, object] = {"path": "$", "children": []}
     for path, info in sorted(events.items(), key=lambda item: len(item[0])):
-        insert_aeos_sansa_resolve_path(root, path, info)
+        if original_paths is None or path in original_paths:
+            insert_aeos_sansa_resolve_path(root, path, info, portable)
     return root
 
 
-def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dict[str, object]) -> None:
-    parsed = parse_sansa_address(path)
+def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dict[str, object], portable=False) -> None:
+    if portable:
+        # Reuse the owning source-path parser, whose index range differs from
+        # the default range for SANSA selector literals. No dense allocation.
+        from .telex import parse_canonical_path
+        selectors = []
+        for kind, value in parse_canonical_path(path).segments:
+            if kind == "index":
+                selectors.append({"type": "position", "index": value})
+            else:
+                if kind == "attribute":
+                    selectors.append({"type": "attributeSpace"})
+                selectors.append({"type": "member", "name": value})
+        parsed = {"ok": True, "address": {"root": {"kind": "absolute"}, "selectors": selectors}}
+    else:
+        parsed = parse_sansa_address(path)
     if not parsed.get("ok"):
         return
     address = parsed.get("address")
@@ -1644,6 +1734,9 @@ def insert_aeos_sansa_resolve_path(root: dict[str, object], path: str, info: dic
             current = attribute_space
         else:
             return
+    # Preserve the actual indexed event path, including literal Unicode spelling.
+    # Constructed intermediate spellings are navigation details, not event keys.
+    current["path"] = path
     current["info"] = info
 
 
@@ -1665,7 +1758,7 @@ def get_or_create_sansa_child_binding(parent: dict[str, object], path: str, iden
 
 
 def format_sansa_member_selector(name: str) -> str:
-    return f".{name}" if is_identifier_safe(name) else f".[{json.dumps(name)}]"
+    return f".{name}" if is_identifier_safe(name) else f".[{json.dumps(name, ensure_ascii=False)}]"
 
 def select_any_of_rules(rule_index: dict[str, dict[str, object]], events: dict[str, dict[str, object]], ctx: DiagContext) -> dict[str, dict[str, object]]:
     selected = dict(rule_index)
@@ -1810,7 +1903,7 @@ def format_canonical_path(path: object) -> str:
             if is_identifier_safe(key):
                 result += f".{key}"
             else:
-                escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_key = json.dumps(key, ensure_ascii=False)[1:-1]
                 result += f'.["{escaped_key}"]'
         elif seg_type == "index":
             result += f"[{segment.get('index')}]"
@@ -1831,14 +1924,14 @@ def format_reference_target_path(segments: list[object]) -> str:
             if is_identifier_safe(segment):
                 out += f".{segment}"
             else:
-                escaped_key = segment.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_key = json.dumps(segment, ensure_ascii=False)[1:-1]
                 out += f'.["{escaped_key}"]'
         elif isinstance(segment, dict) and segment.get("type") == "attr":
             key = str(segment.get("key", ""))
             if is_identifier_safe(key):
                 out += f".@.{key}"
             else:
-                escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+                escaped_key = json.dumps(key, ensure_ascii=False)[1:-1]
                 out += f'.@.["{escaped_key}"]'
     return out
 
@@ -1846,7 +1939,7 @@ def format_reference_target_path(segments: list[object]) -> str:
 def format_attribute_path(owner_path: str, key: str) -> str:
     if is_identifier_safe(key):
         return f"{owner_path}.@.{key}"
-    escaped_key = key.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_key = json.dumps(key, ensure_ascii=False)[1:-1]
     return f'{owner_path}.@.["{escaped_key}"]'
 
 
@@ -2081,6 +2174,7 @@ def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]]
             continue
         mapped[str(key)] = {
             "type": value.get("type"),
+            "property_tag": value.get("value") if value.get("type") == "NodeHead" else None,
             "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
             "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
             "span": to_span_tuple(value.get("span")),
@@ -2228,7 +2322,7 @@ def is_negative(raw: str) -> bool:
 
 
 def is_identifier_safe(value: str) -> bool:
-    if not value:
+    if not value or not value.isascii():
         return False
     if not (value[0].isalpha() or value[0] == "_"):
         return False
