@@ -1939,11 +1939,16 @@ mod tests {
                     raw: index.to_string(),
                 };
                 assert_eq!(targets.lookup(&target), Some(&expected));
-                assert_eq!(targets.object_members.len(), 1);
-                assert_eq!(
-                    targets.object_members.values().next().map(HashMap::len),
-                    Some(width)
+                let source = &targets.roots.as_ref().expect("root index is built")["source"];
+                let children = source.children.as_ref().expect("member index is built");
+                assert_eq!(children.members.len(), width);
+                assert!(
+                    children
+                        .members
+                        .values()
+                        .all(|path| path.children.is_none())
                 );
+                assert!(targets.object_members.is_empty());
             }
         }
     }
@@ -2128,10 +2133,124 @@ impl AttributeDatatypeCheck {
     }
 }
 
+#[derive(Clone, Copy)]
+struct AuthoredPayload<'a> {
+    value: &'a Value,
+    annotations: Option<&'a BTreeMap<String, AttributeValue>>,
+    is_header: bool,
+}
+
+impl<'a> AuthoredPayload<'a> {
+    fn binding(binding: &'a Binding, parent_is_header: bool) -> Self {
+        Self {
+            value: &binding.value,
+            annotations: Some(&binding.attributes),
+            is_header: parent_is_header || binding.is_header,
+        }
+    }
+}
+
+// Colliding payloads contribute descendants independently. Select the visible
+// occurrence only at the exact owner path, before looking at its attributes.
+struct AuthoredPayloadPath<'a> {
+    first: AuthoredPayload<'a>,
+    later: Vec<AuthoredPayload<'a>>,
+    selected: usize,
+    children: Option<Box<AuthoredPayloadChildren<'a>>>,
+}
+
+#[derive(Default)]
+struct AuthoredPayloadChildren<'a> {
+    members: HashMap<&'a str, AuthoredPayloadPath<'a>>,
+    items: Vec<AuthoredPayloadPath<'a>>,
+}
+
+impl<'a> AuthoredPayloadPath<'a> {
+    fn new(payload: AuthoredPayload<'a>) -> Self {
+        Self {
+            first: payload,
+            later: Vec::new(),
+            selected: 0,
+            children: None,
+        }
+    }
+
+    fn selected(&self) -> AuthoredPayload<'a> {
+        if self.selected == 0 {
+            self.first
+        } else {
+            self.later[self.selected - 1]
+        }
+    }
+
+    fn add(&mut self, payload: AuthoredPayload<'a>, recovery: bool) {
+        // Body payloads shadow header payloads at this path. Within each
+        // plane, recovery keeps the first occurrence, like event filtering.
+        let selected_is_header = self.selected().is_header;
+        if (selected_is_header && !payload.is_header)
+            || (!recovery && selected_is_header == payload.is_header)
+        {
+            self.selected = self.later.len() + 1;
+        }
+        self.later.push(payload);
+    }
+
+    fn child(&mut self, segment: &ReferenceSegment, recovery: bool) -> Option<&mut Self> {
+        let children = self.children.get_or_insert_with(|| {
+            let mut children = Box::new(AuthoredPayloadChildren::default());
+            for payload in std::iter::once(self.first).chain(self.later.iter().copied()) {
+                children.add(payload, recovery);
+            }
+            children
+        });
+        match segment {
+            ReferenceSegment::Key(key) => children.members.get_mut(key.as_str()),
+            ReferenceSegment::Index(index) => children.items.get_mut(*index),
+            ReferenceSegment::Attr(_) => None,
+        }
+    }
+}
+
+impl<'a> AuthoredPayloadChildren<'a> {
+    fn add(&mut self, payload: AuthoredPayload<'a>, recovery: bool) {
+        let mut value = payload.value;
+        while let Value::TypedValue { value: inner, .. } = value {
+            value = inner;
+        }
+        let items = match value {
+            Value::ObjectNode { bindings } => {
+                for binding in bindings {
+                    let child = AuthoredPayload::binding(binding, payload.is_header);
+                    self.members
+                        .entry(binding.key.as_str())
+                        .and_modify(|path| path.add(child, recovery))
+                        .or_insert_with(|| AuthoredPayloadPath::new(child));
+                }
+                return;
+            }
+            Value::ListNode { items } | Value::TupleLiteral { items } => items,
+            Value::NodeLiteral { children, .. } => children,
+            _ => return,
+        };
+        for (index, value) in items.iter().enumerate() {
+            let child = AuthoredPayload {
+                value,
+                annotations: None,
+                is_header: payload.is_header,
+            };
+            if let Some(path) = self.items.get_mut(index) {
+                path.add(child, recovery);
+            } else {
+                self.items.push(AuthoredPayloadPath::new(child));
+            }
+        }
+    }
+}
+
 struct AuthoredDatatypeTargets<'a> {
     bindings: &'a [Binding],
     recovery: bool,
-    roots: Option<BTreeMap<&'a str, &'a Binding>>,
+    roots: Option<HashMap<&'a str, AuthoredPayloadPath<'a>>>,
     object_members: HashMap<*const Binding, HashMap<&'a str, &'a Binding>>,
 }
 
@@ -2150,29 +2269,30 @@ impl<'a> AuthoredDatatypeTargets<'a> {
             return None;
         };
         let roots = self.roots.get_or_insert_with(|| {
-            if !self.recovery {
-                return self
-                    .bindings
-                    .iter()
-                    .map(|binding| (binding.key.as_str(), binding))
-                    .collect();
-            }
-            let mut roots = BTreeMap::new();
+            let mut roots: HashMap<_, AuthoredPayloadPath<'_>> = HashMap::new();
             for binding in self.bindings {
-                let selected = roots.entry(binding.key.as_str()).or_insert(binding);
-                // Recovery retains the first body binding. A body key shadows its header counterpart.
-                if selected.is_header {
-                    *selected = binding;
-                }
+                let payload = AuthoredPayload::binding(binding, false);
+                roots
+                    .entry(binding.key.as_str())
+                    .and_modify(|path| path.add(payload, self.recovery))
+                    .or_insert_with(|| AuthoredPayloadPath::new(payload));
             }
             roots
         });
-        let binding = roots.get(root.as_str())?;
+        let mut owner = roots.get_mut(root.as_str())?;
+        let owner_length = remainder
+            .iter()
+            .position(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+            .unwrap_or(remainder.len());
+        for segment in &remainder[..owner_length] {
+            owner = owner.child(segment, self.recovery)?;
+        }
+        let owner = owner.selected();
         let object_members = &mut self.object_members;
         let target = resolve_reference_remainder_target(
-            &binding.value,
-            Some(&binding.attributes),
-            remainder,
+            owner.value,
+            owner.annotations,
+            &remainder[owner_length..],
             &mut |bindings, key| {
                 let members = object_members.entry(bindings.as_ptr()).or_insert_with(|| {
                     let mut members = HashMap::with_capacity(bindings.len());

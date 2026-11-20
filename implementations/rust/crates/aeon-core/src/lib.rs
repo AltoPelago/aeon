@@ -4050,6 +4050,79 @@ z = 7"###,
     }
 
     #[test]
+    fn datatype_references_can_reach_header_descendants_of_shadowed_roots() {
+        for source in [
+            r#"aeon:header = {x = {leaf@{meta = 7} = 2}}
+"aeon:x" = 0
+value@{copy:number = ~>["aeon:x"].leaf.@.meta}:number = ~>["aeon:x"].leaf.@.meta"#,
+            r#"aeon:header = {x = [@{meta = 7} = 2]}
+"aeon:x" = 0
+value:number = ~>["aeon:x"][0].@.meta"#,
+        ] {
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.to_owned(),
+                        CompileOptions {
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    assert!(
+                        result.errors.is_empty(),
+                        "{source}\n{implementation:?}, validation_only={validation_only}: {:?}",
+                        result.errors
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_checks_datatypes_against_retained_duplicate_descendants() {
+        let source = r#"source = {earlier = 1, shared@{metadata = 7}:number = 1}
+source = {child@{metadata = 7}:number = 2, shared@{metadata = "discarded"}:number = 2}
+item@{copy:number = ~>source.child.@.metadata}:number = ~>source.child.@.metadata
+other:number = ~>source.shared.@.metadata"#;
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            for include_event_annotations in [true, false] {
+                let result = compile_owned_with_implementation(
+                    source.to_owned(),
+                    CompileOptions {
+                        recovery: true,
+                        include_event_annotations,
+                        ..CompileOptions::default()
+                    },
+                    implementation,
+                );
+                let diagnostics = result
+                    .errors
+                    .iter()
+                    .map(|error| (error.code.as_str(), error.path.as_deref()))
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    diagnostics,
+                    [
+                        ("DUPLICATE_KEY", Some("$.source")),
+                        ("DUPLICATE_KEY", Some("$.source.shared"))
+                    ],
+                    "{implementation:?}, include_event_annotations={include_event_annotations}"
+                );
+                assert!(
+                    result
+                        .events
+                        .iter()
+                        .any(|event| format_path(&event.path) == "$.source.child")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn reports_nested_duplicate_object_member_path() {
         let result = compile(
             "app:object = {\n  config:object = {\n    name:string = \"first\"\n    name:string = \"second\"\n  }\n}\n",
