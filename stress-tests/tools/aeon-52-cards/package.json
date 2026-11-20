@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "cards": "node src/main.js",
+    "cards-pairs": "node src/paired.js",
     "cards-summary": "node src/main.js --summary-only",
     "cards-verbose": "node src/main.js --verbose",
     "cards-markov": "node src/main.js --markov",
