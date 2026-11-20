@@ -11,7 +11,7 @@ from altopelago.aeon import _native, pytonic
 
 class CompileTests(unittest.TestCase):
     def test_property_address_literals_keep_native_kind_payload_and_wire(self) -> None:
-        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text(encoding="utf-8"))
         for address, expected in zip(fixture["addresses"], fixture["canonical"]):
             with self.subTest(address=address):
                 source = f'p:sansa={address}// outside\nx=1'
@@ -34,7 +34,7 @@ class CompileTests(unittest.TestCase):
                 self.assertEqual(selected.results[0].value, (document["p"],))
 
     def test_property_literals_do_not_admit_native_reference_targets(self) -> None:
-        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text(encoding="utf-8"))
         sources = [f'p:sansa={address}' for address in fixture["invalid"]]
         sources += [f'copy={marker}{address}' for address in fixture["addresses"] for marker in ["~", "~>"]]
         for source in sources:
@@ -64,7 +64,7 @@ class CompileTests(unittest.TestCase):
         self.assertEqual({"a": 0}, loaded.document)
 
     def test_gp_validates_unprojected_claims(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text(encoding="utf-8"))
         fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-tag-head-clarifiers.json").read_text())
         for fixture in fixtures:
             with self.subTest(case=fixture["id"]):
@@ -84,7 +84,7 @@ class CompileTests(unittest.TestCase):
 
     def test_gp_uses_exact_numeric_radix_bases(self) -> None:
         root = Path(__file__).resolve().parents[5] / "test-fixtures"
-        fixtures = json.loads((root / "radix-bases.json").read_text())
+        fixtures = json.loads((root / "radix-bases.json").read_text(encoding="utf-8"))
         contexts = json.loads((root / "gp-radix-contexts.json").read_text())
         for fixture in (f for f in fixtures if f["testSource"]):
             for context in contexts:
