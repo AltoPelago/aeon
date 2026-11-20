@@ -65,9 +65,19 @@ npm run cards
 
 ## Paired canonicalization pilot
 
-Build the TypeScript workspace first. Run from this directory with Python
-3.12 or newer. The pilot uses the built TypeScript packages, the pure Python
-source, and the Rust implementation from this checkout.
+The Rust workspace requires an `aes` checkout beside the AEON repository.
+Cargo reads `../aes/implementations/rust/Cargo.toml` relative to the AEON
+repository root. For a fresh setup, run these commands from that root to
+check out the [AES revision pinned by CI](../../../.github/workflows/ci.yml#L27-L31).
+
+```bash
+git clone https://github.com/AltoPelago/aes.git ../aes
+git -C ../aes checkout --detach 35f347e7cb579e342ad6c322835abe563d0c17c5
+```
+
+Follow the [TypeScript workspace setup](../../../implementations/typescript/README.md#workspace-setup)
+to build the TypeScript packages. Then run these commands from
+`stress-tests/tools/aeon-52-cards` with Python 3.12 or newer.
 
 ```bash
 (cd ../../../implementations/rust && cargo build --locked -p aeon-canonical --example reference_pairs)
