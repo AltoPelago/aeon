@@ -1211,6 +1211,7 @@ fn finalize_compile(
             options.datatype_policy,
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
+            options.recovery,
             &mut errors,
         );
     } else {
@@ -1223,6 +1224,7 @@ fn finalize_compile(
             options.datatype_policy,
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
+            options.recovery,
             &mut errors,
         );
     }
@@ -3995,6 +3997,56 @@ z = 7"###,
         );
         assert_eq!(result.events.len(), 1);
         assert_eq!(format_path(&result.events[0].path), "$.a");
+    }
+
+    #[test]
+    fn recovery_checks_datatypes_against_the_first_duplicate_bindings_metadata() {
+        for (first, second, expected_mismatch_paths) in [
+            ("7", "\"second\"", &[][..]),
+            ("\"first\"", "7", &["$.item", "$.item.@.copy"][..]),
+        ] {
+            let source = format!(
+                "source@{{metadata = {first}}}:number = 1\n\
+                 source@{{metadata = {second}}}:number = 2\n\
+                 item@{{copy:number = ~>source.@.metadata}}:number = ~>source.@.metadata\n"
+            );
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for include_event_annotations in [true, false] {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        CompileOptions {
+                            recovery: true,
+                            include_event_annotations,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    assert_eq!(result.events.len(), 2);
+                    assert_eq!(result.events[0].key, "source");
+                    assert_eq!(
+                        result.events[0].value,
+                        Value::NumberLiteral { raw: "1".into() },
+                    );
+                    let (duplicate, mismatches) = result
+                        .errors
+                        .split_first()
+                        .expect("duplicate key is reported");
+                    assert_eq!(duplicate.code, "DUPLICATE_KEY");
+                    assert_eq!(duplicate.path.as_deref(), Some("$.source"));
+                    assert_eq!(
+                        mismatches.len(),
+                        expected_mismatch_paths.len(),
+                        "{implementation:?}: {:?}",
+                        result.errors
+                    );
+                    for (error, path) in mismatches.iter().zip(expected_mismatch_paths) {
+                        assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                        assert_eq!(error.path.as_deref(), Some(*path));
+                        assert!(error.message.ends_with("got StringLiteral"), "{error:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

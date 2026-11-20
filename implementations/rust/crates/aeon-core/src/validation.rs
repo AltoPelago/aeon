@@ -687,12 +687,13 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    recovery: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     let mut terminal_values = HashMap::new();
-    let mut authored_targets = AuthoredDatatypeTargets::new(bindings);
+    let mut authored_targets = AuthoredDatatypeTargets::new(bindings, recovery);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
         let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
@@ -966,7 +967,7 @@ pub(crate) fn validate_datatypes_light(
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
     let mut terminal_values = HashMap::new();
-    let mut authored_targets = AuthoredDatatypeTargets::new(bindings);
+    let mut authored_targets = AuthoredDatatypeTargets::new(bindings, false);
     for event in events {
         if let Some(datatype) = &event.datatype {
             if let Some(error) = validate_datatype_shape_light(
@@ -1927,7 +1928,7 @@ mod tests {
                 "source".into(),
                 Value::ObjectNode { bindings: members },
             )];
-            let mut targets = AuthoredDatatypeTargets::new(&roots);
+            let mut targets = AuthoredDatatypeTargets::new(&roots, false);
             assert!(targets.object_members.is_empty());
             for index in (0..width).rev() {
                 let target = [
@@ -2129,14 +2130,16 @@ impl AttributeDatatypeCheck {
 
 struct AuthoredDatatypeTargets<'a> {
     bindings: &'a [Binding],
+    recovery: bool,
     roots: Option<BTreeMap<&'a str, &'a Binding>>,
     object_members: HashMap<*const Binding, HashMap<&'a str, &'a Binding>>,
 }
 
 impl<'a> AuthoredDatatypeTargets<'a> {
-    fn new(bindings: &'a [Binding]) -> Self {
+    fn new(bindings: &'a [Binding], recovery: bool) -> Self {
         Self {
             bindings,
+            recovery,
             roots: None,
             object_members: HashMap::new(),
         }
@@ -2147,10 +2150,22 @@ impl<'a> AuthoredDatatypeTargets<'a> {
             return None;
         };
         let roots = self.roots.get_or_insert_with(|| {
-            self.bindings
-                .iter()
-                .map(|binding| (binding.key.as_str(), binding))
-                .collect()
+            if !self.recovery {
+                return self
+                    .bindings
+                    .iter()
+                    .map(|binding| (binding.key.as_str(), binding))
+                    .collect();
+            }
+            let mut roots = BTreeMap::new();
+            for binding in self.bindings {
+                let selected = roots.entry(binding.key.as_str()).or_insert(binding);
+                // Recovery retains the first body binding. A body key shadows its header counterpart.
+                if selected.is_header {
+                    *selected = binding;
+                }
+            }
+            roots
         });
         let binding = roots.get(root.as_str())?;
         let object_members = &mut self.object_members;
