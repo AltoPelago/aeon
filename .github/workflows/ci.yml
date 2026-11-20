@@ -107,6 +107,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Build Rust adapter for the 52-Cards pilot
+        working-directory: implementations/rust
+        run: cargo build --locked -p aeon-canonical --example reference_pairs
+
+      - name: 52-Cards paired canonicalization pilot
+        working-directory: .
+        run: npm --prefix stress-tests/tools/aeon-52-cards run cards-pairs -- --check-detector
+
       - name: Pure-Python reference tests and transport conformance
         working-directory: .
         env:

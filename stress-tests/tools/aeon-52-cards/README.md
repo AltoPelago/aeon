@@ -26,6 +26,7 @@ npm run cards
 | Script | Description |
 |---|---|
 | `npm run cards` | Full run — generate, evaluate, report |
+| `npm run cards-pairs` | Bounded TypeScript, pure Python and Rust reference-layout pilot |
 | `npm run cards-summary` | Summary only — pass/fail counts |
 | `npm run cards-verbose` | Verbose — per-document detail |
 | `npm run cards-markov` | Full run + Markov exploration |
@@ -61,6 +62,40 @@ npm run cards
 | `--depth-tree-only` | Generate and evaluate only the depth-tree corpus |
 | `--preview-only` | Generate documents and show samples without evaluation |
 | `--no-depth-tree-layout` | Disable whitespace/layout mutation variants for depth trees |
+
+## Paired canonicalization pilot
+
+Build the TypeScript workspace first. Run from this directory with Python
+3.12 or newer. The pilot uses the built TypeScript packages, the pure Python
+source, and the Rust implementation from this checkout.
+
+```bash
+(cd ../../../implementations/rust && cargo build --locked -p aeon-canonical --example reference_pairs)
+npm run cards-pairs
+npm run cards-pairs -- --seed 42 --count 128
+npm run cards-pairs -- --seed 42 --case-index 7
+npm run cards-pairs -- --check-detector
+```
+
+The default seed is 1729 and the default workload is 32 pairs. A run accepts
+1–128 pairs, or one zero-based case index. Set `PYTHON` when `python3` selects
+an older or different interpreter.
+
+Each pair renders the same model with different layout and an ordinary
+comment. The model contains a nested indexed target, an attribute target,
+clone and pointer references, and an unrelated binding to exercise
+reference-safe ordering. All three implementations must accept both sources,
+agree on exact canonical bytes, and reach a byte-for-byte fixed point.
+In each runtime, both authored and canonicalized sources must match the
+model's expected portable AES graph, including exact addresses, kinds,
+datatypes and values.
+
+On failure, the runner prints the seed, case index, runtime, original and
+reduced sources, expected graphs and mismatch. Reduction preserves both
+reference targets and requires the same failure to recur on valid inputs.
+`--check-detector` also verifies that all three runtimes detect a deliberately
+wrong expected reference kind and that the Rust failure can be reduced and
+replayed. The bounded CI run includes this control.
 
 ## Design
 

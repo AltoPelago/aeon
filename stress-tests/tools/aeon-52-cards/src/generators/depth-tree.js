@@ -96,6 +96,92 @@ export function generateDepthTrees(options = {}) {
     return documents;
 }
 
+export function buildReferencePairModel(seed, index) {
+    const rng = mulberry32(seed + index * 104729 + 17);
+    return {
+        index,
+        layoutSeed: seed + index * 104729 + 53,
+        childKey: pickOne(rng, ['plain', 'a.b', 'two words', 'quote"key', 'emoji😀']),
+        targetValues: [int(rng, 100), int(rng, 100) + 100, int(rng, 100) + 200],
+        targetIndex: int(rng, 3),
+        cloneIndexedTarget: chance(rng, 0.5),
+        label: `label ${int(rng, 1000)}`,
+        marker: int(rng, 100),
+        competitor: `independent ${int(rng, 1000)}`,
+    };
+}
+
+export function renderReferencePair(model) {
+    const { index, layoutSeed, childKey, targetValues, targetIndex, cloneIndexedTarget, label, marker, competitor } = model;
+    const target = { value: `z${index}`, quoted: false };
+    const child = { value: childKey, quoted: !/^[A-Za-z_][A-Za-z0-9_]*$/.test(childKey) };
+    const dependentKey = `a${index}`;
+    const competitorKey = `m${index}`;
+    const scalar = (value) => ({ kind: 'scalar', literal: JSON.stringify(value) });
+    const binding = (key, datatype, value, attrs = []) => ({ key: { value: key, quoted: false }, datatype, value, attrs });
+    const reference = (clone, path) => ({ kind: 'reference', literal: `${clone ? '~' : '~>'}${path}` });
+
+    const attributes = [{ entries: [binding('label', 'string', scalar(label))] }];
+    if (marker !== null) {
+        attributes.push({ entries: [binding('marker', 'number', scalar(marker))] });
+    }
+    const indexedPath = `${renderReferencePath([target, child], true)}[${targetIndex}]`;
+    const attributePath = `${renderReferencePath([target], true)}.@.label`;
+    const tree = {
+        needsTransport: true,
+        bindings: [
+            binding(target.value, 'object', {
+                kind: 'object',
+                bindings: [{ key: child, datatype: 'list', value: { kind: 'list', elements: targetValues.map(scalar) } }],
+            }, attributes),
+            binding(dependentKey, 'object', {
+                kind: 'object',
+                bindings: [binding('uses', 'list', {
+                    kind: 'list',
+                    elements: [reference(cloneIndexedTarget, indexedPath), reference(!cloneIndexedTarget, attributePath)],
+                })],
+            }),
+        ],
+    };
+    if (competitor !== null) {
+        tree.bindings.push(binding(competitorKey, 'string', scalar(competitor)));
+    }
+    const sources = [
+        renderTree(tree, mulberry32(layoutSeed), { mutateLayout: false }),
+        renderTree(tree, mulberry32(layoutSeed), { mutateLayout: true }) + '// plain trailing comment\n',
+    ];
+
+    // Derive portable addresses and values from the model without reading the
+    // rendered text or using a runtime's parser or path formatter.
+    const owner = `$.${target.value}`;
+    const list = `${owner}.${child.quoted ? `[${JSON.stringify(childKey)}]` : childKey}`;
+    const dependent = `$.${dependentKey}`;
+    const uses = `${dependent}.uses`;
+    const type = (datatype) => ({ datatype, generics: [], clarifiers: [] });
+    const expectedGraph = [
+        ...[['encoding', 'utf-8'], ['mode', 'transport']].map(([field, value]) => ({
+            header: `$.["aeon:${field}"]`, kind: 'StringLiteral', ...type('string'), value,
+        })),
+        { path: owner, kind: 'ObjectNode', ...type('object') },
+        { path: `${owner}.@.label`, kind: 'StringLiteral', ...type('string'), value: label },
+        { path: list, kind: 'ListNode', ...type('list') },
+        ...targetValues.map((value, position) => ({
+            path: `${list}[${position}]`, kind: 'NumberLiteral', value: String(value),
+        })),
+        { path: dependent, kind: 'ObjectNode', ...type('object') },
+        { path: uses, kind: 'ListNode', ...type('list') },
+        { path: `${uses}[0]`, kind: cloneIndexedTarget ? 'CloneReference' : 'PointerReference', value: `${list}[${targetIndex}]` },
+        { path: `${uses}[1]`, kind: cloneIndexedTarget ? 'PointerReference' : 'CloneReference', value: `${owner}.@.label` },
+    ];
+    if (marker !== null) {
+        expectedGraph.push({ path: `${owner}.@.marker`, kind: 'NumberLiteral', ...type('number'), value: String(marker) });
+    }
+    if (competitor !== null) {
+        expectedGraph.push({ path: `$.${competitorKey}`, kind: 'StringLiteral', ...type('string'), value: competitor });
+    }
+    return { sources, expectedGraph };
+}
+
 function buildTree(rng, options) {
     const state = { keyIndex: 0, registry: [] };
     const features = new Set(['depth-tree', 'typed-binding']);
@@ -396,15 +482,14 @@ function renderAttributes(attrs, level, layout) {
     if (!attrs || attrs.length === 0) {
         return '';
     }
-    return attrs.map((attr) => {
-        const entries = attr.entries.map((entry) =>
-            `${renderKey(entry.key)}${renderAttributes(entry.attrs, level + 1, layout)}${renderDatatype(entry.datatype, level + 1, layout)}${equals(layout, level + 1)}${renderValue(entry.value, level + 1, layout)}`,
-        );
-        if (layout.attrInline) {
-            return `${layout.attrPrefix}{${layout.inlineOpenPadding}${entries.join(layout.inlineSeparator)}${layout.inlineClosePadding}}`;
-        }
-        return `${layout.attrPrefix}{${layout.containerOpenGap}${pad(level + 1, layout)}${joinRendered(entries, level + 1, { ...layout, separatorStyle: 'comma-newline' })}${layout.containerCloseGap}${pad(level, layout)}}`;
-    }).join('');
+    // Each head has one attribute block, even when entries came from several groups.
+    const entries = attrs.flatMap((attr) => attr.entries).map((entry) =>
+        `${renderKey(entry.key)}${renderAttributes(entry.attrs, level + 1, layout)}${renderDatatype(entry.datatype, level + 1, layout)}${equals(layout, level + 1)}${renderValue(entry.value, level + 1, layout)}`,
+    );
+    if (layout.attrInline) {
+        return `${layout.attrPrefix}{${layout.inlineOpenPadding}${entries.join(layout.inlineSeparator)}${layout.inlineClosePadding}}`;
+    }
+    return `${layout.attrPrefix}{${layout.containerOpenGap}${pad(level + 1, layout)}${joinRendered(entries, level + 1, { ...layout, separatorStyle: 'comma-newline' })}${layout.containerCloseGap}${pad(level, layout)}}`;
 }
 
 function renderDatatype(datatype, level, layout) {
