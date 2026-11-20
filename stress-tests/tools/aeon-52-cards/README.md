@@ -81,6 +81,10 @@ The default seed is 1729 and the default workload is 32 pairs. A run accepts
 1–128 pairs, or one zero-based case index. Set `PYTHON` when `python3` selects
 an older or different interpreter.
 
+The runner asks Cargo where it placed the debug build, including when
+`CARGO_TARGET_DIR` is set. Set `AEON_52_CARDS_RUST_ADAPTER` to the path of an
+explicitly selected adapter, such as a release build.
+
 Each pair renders the same model with different layout and an ordinary
 comment. The model contains a nested indexed target, an attribute target,
 clone and pointer references, and an unrelated binding to exercise
@@ -92,10 +96,12 @@ datatypes and values.
 
 On failure, the runner prints the seed, case index, runtime, original and
 reduced sources, expected graphs and mismatch. Reduction preserves both
-reference targets and requires the same failure to recur on valid inputs.
-`--check-detector` also verifies that all three runtimes detect a deliberately
-wrong expected reference kind and that the Rust failure can be reduced and
-replayed. The bounded CI run includes this control.
+reference targets and requires the original mismatch or diagnostic to recur.
+When one runtime rejects the authored input, the other two must accept both
+variants before a reduction is kept.
+`--check-detector` verifies that all three runtimes detect a deliberately wrong
+expected reference kind and checks reduction against competing graph mismatches
+and authored rejection. The bounded CI run includes these controls.
 
 ## Design
 
