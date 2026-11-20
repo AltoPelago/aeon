@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.13", "3.14"]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         platform:
           - name: linux-x86_64
             runner: ubuntu-24.04
@@ -87,7 +87,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -152,7 +152,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -197,16 +197,20 @@ jobs:
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
 
   published-smoke:
-    name: Clean PyPI consumer / CPython 3.12
+    name: Clean PyPI consumer / CPython ${{ matrix.python }}
     needs: publish
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     permissions:
       contents: read
     steps:
       - name: Setup Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
 
       - name: Install exact binary wheel and exercise public API
         env:

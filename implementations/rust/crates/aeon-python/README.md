@@ -48,7 +48,7 @@ not currently replace those values with Python-specific scalar wrappers.
 The public API is the `altopelago.aeon` Python facade. The
 `altopelago.aeon._native` extension is private and may change between releases.
 
-The package supports non-free-threaded CPython 3.12 through 3.14. It
+The package supports non-free-threaded CPython 3.11 through 3.15. It
 does not run the WebAssembly build and it does not silently fall back to the
 repository's pure-Python reference implementation.
 

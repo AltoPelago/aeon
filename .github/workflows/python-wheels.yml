@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.12", "3.13", "3.14"]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         platform:
           - name: linux-x86_64
             runner: ubuntu-24.04
@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -68,7 +68,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
-          maturin-version: v1.14.1
+          maturin-version: v1.15.0
           rust-toolchain: 1.93.1
           target: ${{ matrix.platform.target }}
           manylinux: ${{ matrix.platform.manylinux }}
@@ -103,11 +103,16 @@ jobs:
           if-no-files-found: error
 
   installed-conformance:
-    name: Installed wheel / Core CTS differential
+    name: Python conformance / CPython ${{ matrix.python }}
     needs: build-and-smoke
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     env:
       AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+      AES_ROOT: ${{ github.workspace }}/aes
 
     steps:
       - name: Checkout
@@ -117,38 +122,47 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 928341c90028787e8eeb21fbc7e2f755df539d4b
+          ref: e2493a85c28fa4b75917bd2dc43badbeae343cba
           path: aeonite-cts
+
+      - name: Checkout AES
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: AltoPelago/aes
+          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
+          path: aes
 
       - name: Setup Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
 
-      - name: Download CPython 3.12 wheel
+      - name: Download Linux x86-64 wheel
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: aeon-python-linux-x86_64-cp3.12
+          name: aeon-python-linux-x86_64-cp${{ matrix.python }}
           path: wheelhouse
 
       - name: Install wheel artifact
-        run: >-
-          python -c "import glob, subprocess, sys;
-          wheels = glob.glob('wheelhouse/*.whl');
-          assert len(wheels) == 1, wheels;
-          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', wheels[0]])"
+        run: python -m pip install --force-reinstall --no-index --no-deps wheelhouse/*.whl
 
       - name: Installed-wheel typing contract
         run: |
           python -m pip install mypy==1.19.1
-          python -m mypy --strict implementations/rust/crates/aeon-python/tests/typing/mutation.py
+          python -m mypy --strict implementations/rust/crates/aeon-python/tests/typing
+
+      - name: Pure-Python tests and installed-wheel consumer
+        run: |
+          python -m unittest discover -s implementations/python/tests -p 'test_*.py'
+          python -m pip install setuptools==82.0.0 wheel==0.45.1
+          python scripts/test-python-reference-wheel.py
 
       - name: Installed-wheel Core CTS and pure-Python differential
         run: >-
           python scripts/check-installed-python-differential.py
-          --cts aeonite-cts/cts/core/v1/core-cts.v1.snapshot-0.5.json
+          --cts aeonite-cts/cts/core/v1/core-cts.v1.next.json

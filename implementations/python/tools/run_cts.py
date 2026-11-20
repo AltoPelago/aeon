@@ -324,9 +324,9 @@ def main() -> int:
 
 
 def find_compatible_python() -> str:
-    if sys.version_info >= (3, 12):
+    if sys.version_info >= (3, 11):
         return sys.executable
-    for candidate in ("python3.14", "python3.13", "python3.12"):
+    for candidate in ("python3.15", "python3.14", "python3.13", "python3.12", "python3.11"):
         resolved = shutil.which(candidate)
         if resolved is not None:
             return resolved

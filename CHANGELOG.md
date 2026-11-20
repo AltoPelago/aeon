@@ -8,6 +8,9 @@ repositories.
 
 ## Unreleased
 
+- Add Python 3.11 and 3.15 support. Native Python wheels cover standard CPython
+  3.11 through 3.15 on the supported Linux, macOS, and Windows platforms.
+
 - Bound pending newline metadata after a structured comment exceeds its configured
   size limit, retaining one layout marker to preserve diagnostic precedence.
   Unterminated comments and token-retention aborts release pending metadata.

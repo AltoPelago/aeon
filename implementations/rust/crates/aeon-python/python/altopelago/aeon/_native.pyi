@@ -1,4 +1,4 @@
-from typing import Any, final
+from typing import Any, TypeAlias, final
 
 ENGINE: str
 
@@ -197,8 +197,8 @@ class QueryContainer:
     @property
     def payload(self) -> _QueryValue: ...
 
-type _QueryValue = QueryScalar | QueryContainer | tuple[Binding, ...] | QueryObject | tuple[_QueryValue, ...] | None
-type _MutationValueView = QueryScalar | QueryObject | tuple[_MutationValueView, ...] | None
+_QueryValue: TypeAlias = QueryScalar | QueryContainer | tuple[Binding, ...] | QueryObject | tuple[_QueryValue, ...] | None
+_MutationValueView: TypeAlias = QueryScalar | QueryObject | tuple[_MutationValueView, ...] | None
 
 @final
 class QueryField:

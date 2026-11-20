@@ -13,7 +13,7 @@ Python package root:
 Distribution metadata:
 
 - project name: `aeon-python`
-- Python requirement: `>=3.12`
+- Python requirement: `>=3.11`
 - console script: `aeon-python = aeon.cli:main`
 
 Supply-chain notes:
