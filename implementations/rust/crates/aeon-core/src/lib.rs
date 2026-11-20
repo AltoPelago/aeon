@@ -1425,7 +1425,7 @@ pub(crate) fn validate_gp_datatype_clarifiers<P: AsRef<str>>(
 }
 
 fn validate_gp_validation_datatype_clarifiers(
-    events: &[ValidationEvent],
+    events: &[ValidationEvent<'_>],
     errors: &mut Vec<Diagnostic>,
 ) {
     for event in events {
@@ -1440,7 +1440,7 @@ fn validate_gp_validation_datatype_clarifiers(
             &event.path,
             event.span,
             errors,
-            gp_custom_clarifier_literal(&event.value),
+            gp_custom_clarifier_literal(event.value),
         );
     }
 }
@@ -5560,6 +5560,8 @@ other:number = ~>source.shared.@.metadata"#;
                       h:hex = #ff_ff\n\
                       r:radix = %10_10\n\
                       e:encoding = &QmFzZTY0IQ==\n\
+                      b:base64 = &TQ\n\
+                      alias:base64 = ~>b\n\
                       dt:datetime = 2025-01-01T09:30:00Z\n\
                       z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n";
         let result = compile(

@@ -34,7 +34,7 @@ pub(crate) fn build_validation_indexes(flattened: &FlattenedDocument) -> Validat
 }
 
 pub(crate) fn build_validation_event_lookup(
-    events: &[ValidationEvent],
+    events: &[ValidationEvent<'_>],
     errors: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, usize> {
     let mut event_lookup = BTreeMap::new();
@@ -444,7 +444,7 @@ impl CompactReferenceStep {
 }
 
 pub(crate) fn compact_reference_steps(
-    steps: &[ValidationReferenceStep],
+    steps: &[ValidationReferenceStep<'_>],
 ) -> Vec<CompactReferenceStep> {
     let mut compact = Vec::new();
     for step in steps {
@@ -989,7 +989,7 @@ pub(crate) fn collect_attribute_datatype_checks(
 }
 
 pub(crate) fn validate_datatypes_light(
-    events: &[ValidationEvent],
+    events: &[ValidationEvent<'_>],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
     effective_mode: Option<BehaviorMode>,
@@ -1006,7 +1006,7 @@ pub(crate) fn validate_datatypes_light(
         if let Some(datatype) = &event.datatype {
             if let Some(error) = validate_datatype_shape_light(
                 datatype,
-                &event.value,
+                event.value,
                 max_separator_depth,
                 max_generic_depth,
             ) {
@@ -1035,13 +1035,13 @@ pub(crate) fn validate_datatypes_light(
                 continue;
             }
             let resolved_value =
-                resolve_reference_chain(&event.value, &mut terminal_values, |segments| {
+                resolve_reference_chain(event.value, &mut terminal_values, |segments| {
                     resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
                         let event = &events[*event_lookup.get(path)?];
-                        (event.source_plane == SourcePlane::Body).then_some(&event.value)
+                        (event.source_plane == SourcePlane::Body).then_some(event.value)
                     })
                 })
-                .unwrap_or(&event.value);
+                .unwrap_or(event.value);
             if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
             {
                 errors.push(
@@ -1975,6 +1975,35 @@ mod tests {
     }
 
     #[test]
+    fn header_visibility_reuses_dense_coverage_across_duplicate_body_sequences() {
+        let mut bindings = crate::parse_document(
+            r#"aeon:x = [0]
+"aeon:x" = [1, 2, 3, 4]"#,
+            &crate::AeonCompileLimits::default(),
+        )
+        .expect("header and body may overlap");
+        let mut shorter = bindings[1].clone();
+        shorter.value = Value::TupleLiteral {
+            items: vec![Value::NumberLiteral { raw: "1".into() }],
+        };
+        bindings.extend(std::iter::repeat_n(shorter, 128));
+
+        let root = CanonicalPath::root().member("aeon:x");
+        let mut paths = AuthoredPayloadPaths::for_header_collisions(&bindings);
+        for index in 0..2048 {
+            let slot = root.index(index);
+            assert_eq!(paths.body_shadows_header(&slot), index < 4, "{index}");
+            if index >= 4 {
+                assert!(!paths.body_shadows_header(&slot.member("child")), "{index}");
+            }
+        }
+        let owner = &paths.roots.as_ref().expect("root index is built")["aeon:x"];
+        let children = owner.children.as_ref().expect("coverage is cached");
+        assert_eq!(children.body_sequence_len, Some(4));
+        assert!(children.items.is_empty());
+    }
+
+    #[test]
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[x]"), vec!["x"]);
         assert_eq!(datatype_bracket_specs("outer<inner[.]>[22]"), vec!["22"]);
@@ -2178,14 +2207,17 @@ impl<'a> AuthoredPayload<'a> {
         value
     }
 
-    fn item(self, index: usize) -> Option<Self> {
-        let value = match self.payload() {
-            Value::ListNode { items } | Value::TupleLiteral { items } => items.get(index),
-            Value::NodeLiteral { children, .. } => children.get(index),
+    fn sequence(self) -> Option<&'a [Value]> {
+        match self.payload() {
+            Value::ListNode { items } | Value::TupleLiteral { items } => Some(items),
+            Value::NodeLiteral { children, .. } => Some(children),
             _ => None,
-        }?;
+        }
+    }
+
+    fn item(self, index: usize) -> Option<Self> {
         Some(Self {
-            value,
+            value: self.sequence()?.get(index)?,
             annotations: None,
             is_header: self.is_header,
         })
@@ -2205,6 +2237,7 @@ struct AuthoredPayloadPath<'a> {
 struct AuthoredPayloadChildren<'a> {
     members: Option<HashMap<&'a str, AuthoredPayloadPath<'a>>>,
     items: HashMap<usize, AuthoredPayloadPath<'a>>,
+    body_sequence_len: Option<usize>,
 }
 
 impl<'a> AuthoredPayloadPath<'a> {
@@ -2255,6 +2288,22 @@ impl<'a> AuthoredPayloadPath<'a> {
             members
         });
         members.get_mut(key)
+    }
+
+    fn body_sequence_covers(&mut self, index: usize) -> bool {
+        let children = self.children.get_or_insert_with(Box::default);
+        // Sequences have dense indexes. Their union is the longest body's
+        // prefix, even when shorter or scalar occurrences share the path.
+        let length = children.body_sequence_len.get_or_insert_with(|| {
+            std::iter::once(self.first)
+                .chain(self.later.iter().copied())
+                .filter(|payload| !payload.is_header)
+                .filter_map(AuthoredPayload::sequence)
+                .map(<[Value]>::len)
+                .max()
+                .unwrap_or(0)
+        });
+        index < *length
     }
 
     fn item(&mut self, index: usize, recovery: bool) -> Option<&mut Self> {
@@ -2333,7 +2382,10 @@ impl<'a> AuthoredPayloadPaths<'a> {
         for segment in ancestors {
             let child = match segment {
                 PathSegment::Member(key) => owner.member(key, recovery),
-                PathSegment::Index(index) => owner.item(*index, recovery),
+                PathSegment::Index(index) if owner.body_sequence_covers(*index) => {
+                    owner.item(*index, recovery)
+                }
+                PathSegment::Index(_) => None,
                 PathSegment::Root => return false,
             };
             let Some(child) = child else {
@@ -2341,14 +2393,12 @@ impl<'a> AuthoredPayloadPaths<'a> {
             };
             owner = child;
         }
-        if let Some(index) = last_index {
-            // The flattening walk visits every sequence item. Check exact
-            // body slots directly without caching a path for each item visited.
-            return std::iter::once(owner.first)
-                .chain(owner.later.iter().copied())
-                .any(|payload| !payload.is_header && payload.item(index).is_some());
+        match last_index {
+            // The flattening walk visits every slot. Reuse the coverage
+            // without creating an individual path entry for each visit.
+            Some(index) => owner.body_sequence_covers(index),
+            None => !owner.selected().is_header,
         }
-        !owner.selected().is_header
     }
 }
 

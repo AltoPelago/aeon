@@ -331,7 +331,11 @@ impl ProgressiveValidationState {
         validate_gp_datatype_clarifiers(events, &rendered_paths, &mut self.gp_profile_errors);
     }
 
-    fn observe_references(&mut self, targets: &HashSet<String>, steps: &[ValidationReferenceStep]) {
+    fn observe_references(
+        &mut self,
+        targets: &HashSet<String>,
+        steps: &[ValidationReferenceStep<'_>],
+    ) {
         self.reference_targets.extend(targets.iter().cloned());
         for step in steps {
             match step {
@@ -3029,6 +3033,26 @@ mod tests {
             (
                 "object-valued attribute target",
                 "source@{metadata = {leaf = 7}}:number = 0\nitem:object = ~>source.@.metadata",
+                Some(2),
+            ),
+            (
+                "Base64 attribute target",
+                "target = &TQ\nitem@{claim:base64 = ~>target} = 1",
+                Some(2),
+            ),
+            (
+                "Base64 indexed terminal reached through an alias",
+                "targets = [&TQ==]\nalias = ~>targets[0]\nitem@{claim:base64 = ~alias} = 1",
+                Some(4),
+            ),
+            (
+                "invalid Base64 tail bits",
+                "target = &TR\nitem@{claim:base64 = ~>target} = 1",
+                None,
+            ),
+            (
+                "generic encoding distinct from Base64",
+                "target = &A\nitem@{claim:encoding = ~>target} = 1",
                 Some(2),
             ),
             ("semantic invalidation", "first = 1\ncopy = ~missing", None),
