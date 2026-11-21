@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { createHash } from 'node:crypto';
 import { compile, formatPath, type CompileResult, type AEONError } from '@altopelago/aeon-core';
+import { encodeTelex, FILM_V1_PREAMBLE } from '@altopelago/aeon-aes';
 import { finalizeJson, finalizeMap, type Diagnostic, type FinalizeMeta, type FinalizeOptions } from '@altopelago/aeon-finalize';
 import { computeCanonicalHash, generateEd25519KeyPair, signStringPayload } from '@altopelago/aeon-integrity';
 import { runTypedRuntime } from './runtime-bind.js';
@@ -982,6 +983,55 @@ describe('AEON CLI output contract', () => {
             const writer = await runCli(['film', 'encode', file]);
             assert.strictEqual(writer.code, 2);
             assert.match(writer.stderr, /Usage: aeon film <decode\|materialize>/u);
+        });
+
+        it('drains piped JSON when strict Telex or Film materialization fails', async () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-portable-output-'));
+            try {
+                const records = Array.from({ length: 2200 }, (_, index) => ({
+                    path: `$.r${String(index).padStart(4, '0')}`,
+                    kind: 'RadixLiteral' as const,
+                    datatype: 'radix16',
+                    generics: [],
+                    clarifiers: [],
+                    value: 'f',
+                }));
+                const telex = path.join(dir, 'stream.telex.aes');
+                const film = path.join(dir, 'stream.film.aes');
+                fs.writeFileSync(telex, encodeTelex(records));
+                const frames = records.map(record => {
+                    // Every length fits in one byte. The record has a datatype and uses the Film radix kind.
+                    const datatype = Buffer.from([record.datatype.length, ...Buffer.from(record.datatype), 0, 0]);
+                    const body = Buffer.from([
+                        0x02, 0x09, record.path.length, ...Buffer.from(record.path),
+                        datatype.length, ...datatype, record.value.length, ...Buffer.from(record.value),
+                    ]);
+                    return Buffer.concat([Buffer.from([body.length]), body]);
+                });
+                fs.writeFileSync(film, Buffer.concat([Buffer.from([...FILM_V1_PREAMBLE, 0]), ...frames]));
+
+                for (const [protocol, file] of [['telex', telex], ['film', film]] as const) {
+                    const result = await runCli([protocol, 'materialize', file, '--strict']);
+                    assert.equal(result.code, 1);
+                    assert.equal(result.stderr, '');
+                    const parsed = JSON.parse(result.stdout);
+                    const diagnostics: Diagnostic[] = parsed.meta.errors;
+                    assert.deepEqual(diagnostics.map(({ code, path }) => ({ code, path })),
+                        records.map(({ path }) => ({ code: 'FINALIZE_INVALID_RADIX_BASE', path })));
+                    assert.equal(Object.keys(parsed.document).length, records.length);
+                }
+
+                // A duplicate record yields a validation failure after decoding a large stream.
+                fs.appendFileSync(telex, '\npath=$.r0000\nkind=StringLiteral\nvalue=duplicate\n');
+                const decoded = await runCli(['telex', 'decode', telex]);
+                assert.equal(decoded.code, 1);
+                assert.equal(decoded.stderr, '');
+                const parsed = JSON.parse(decoded.stdout);
+                assert.equal(parsed.validation.valid, false);
+                assert.equal(parsed.records.length, records.length + 1);
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
         });
 
         it('supports --sort-annotations with annotations-only JSON output', async () => {

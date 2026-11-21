@@ -476,11 +476,11 @@ function telex(args: string[]): void {
                 ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
             });
             console.log(JSON.stringify(finalized, null, 2));
-            if (!validation.valid || (finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            if (!validation.valid || (finalized.meta?.errors?.length ?? 0) > 0) process.exitCode = 1;
             return;
         }
         console.log(JSON.stringify({ ...parsed, validation }, null, 2));
-        if (!validation.valid) process.exit(1);
+        if (!validation.valid) process.exitCode = 1;
     } catch (error) {
         const failure = error as { code?: string; message?: string };
         console.error(`[${failure.code ?? 'TELEX_SYNTAX_ERROR'}] ${failure.message ?? String(error)}`);
@@ -546,7 +546,7 @@ function film(args: string[]): void {
                 ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
             });
             console.log(JSON.stringify(finalized, null, 2));
-            if ((finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            if ((finalized.meta?.errors?.length ?? 0) > 0) process.exitCode = 1;
             return;
         }
         console.log(JSON.stringify(decoded, null, 2));
