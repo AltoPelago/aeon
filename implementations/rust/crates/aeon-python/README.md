@@ -38,7 +38,10 @@ explicit node-head paths and a private validation-wide inspection allowance;
 see the [profile and target boundaries](../../../../docs/aeos-property-selectors.md).
 The loader's existing schema-contract format retains its resource-policy
 restriction, so this API uses the default allowance.
-No new native Query or WASM API is implied.
+This loader does not introduce a Query API. The existing native Pytonic
+`Document.query()` separately admits properties, as described below; pure Python
+has no Query evaluator and WASM gains no Query API. See the
+[provider/host matrix](../../../../docs/property-selector-support.md).
 
 Materialisation deliberately uses AEON's JSON output profile. Values that are
 not losslessly representable in JSON (including symbols) fail in `mode="strict"`

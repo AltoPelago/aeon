@@ -83,8 +83,9 @@ paths.
 
 #### Experimental standalone property Resolve
 
-The coordinated unreleased SANSA candidate also supports literal `&key("...")`
-and `&tag("...")` filters through this namespace's explicit `properties` facet:
+The coordinated unreleased SANSA candidate supports literal `&key("...")`,
+`&tag("...")` and `&headTag("...")` filters through this namespace's explicit
+`properties` facet. See the [provider/host matrix](../../../../docs/property-selector-support.md):
 
 ```ts
 const { namespace: document } = readAeonNamespace('item = <widget("hello")>');
@@ -110,10 +111,12 @@ adapter costs: it defaults to 10,000, has portable maximum 1,000,000, and counts
 candidates and yielded direct heads, including misses and repeated occurrences.
 
 Direct read-only Query is also admitted in the coordinated candidate (see below).
-Activation, mutation, Instruction, AEOS rule selectors and references retain their
-existing admission rules. Python/native/WASM literal ports and source-playground
-integration are delivered; full provider/profile/cost qualification remains pending. No release or deployment is
-authorized by this development candidate.
+Activation, mutation, Instruction and references remain closed to properties.
+The separately implemented [portable AEOS profile](../../../../docs/aeos-property-selectors.md)
+admits explicit portable AES/Telex selectors; legacy native-event validation
+remains closed. Python/native/WASM literal ports and source-playground integration
+are delivered, while full profile/cost/platform/registry qualification remains
+separate. No release or deployment is authorized by this development support.
 
 #### Semantics and limits
 
@@ -202,6 +205,8 @@ boundary at the row and hides that incoming key. `&tag` matches node containers;
 One `resolve.maxPropertyInspections` allowance covers all Query clauses and
 projections; complete capability preflight runs even for empty/short-circuited
 sources. Errors return no partial records. Mutation, activation (including
-trusted), AEOS and reference admission remain separate and closed. Pure Python
-has no Query evaluator; native/WASM APIs do not gain standalone Query callbacks.
+trusted) and references remain closed. Portable AEOS uses its separate admitted
+APIs; native-event AEOS and the LSP path remain closed. Pure Python has no Query
+evaluator. Existing native Pytonic `Document.query()` is separately integrated
+through the Rust SDK; no generic Python callback bridge or WASM Query API is added.
 This candidate makes no new performance, release or deployment qualification.
