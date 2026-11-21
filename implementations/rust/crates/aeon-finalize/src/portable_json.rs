@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
@@ -221,8 +222,8 @@ fn materialize_root(header: bool, ctx: &mut Context<'_>) -> JsonValue {
         if !safe_member(&key, &child.address, ctx) {
             continue;
         }
-        object.insert(key.clone(), materialize_record(&child, ctx));
-        if let Some(metadata) = record_metadata(&child, ctx) {
+        object.insert(key.clone(), materialize_record(&child, ctx, &child.address));
+        if let Some(metadata) = record_metadata(&child, ctx, &child.address) {
             attributes.insert(key, metadata);
         }
     }
@@ -232,21 +233,26 @@ fn materialize_root(header: bool, ctx: &mut Context<'_>) -> JsonValue {
     JsonValue::Object(object)
 }
 
-fn materialize_record(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue {
-    materialize_record_with_receiver(indexed, ctx, indexed)
+fn materialize_record(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> JsonValue {
+    materialize_record_with_receiver(indexed, ctx, output_path, indexed.record)
 }
 
 fn materialize_record_with_receiver(
     indexed: &IndexedRecord,
     ctx: &mut Context<'_>,
-    receiver: &IndexedRecord,
+    output_path: &str,
+    receiver: usize,
 ) -> JsonValue {
     let record = &ctx.records[indexed.record];
     let kind = record.get("kind").unwrap_or("");
     let value = record.get("value").unwrap_or("");
     match kind {
         "StringLiteral" => JsonValue::String(value.to_owned()),
-        "NumberLiteral" => number_value(value, &indexed.address, ctx),
+        "NumberLiteral" => number_value(value, output_path, ctx),
         "InfinityLiteral" | "NaNLiteral" => {
             let code = if kind == "NaNLiteral" {
                 "FINALIZE_JSON_PROFILE_NAN"
@@ -257,12 +263,12 @@ fn materialize_record_with_receiver(
                 ctx,
                 format!("The {kind} value '{value}' is not representable in strict JSON"),
                 code,
-                &indexed.address,
+                output_path,
                 false,
             );
             JsonValue::String(value.to_owned())
         }
-        "NullLiteral" => null_value(value, &indexed.address, ctx),
+        "NullLiteral" => null_value(value, output_path, ctx),
         "BooleanLiteral" => JsonValue::Bool(value == "true"),
         "ToggleLiteral" => JsonValue::Bool(value == "yes" || value == "on"),
         "SymbolicLiteral" => {
@@ -272,7 +278,7 @@ fn materialize_record_with_receiver(
                     "Symbol literal is not losslessly representable in the strict JSON profile: {value}"
                 ),
                 "FINALIZE_JSON_PROFILE_SYMBOL",
-                &indexed.address,
+                output_path,
                 false,
             );
             JsonValue::String(value.to_owned())
@@ -285,11 +291,11 @@ fn materialize_record_with_receiver(
         | "TimeLiteral"
         | "DateTimeLiteral"
         | "WTCDateTimeLiteral" => JsonValue::String(value.to_owned()),
-        "RadixLiteral" => radix_value(&ctx.records[receiver.record], value, &receiver.address, ctx),
-        "ObjectNode" => materialize_object(indexed, ctx),
-        "ListNode" | "TupleLiteral" => materialize_indexed(indexed, ctx),
-        "NodeLiteral" => materialize_node(indexed, ctx),
-        "CloneReference" => materialize_clone(indexed, ctx, receiver),
+        "RadixLiteral" => radix_value(&ctx.records[receiver], value, output_path, ctx),
+        "ObjectNode" => materialize_object(indexed, ctx, output_path),
+        "ListNode" | "TupleLiteral" => materialize_indexed(indexed, ctx, output_path),
+        "NodeLiteral" => materialize_node(indexed, ctx, output_path),
+        "CloneReference" => materialize_clone(indexed, ctx, output_path, receiver),
         "PointerReference" => {
             report(
                 ctx,
@@ -298,7 +304,7 @@ fn materialize_record_with_receiver(
                     reference_token("~>", value)
                 ),
                 "FINALIZE_UNRESOLVED_REFERENCE",
-                &indexed.address,
+                output_path,
                 false,
             );
             JsonValue::String(reference_token("~>", value))
@@ -308,7 +314,7 @@ fn materialize_record_with_receiver(
                 ctx,
                 "NodeHead can only be materialized through its owning NodeLiteral".to_owned(),
                 "FINALIZE_ORPHAN_NODE_HEAD",
-                &indexed.address,
+                output_path,
                 true,
             );
             JsonValue::String(value.to_owned())
@@ -318,7 +324,7 @@ fn materialize_record_with_receiver(
                 ctx,
                 format!("Unsupported portable AES kind '{kind}'"),
                 "FINALIZE_UNSUPPORTED_AES_KIND",
-                &indexed.address,
+                output_path,
                 true,
             );
             JsonValue::Null
@@ -326,7 +332,11 @@ fn materialize_record_with_receiver(
     }
 }
 
-fn materialize_object(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue {
+fn materialize_object(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> JsonValue {
     let children = structural_children(plane_for(indexed, ctx), &indexed.address);
     let mut object = Map::new();
     let mut attributes = Map::new();
@@ -334,11 +344,12 @@ fn materialize_object(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonVal
         let Segment::Member(key) = child.segment.clone() else {
             continue;
         };
-        if !safe_member(&key, &child.address, ctx) {
+        let child_path = descendant_path(indexed, &child, output_path);
+        if !safe_member(&key, &child_path, ctx) {
             continue;
         }
-        object.insert(key.clone(), materialize_record(&child, ctx));
-        if let Some(metadata) = record_metadata(&child, ctx) {
+        object.insert(key.clone(), materialize_record(&child, ctx, &child_path));
+        if let Some(metadata) = record_metadata(&child, ctx, &child_path) {
             attributes.insert(key, metadata);
         }
     }
@@ -348,7 +359,11 @@ fn materialize_object(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonVal
     JsonValue::Object(object)
 }
 
-fn materialize_indexed(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue {
+fn materialize_indexed(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> JsonValue {
     let mut children = structural_children(plane_for(indexed, ctx), &indexed.address)
         .into_iter()
         .filter(|child| matches!(child.segment, Segment::Index(_)))
@@ -364,17 +379,22 @@ fn materialize_indexed(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonVa
                 ctx,
                 format!("Indexed AES container cannot materialize non-contiguous index {index}"),
                 "FINALIZE_NON_CONTIGUOUS_INDEX",
-                &indexed.address,
+                output_path,
                 true,
             );
             continue;
         }
-        values.push(materialize_record(&child, ctx));
+        let child_path = descendant_path(indexed, &child, output_path);
+        values.push(materialize_record(&child, ctx, &child_path));
     }
     JsonValue::Array(values)
 }
 
-fn materialize_node(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue {
+fn materialize_node(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> JsonValue {
     let mut heads = structural_children(plane_for(indexed, ctx), &indexed.address)
         .into_iter()
         .filter(|child| matches!(child.segment, Segment::Index(_)))
@@ -388,12 +408,13 @@ fn materialize_node(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue
             ctx,
             "The JSON output profile requires exactly one NodeHead at index 0".to_owned(),
             "FINALIZE_UNREPRESENTABLE_NODE_HEADS",
-            &indexed.address,
+            output_path,
             true,
         );
         return JsonValue::Null;
     }
     let head = &heads[0];
+    let head_path = descendant_path(indexed, head, output_path);
     let mut object = Map::new();
     object.insert(
         "$node".to_owned(),
@@ -404,17 +425,21 @@ fn materialize_node(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue
                 .to_owned(),
         ),
     );
-    if let Some(attributes) = attributes_to_json(head, ctx) {
+    if let Some(attributes) = attributes_to_json(head, ctx, &head_path) {
         object.insert("@".to_owned(), attributes);
     }
-    object.insert("$children".to_owned(), materialize_indexed(head, ctx));
+    object.insert(
+        "$children".to_owned(),
+        materialize_indexed(head, ctx, &head_path),
+    );
     JsonValue::Object(object)
 }
 
 fn materialize_clone(
     indexed: &IndexedRecord,
     ctx: &mut Context<'_>,
-    receiver: &IndexedRecord,
+    output_path: &str,
+    receiver: usize,
 ) -> JsonValue {
     let target_path = ctx.records[indexed.record]
         .get("value")
@@ -428,7 +453,7 @@ fn materialize_clone(
                 reference_token("~", &target_path)
             ),
             "FINALIZE_UNRESOLVED_REFERENCE",
-            &indexed.address,
+            output_path,
             false,
         );
         return JsonValue::String(reference_token("~", &target_path));
@@ -438,7 +463,7 @@ fn materialize_clone(
             ctx,
             format!("Reference cycle detected during JSON materialization: '{target_path}'"),
             "REFERENCE_CYCLE",
-            &indexed.address,
+            output_path,
             true,
         );
         return JsonValue::String(reference_token("~", &target_path));
@@ -455,7 +480,7 @@ fn materialize_clone(
                 ctx.max_reference_depth.unwrap_or_default()
             ),
             "FINALIZE_REFERENCE_DEPTH_EXCEEDED",
-            &indexed.address,
+            output_path,
             true,
         );
         return JsonValue::String(reference_token("~", &target_path));
@@ -470,7 +495,7 @@ fn materialize_clone(
                     "Reference materialization budget exceeded for '{target_path}' (budget=maxMaterializedWeight, observed={observed}, limit={limit})"
                 ),
                 "FINALIZE_REFERENCE_BUDGET_EXCEEDED",
-                &indexed.address,
+                output_path,
                 true,
             );
             return JsonValue::String(reference_token("~", &target_path));
@@ -478,7 +503,7 @@ fn materialize_clone(
         ctx.materialized_weight = observed;
     }
     ctx.active_clone_paths.push(target_path);
-    let value = materialize_record_with_receiver(&target, ctx, receiver);
+    let value = materialize_record_with_receiver(&target, ctx, output_path, receiver);
     ctx.active_clone_paths.pop();
     value
 }
@@ -525,9 +550,13 @@ fn measure_weight(
     weight
 }
 
-fn record_metadata(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Option<JsonValue> {
-    let own = attributes_to_json(indexed, ctx);
-    let items = indexed_item_attributes(indexed, ctx);
+fn record_metadata(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> Option<JsonValue> {
+    let own = attributes_to_json(indexed, ctx, output_path);
+    let items = indexed_item_attributes(indexed, ctx, output_path);
     match (own, items) {
         (None, None) => None,
         (Some(JsonValue::Object(mut own)), Some(items)) => {
@@ -543,7 +572,11 @@ fn record_metadata(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Option<Jso
     }
 }
 
-fn attributes_to_json(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Option<JsonValue> {
+fn attributes_to_json(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> Option<JsonValue> {
     let children = attribute_children(plane_for(indexed, ctx), &indexed.address);
     let mut object = Map::new();
     let mut nested = Map::new();
@@ -551,11 +584,12 @@ fn attributes_to_json(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Option<
         let Segment::Attribute(key) = child.segment.clone() else {
             continue;
         };
-        if !safe_member(&key, &child.address, ctx) {
+        let child_path = descendant_path(indexed, &child, output_path);
+        if !safe_member(&key, &child_path, ctx) {
             continue;
         }
-        object.insert(key.clone(), materialize_record(&child, ctx));
-        if let Some(metadata) = record_metadata(&child, ctx) {
+        object.insert(key.clone(), materialize_record(&child, ctx, &child_path));
+        if let Some(metadata) = record_metadata(&child, ctx, &child_path) {
             nested.insert(key, metadata);
         }
     }
@@ -565,7 +599,11 @@ fn attributes_to_json(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Option<
     (!object.is_empty()).then(|| JsonValue::Object(object))
 }
 
-fn indexed_item_attributes(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Option<JsonValue> {
+fn indexed_item_attributes(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    output_path: &str,
+) -> Option<JsonValue> {
     let kind = ctx.records[indexed.record].get("kind").unwrap_or("");
     let owners = if kind == "NodeLiteral" {
         structural_children(plane_for(indexed, ctx), &indexed.address)
@@ -582,11 +620,28 @@ fn indexed_item_attributes(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> Op
         let Segment::Index(index) = &owner.segment else {
             continue;
         };
-        if let Some(attributes) = attributes_to_json(&owner, ctx) {
+        let owner_path = descendant_path(indexed, &owner, output_path);
+        if let Some(attributes) = attributes_to_json(&owner, ctx, &owner_path) {
             object.insert(index.clone(), attributes);
         }
     }
     (!object.is_empty()).then(|| JsonValue::Object(object))
+}
+
+// A cloned descendant keeps its suffix from the input stream.
+fn descendant_path<'a>(
+    parent: &IndexedRecord,
+    child: &'a IndexedRecord,
+    output_path: &str,
+) -> Cow<'a, str> {
+    if output_path == parent.address {
+        Cow::Borrowed(&child.address)
+    } else {
+        Cow::Owned(format!(
+            "{output_path}{}",
+            &child.address[parent.address.len()..]
+        ))
+    }
 }
 
 fn structural_children(index: &PlaneIndex, parent: &str) -> Vec<IndexedRecord> {
@@ -882,19 +937,26 @@ kind=CloneReference
 datatype=radix[64]
 value=$.raw
 
-path=$.x
+path=$.box
+kind=ObjectNode
+
+path=$.box.x
 kind=NumberLiteral
 datatype=int
 value=0
 
-path=$.x.@.r
+path=$.box.x.@.r
 kind=ObjectNode
 datatype=object
 
-path=$.x.@.r.s
+path=$.box.x.@.r.s
 kind=CloneReference
 datatype=radix16
 value=$.relay
+
+path=$.copy
+kind=CloneReference
+value=$.box
 "
             );
             let parsed = aes_telex::parse_telex(&telex).expect("valid Telex");
@@ -906,8 +968,9 @@ value=$.relay
                         ..FinalizePortableJsonOptions::default()
                     },
                 );
-                assert_eq!(result.document["x"], 0);
-                assert_eq!(result.document["@"]["x"]["r"]["s"], digit);
+                assert_eq!(result.document["box"]["x"], 0);
+                assert_eq!(result.document["copy"], result.document["box"]);
+                assert_eq!(result.document["copy"]["@"]["x"]["r"]["s"], digit);
                 let diagnostics = if mode == FinalizeMode::Strict {
                     assert!(result.meta.warnings.is_empty());
                     &result.meta.errors
@@ -915,11 +978,19 @@ value=$.relay
                     assert!(result.meta.errors.is_empty());
                     &result.meta.warnings
                 };
-                assert_eq!(diagnostics.len(), usize::from(invalid));
-                if let Some(diagnostic) = diagnostics.first() {
-                    assert_eq!(diagnostic.code, "FINALIZE_INVALID_RADIX_BASE");
-                    assert_eq!(diagnostic.path.as_deref(), Some("$.x.@.r.s"));
-                }
+                let paths: Vec<_> = diagnostics
+                    .iter()
+                    .map(|diagnostic| {
+                        assert_eq!(diagnostic.code, "FINALIZE_INVALID_RADIX_BASE");
+                        diagnostic.path.as_deref().expect("path")
+                    })
+                    .collect();
+                let expected = if invalid {
+                    vec!["$.box.x.@.r.s", "$.copy.x.@.r.s"]
+                } else {
+                    vec![]
+                };
+                assert_eq!(paths, expected);
             }
         }
     }

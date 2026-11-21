@@ -179,22 +179,27 @@ function materializeRoot(index: PlaneIndex, ctx: MaterializeContext, header: boo
     return object;
 }
 
-function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext, receiver = indexed): JsonValue {
-    const { record, address } = indexed;
+function materializeRecord(
+    indexed: IndexedRecord,
+    ctx: MaterializeContext,
+    outputPath = indexed.address,
+    receiver = indexed.record,
+): JsonValue {
+    const { record } = indexed;
     switch (record.kind) {
         case 'StringLiteral':
             return record.value ?? '';
         case 'NumberLiteral':
-            return numberValue(record.value ?? '', address, ctx);
+            return numberValue(record.value ?? '', outputPath, ctx);
         case 'InfinityLiteral':
         case 'NaNLiteral':
-            report(ctx, `The ${record.kind} value '${record.value}' is not representable in strict JSON`, `FINALIZE_JSON_PROFILE_${record.kind === 'NaNLiteral' ? 'NAN' : 'INFINITY'}`, address);
+            report(ctx, `The ${record.kind} value '${record.value}' is not representable in strict JSON`, `FINALIZE_JSON_PROFILE_${record.kind === 'NaNLiteral' ? 'NAN' : 'INFINITY'}`, outputPath);
             return record.value ?? '';
         case 'SymbolicLiteral':
-            report(ctx, `The SymbolicLiteral value '${record.value}' is not representable in strict JSON`, 'FINALIZE_JSON_PROFILE_SYMBOL', address);
+            report(ctx, `The SymbolicLiteral value '${record.value}' is not representable in strict JSON`, 'FINALIZE_JSON_PROFILE_SYMBOL', outputPath);
             return record.value ?? '';
         case 'NullLiteral':
-            return nullValue(record.value ?? '', address, ctx);
+            return nullValue(record.value ?? '', outputPath, ctx);
         case 'BooleanLiteral':
             return record.value === 'true';
         case 'ToggleLiteral':
@@ -209,29 +214,29 @@ function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext, rece
         case 'WTCDateTimeLiteral':
             return record.value ?? '';
         case 'RadixLiteral':
-            return radixValue(record.value ?? '', receiver, ctx);
+            return radixValue(record.value ?? '', receiver, outputPath, ctx);
         case 'ObjectNode':
-            return materializeObject(indexed, ctx);
+            return materializeObject(indexed, ctx, outputPath);
         case 'ListNode':
         case 'TupleLiteral':
-            return materializeIndexed(indexed, ctx);
+            return materializeIndexed(indexed, ctx, outputPath);
         case 'NodeLiteral':
-            return materializeNode(indexed, ctx);
+            return materializeNode(indexed, ctx, outputPath);
         case 'CloneReference':
-            return materializeClone(indexed, ctx, receiver);
+            return materializeClone(indexed, ctx, outputPath, receiver);
         case 'PointerReference':
-            report(ctx, `Pointer reference remains symbolic during JSON materialization: ${referenceToken('~>', record.value ?? '')}`, 'FINALIZE_UNRESOLVED_REFERENCE', address);
+            report(ctx, `Pointer reference remains symbolic during JSON materialization: ${referenceToken('~>', record.value ?? '')}`, 'FINALIZE_UNRESOLVED_REFERENCE', outputPath);
             return referenceToken('~>', record.value ?? '');
         case 'NodeHead':
-            report(ctx, 'NodeHead can only be materialized through its owning NodeLiteral', 'FINALIZE_ORPHAN_NODE_HEAD', address, true);
+            report(ctx, 'NodeHead can only be materialized through its owning NodeLiteral', 'FINALIZE_ORPHAN_NODE_HEAD', outputPath, true);
             return record.value ?? '';
         default:
-            report(ctx, `Unsupported portable AES kind '${String(record.kind)}'`, 'FINALIZE_UNSUPPORTED_AES_KIND', address, true);
+            report(ctx, `Unsupported portable AES kind '${String(record.kind)}'`, 'FINALIZE_UNSUPPORTED_AES_KIND', outputPath, true);
             return null;
     }
 }
 
-function materializeObject(indexed: IndexedRecord, ctx: MaterializeContext): JsonObject {
+function materializeObject(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonObject {
     const index = planeFor(indexed, ctx);
     const object: JsonObject = {};
     const attributes: JsonObject = {};
@@ -239,9 +244,10 @@ function materializeObject(indexed: IndexedRecord, ctx: MaterializeContext): Jso
     for (const child of structuralChildren(index, indexed.address)) {
         if (child.segment.type !== 'member') continue;
         const key = child.segment.key;
-        if (!safeMember(key, child.address, ctx)) continue;
-        object[key] = materializeRecord(child, ctx);
-        const metadata = recordMetadata(child, ctx);
+        const childPath = descendantPath(indexed, child, outputPath);
+        if (!safeMember(key, childPath, ctx)) continue;
+        object[key] = materializeRecord(child, ctx, childPath);
+        const metadata = recordMetadata(child, ctx, childPath);
         if (metadata !== null) attributes[key] = metadata;
     }
 
@@ -249,7 +255,7 @@ function materializeObject(indexed: IndexedRecord, ctx: MaterializeContext): Jso
     return object;
 }
 
-function materializeIndexed(indexed: IndexedRecord, ctx: MaterializeContext): JsonValue[] {
+function materializeIndexed(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonValue[] {
     const index = planeFor(indexed, ctx);
     const children = structuralChildren(index, indexed.address)
         .filter((child): child is IndexedRecord & { segment: { type: 'index'; index: bigint } } => child.segment.type === 'index')
@@ -257,15 +263,15 @@ function materializeIndexed(indexed: IndexedRecord, ctx: MaterializeContext): Js
     const values: JsonValue[] = [];
     for (const child of children) {
         if (child.segment.index !== BigInt(values.length)) {
-            report(ctx, `Indexed AES container cannot materialize non-contiguous index ${child.segment.index}`, 'FINALIZE_NON_CONTIGUOUS_INDEX', indexed.address, true);
+            report(ctx, `Indexed AES container cannot materialize non-contiguous index ${child.segment.index}`, 'FINALIZE_NON_CONTIGUOUS_INDEX', outputPath, true);
             continue;
         }
-        values.push(materializeRecord(child, ctx));
+        values.push(materializeRecord(child, ctx, descendantPath(indexed, child, outputPath)));
     }
     return values;
 }
 
-function materializeNode(indexed: IndexedRecord, ctx: MaterializeContext): JsonValue {
+function materializeNode(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonValue {
     const index = planeFor(indexed, ctx);
     const heads = structuralChildren(index, indexed.address)
         .filter((child): child is IndexedRecord & { segment: { type: 'index'; index: bigint } } => child.segment.type === 'index')
@@ -276,36 +282,42 @@ function materializeNode(indexed: IndexedRecord, ctx: MaterializeContext): JsonV
             ctx,
             'The JSON output profile requires exactly one NodeHead at index 0',
             'FINALIZE_UNREPRESENTABLE_NODE_HEADS',
-            indexed.address,
+            outputPath,
             true,
         );
         return null;
     }
 
     const head = heads[0]!;
-    const headAttributes = attributesToJson(head, ctx);
+    const headPath = descendantPath(indexed, head, outputPath);
+    const headAttributes = attributesToJson(head, ctx, headPath);
     return {
         $node: head.record.value ?? '',
         ...(headAttributes !== null ? { '@': headAttributes } : {}),
-        $children: materializeIndexed(head, ctx),
+        $children: materializeIndexed(head, ctx, headPath),
     };
 }
 
-function materializeClone(indexed: IndexedRecord, ctx: MaterializeContext, receiver: IndexedRecord): JsonValue {
+function materializeClone(
+    indexed: IndexedRecord,
+    ctx: MaterializeContext,
+    outputPath: string,
+    receiver: PortableRecord,
+): JsonValue {
     const targetPath = indexed.record.value ?? '';
     const target = ctx.body.byAddress.get(targetPath);
     if (target === undefined) {
-        report(ctx, `Clone reference target is unavailable: ${referenceToken('~', targetPath)}`, 'FINALIZE_UNRESOLVED_REFERENCE', indexed.address);
+        report(ctx, `Clone reference target is unavailable: ${referenceToken('~', targetPath)}`, 'FINALIZE_UNRESOLVED_REFERENCE', outputPath);
         return referenceToken('~', targetPath);
     }
     if (ctx.activeClonePaths.includes(targetPath)) {
-        report(ctx, `Reference cycle detected during JSON materialization: '${targetPath}'`, 'REFERENCE_CYCLE', indexed.address, true);
+        report(ctx, `Reference cycle detected during JSON materialization: '${targetPath}'`, 'REFERENCE_CYCLE', outputPath, true);
         return referenceToken('~', targetPath);
     }
 
     const observedDepth = ctx.activeClonePaths.length + 1;
     if (ctx.maxReferenceDepth !== undefined && observedDepth > ctx.maxReferenceDepth) {
-        report(ctx, `Reference materialization depth ${observedDepth} exceeds maxReferenceDepth ${ctx.maxReferenceDepth}`, 'FINALIZE_REFERENCE_DEPTH_EXCEEDED', indexed.address, true);
+        report(ctx, `Reference materialization depth ${observedDepth} exceeds maxReferenceDepth ${ctx.maxReferenceDepth}`, 'FINALIZE_REFERENCE_DEPTH_EXCEEDED', outputPath, true);
         return referenceToken('~', targetPath);
     }
 
@@ -313,7 +325,7 @@ function materializeClone(indexed: IndexedRecord, ctx: MaterializeContext, recei
         const weight = measureWeight(target, ctx, new Set());
         const observed = ctx.materializedWeight + weight;
         if (observed > ctx.maxMaterializedWeight) {
-            report(ctx, `Reference materialization budget exceeded for '${targetPath}' (budget=maxMaterializedWeight, observed=${observed}, limit=${ctx.maxMaterializedWeight})`, 'FINALIZE_REFERENCE_BUDGET_EXCEEDED', indexed.address, true);
+            report(ctx, `Reference materialization budget exceeded for '${targetPath}' (budget=maxMaterializedWeight, observed=${observed}, limit=${ctx.maxMaterializedWeight})`, 'FINALIZE_REFERENCE_BUDGET_EXCEEDED', outputPath, true);
             return referenceToken('~', targetPath);
         }
         ctx.materializedWeight = observed;
@@ -321,7 +333,7 @@ function materializeClone(indexed: IndexedRecord, ctx: MaterializeContext, recei
 
     ctx.activeClonePaths.push(targetPath);
     try {
-        return materializeRecord(target, ctx, receiver);
+        return materializeRecord(target, ctx, outputPath, receiver);
     } finally {
         ctx.activeClonePaths.pop();
     }
@@ -363,31 +375,32 @@ function measureWeight(indexed: IndexedRecord, ctx: MaterializeContext, stack: S
     return weight;
 }
 
-function recordMetadata(indexed: IndexedRecord, ctx: MaterializeContext): JsonObject | null {
-    const own = attributesToJson(indexed, ctx);
-    const itemAttributes = indexedItemAttributes(indexed, ctx);
+function recordMetadata(indexed: IndexedRecord, ctx: MaterializeContext, outputPath = indexed.address): JsonObject | null {
+    const own = attributesToJson(indexed, ctx, outputPath);
+    const itemAttributes = indexedItemAttributes(indexed, ctx, outputPath);
     if (own !== null && itemAttributes !== null) return { ...own, '@items': itemAttributes };
     if (own !== null) return own;
     if (itemAttributes !== null) return { '@items': itemAttributes };
     return null;
 }
 
-function attributesToJson(indexed: IndexedRecord, ctx: MaterializeContext): JsonObject | null {
+function attributesToJson(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonObject | null {
     const index = planeFor(indexed, ctx);
     const object: JsonObject = {};
     const nested: JsonObject = {};
     for (const child of attributeChildren(index, indexed.address)) {
         const key = child.segment.type === 'attribute' ? child.segment.key : '';
-        if (!safeMember(key, child.address, ctx)) continue;
-        object[key] = materializeRecord(child, ctx);
-        const childMetadata = recordMetadata(child, ctx);
+        const childPath = descendantPath(indexed, child, outputPath);
+        if (!safeMember(key, childPath, ctx)) continue;
+        object[key] = materializeRecord(child, ctx, childPath);
+        const childMetadata = recordMetadata(child, ctx, childPath);
         if (childMetadata !== null) nested[key] = childMetadata;
     }
     if (Object.keys(nested).length > 0) object['@'] = nested;
     return Object.keys(object).length > 0 ? object : null;
 }
 
-function indexedItemAttributes(indexed: IndexedRecord, ctx: MaterializeContext): JsonObject | null {
+function indexedItemAttributes(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonObject | null {
     const index = planeFor(indexed, ctx);
     const owners = indexed.record.kind === 'NodeLiteral'
         ? structuralChildren(index, indexed.address).flatMap((head) => structuralChildren(index, head.address))
@@ -397,10 +410,15 @@ function indexedItemAttributes(indexed: IndexedRecord, ctx: MaterializeContext):
     const object: JsonObject = {};
     for (const owner of owners) {
         if (owner.segment.type !== 'index') continue;
-        const attributes = attributesToJson(owner, ctx);
+        const attributes = attributesToJson(owner, ctx, descendantPath(indexed, owner, outputPath));
         if (attributes !== null) object[String(owner.segment.index)] = attributes;
     }
     return Object.keys(object).length > 0 ? object : null;
+}
+
+// A cloned descendant keeps its suffix from the input stream.
+function descendantPath(parent: IndexedRecord, child: IndexedRecord, outputPath: string): string {
+    return outputPath === parent.address ? child.address : outputPath + child.address.slice(parent.address.length);
 }
 
 function structuralChildren(index: PlaneIndex, parent: string): readonly IndexedRecord[] {
@@ -430,15 +448,14 @@ function nullValue(value: string, path: string, ctx: MaterializeContext): JsonVa
     return RESERVED_NULL_SENTINELS.has(value) ? `!${value}` : `!${JSON.stringify(value)}`;
 }
 
-function radixValue(raw: string, receiver: IndexedRecord, ctx: MaterializeContext): string {
-    const { record, address } = receiver;
+function radixValue(raw: string, record: PortableRecord, path: string, ctx: MaterializeContext): string {
     const value = raw.replaceAll('_', '');
     const resolved = resolveAeonRadixBaseFromComponents(record.datatype, record.clarifiers);
     const base = resolved.kind === 'base' ? resolved.base : undefined;
     if (resolved.kind === 'invalid' || base !== undefined && exceedsDeclaredRadix(value, base)) {
         report(ctx, resolved.kind === 'invalid'
             ? 'Invalid declared radix base: expected one integral number from 2 to 64'
-            : `Radix literal exceeds declared radix ${base}: %${value}`, 'FINALIZE_INVALID_RADIX_BASE', address);
+            : `Radix literal exceeds declared radix ${base}: %${value}`, 'FINALIZE_INVALID_RADIX_BASE', path);
     }
     return value;
 }

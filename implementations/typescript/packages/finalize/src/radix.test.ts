@@ -84,7 +84,7 @@ test('typed attributes retain their radix base during source and portable finali
     }
 });
 
-for (const { name, source, invalidPath } of radixClones) {
+for (const { name, source, invalidPaths } of radixClones) {
     test(`source and portable clones honor the receiving radix: ${name}`, () => {
         const parsed = parse(tokenize(source).tokens);
         assert.deepEqual(parsed.errors, []);
@@ -97,7 +97,7 @@ for (const { name, source, invalidPath } of radixClones) {
             const portable = finalizePortableJson(records, { mode });
             assert.deepEqual(portable.document, legacy.document);
             const key = mode === 'strict' ? 'errors' : 'warnings';
-            const expected = invalidPath ? [{ code: 'FINALIZE_INVALID_RADIX_BASE', path: invalidPath }] : [];
+            const expected = invalidPaths.map(path => ({ code: 'FINALIZE_INVALID_RADIX_BASE', path }));
             for (const result of [legacy, portable]) {
                 assert.deepEqual(result.meta?.[key]?.map(({ code, path }) => ({ code, path })) ?? [], expected);
             }

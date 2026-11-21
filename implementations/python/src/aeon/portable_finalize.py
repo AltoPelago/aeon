@@ -165,7 +165,7 @@ def _materialize_root(header: bool, ctx: _Context) -> dict[str, object]:
         if not _safe_member(key, child.address, ctx):
             continue
         result[key] = _materialize_record(child, ctx)
-        metadata = _record_metadata(child, ctx)
+        metadata = _record_metadata(child, ctx, child.address)
         if metadata is not None:
             attributes[key] = metadata
     if attributes:
@@ -173,10 +173,17 @@ def _materialize_root(header: bool, ctx: _Context) -> dict[str, object]:
     return result
 
 
-def _materialize_record(indexed: _IndexedRecord, ctx: _Context, receiver: _IndexedRecord | None = None) -> object:
-    if receiver is None:
-        receiver = indexed
+def _materialize_record(
+    indexed: _IndexedRecord,
+    ctx: _Context,
+    output_path: str | None = None,
+    receiver: Mapping[str, object] | None = None,
+) -> object:
+    if output_path is None:
+        output_path = indexed.address
     record = ctx.records[indexed.record]
+    if receiver is None:
+        receiver = record
     kind = str(record.get("kind", ""))
     value = str(record.get("value", ""))
     if kind == "StringLiteral":
@@ -185,17 +192,17 @@ def _materialize_record(indexed: _IndexedRecord, ctx: _Context, receiver: _Index
         ctx.report(
             "FINALIZE_JSON_PROFILE_SYMBOL",
             f"Symbol literal is not losslessly representable in the strict JSON profile: {value}",
-            indexed.address,
+            output_path,
         )
         return value
     if kind == "NumberLiteral":
-        return _number_value(value, indexed.address, ctx)
+        return _number_value(value, output_path, ctx)
     if kind in {"InfinityLiteral", "NaNLiteral"}:
         code = "FINALIZE_JSON_PROFILE_NAN" if kind == "NaNLiteral" else "FINALIZE_JSON_PROFILE_INFINITY"
-        ctx.report(code, f"The {kind} value '{value}' is not representable in strict JSON", indexed.address)
+        ctx.report(code, f"The {kind} value '{value}' is not representable in strict JSON", output_path)
         return value
     if kind == "NullLiteral":
-        return _null_value(value, indexed.address, ctx)
+        return _null_value(value, output_path, ctx)
     if kind == "BooleanLiteral":
         return value == "true"
     if kind == "ToggleLiteral":
@@ -206,37 +213,38 @@ def _materialize_record(indexed: _IndexedRecord, ctx: _Context, receiver: _Index
     }:
         return value
     if kind == "RadixLiteral":
-        return _radix_value(ctx.records[receiver.record], value, receiver.address, ctx)
+        return _radix_value(receiver, value, output_path, ctx)
     if kind == "ObjectNode":
-        return _materialize_object(indexed, ctx)
+        return _materialize_object(indexed, ctx, output_path)
     if kind in {"ListNode", "TupleLiteral"}:
-        return _materialize_indexed(indexed, ctx)
+        return _materialize_indexed(indexed, ctx, output_path)
     if kind == "NodeLiteral":
-        return _materialize_node(indexed, ctx)
+        return _materialize_node(indexed, ctx, output_path)
     if kind == "CloneReference":
-        return _materialize_clone(indexed, ctx, receiver)
+        return _materialize_clone(indexed, ctx, output_path, receiver)
     if kind == "PointerReference":
         token = _reference_token("~>", value)
-        ctx.report("FINALIZE_UNRESOLVED_REFERENCE", f"Pointer reference remains symbolic during JSON materialization: {token}", indexed.address)
+        ctx.report("FINALIZE_UNRESOLVED_REFERENCE", f"Pointer reference remains symbolic during JSON materialization: {token}", output_path)
         return token
     if kind == "NodeHead":
-        ctx.report("FINALIZE_ORPHAN_NODE_HEAD", "NodeHead can only be materialized through its owning NodeLiteral", indexed.address, True)
+        ctx.report("FINALIZE_ORPHAN_NODE_HEAD", "NodeHead can only be materialized through its owning NodeLiteral", output_path, True)
         return value
-    ctx.report("FINALIZE_UNSUPPORTED_AES_KIND", f"Unsupported portable AES kind '{kind}'", indexed.address, True)
+    ctx.report("FINALIZE_UNSUPPORTED_AES_KIND", f"Unsupported portable AES kind '{kind}'", output_path, True)
     return None
 
 
-def _materialize_object(indexed: _IndexedRecord, ctx: _Context) -> dict[str, object]:
+def _materialize_object(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> dict[str, object]:
     result: dict[str, object] = {}
     attributes: dict[str, object] = {}
     for child in _structural_children(_plane_for(indexed, ctx), indexed.address):
         if child.segment[0] != "member":
             continue
         key = str(child.segment[1])
-        if not _safe_member(key, child.address, ctx):
+        child_path = _descendant_path(indexed, child, output_path)
+        if not _safe_member(key, child_path, ctx):
             continue
-        result[key] = _materialize_record(child, ctx)
-        metadata = _record_metadata(child, ctx)
+        result[key] = _materialize_record(child, ctx, child_path)
+        metadata = _record_metadata(child, ctx, child_path)
         if metadata is not None:
             attributes[key] = metadata
     if attributes:
@@ -244,58 +252,64 @@ def _materialize_object(indexed: _IndexedRecord, ctx: _Context) -> dict[str, obj
     return result
 
 
-def _materialize_indexed(indexed: _IndexedRecord, ctx: _Context) -> list[object]:
+def _materialize_indexed(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> list[object]:
     children = [item for item in _structural_children(_plane_for(indexed, ctx), indexed.address) if item.segment[0] == "index"]
     children.sort(key=lambda item: int(item.segment[1]))
     result: list[object] = []
     for child in children:
         if child.segment[1] != len(result):
-            ctx.report("FINALIZE_NON_CONTIGUOUS_INDEX", f"Indexed AES container cannot materialize non-contiguous index {child.segment[1]}", indexed.address, True)
+            ctx.report("FINALIZE_NON_CONTIGUOUS_INDEX", f"Indexed AES container cannot materialize non-contiguous index {child.segment[1]}", output_path, True)
             continue
-        result.append(_materialize_record(child, ctx))
+        result.append(_materialize_record(child, ctx, _descendant_path(indexed, child, output_path)))
     return result
 
 
-def _materialize_node(indexed: _IndexedRecord, ctx: _Context) -> object:
+def _materialize_node(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> object:
     heads = [item for item in _structural_children(_plane_for(indexed, ctx), indexed.address) if item.segment[0] == "index"]
     heads.sort(key=lambda item: int(item.segment[1]))
     valid = len(heads) == 1 and heads[0].segment[1] == 0 and ctx.records[heads[0].record].get("kind") == "NodeHead"
     if not valid:
-        ctx.report("FINALIZE_UNREPRESENTABLE_NODE_HEADS", "The JSON output profile requires exactly one NodeHead at index 0", indexed.address, True)
+        ctx.report("FINALIZE_UNREPRESENTABLE_NODE_HEADS", "The JSON output profile requires exactly one NodeHead at index 0", output_path, True)
         return None
     head = heads[0]
     result: dict[str, object] = {"$node": ctx.records[head.record].get("value", "")}
-    attributes = _attributes_to_json(head, ctx)
+    head_path = _descendant_path(indexed, head, output_path)
+    attributes = _attributes_to_json(head, ctx, head_path)
     if attributes is not None:
         result["@"] = attributes
-    result["$children"] = _materialize_indexed(head, ctx)
+    result["$children"] = _materialize_indexed(head, ctx, head_path)
     return result
 
 
-def _materialize_clone(indexed: _IndexedRecord, ctx: _Context, receiver: _IndexedRecord) -> object:
+def _materialize_clone(
+    indexed: _IndexedRecord,
+    ctx: _Context,
+    output_path: str,
+    receiver: Mapping[str, object],
+) -> object:
     target_path = str(ctx.records[indexed.record].get("value", ""))
     target = ctx.body.by_address.get(target_path)
     if target is None:
         token = _reference_token("~", target_path)
-        ctx.report("FINALIZE_UNRESOLVED_REFERENCE", f"Clone reference target is unavailable: {token}", indexed.address)
+        ctx.report("FINALIZE_UNRESOLVED_REFERENCE", f"Clone reference target is unavailable: {token}", output_path)
         return token
     if target_path in ctx.active_clone_paths:
-        ctx.report("REFERENCE_CYCLE", f"Reference cycle detected during JSON materialization: '{target_path}'", indexed.address, True)
+        ctx.report("REFERENCE_CYCLE", f"Reference cycle detected during JSON materialization: '{target_path}'", output_path, True)
         return _reference_token("~", target_path)
     observed_depth = len(ctx.active_clone_paths) + 1
     if ctx.max_reference_depth is not None and observed_depth > ctx.max_reference_depth:
-        ctx.report("FINALIZE_REFERENCE_DEPTH_EXCEEDED", f"Reference materialization depth {observed_depth} exceeds maxReferenceDepth {ctx.max_reference_depth}", indexed.address, True)
+        ctx.report("FINALIZE_REFERENCE_DEPTH_EXCEEDED", f"Reference materialization depth {observed_depth} exceeds maxReferenceDepth {ctx.max_reference_depth}", output_path, True)
         return _reference_token("~", target_path)
     if ctx.max_materialized_weight is not None:
         weight = _measure_weight(target, ctx, set())
         observed = ctx.materialized_weight + weight
         if observed > ctx.max_materialized_weight:
-            ctx.report("FINALIZE_REFERENCE_BUDGET_EXCEEDED", f"Reference materialization budget exceeded for '{target_path}' (budget=maxMaterializedWeight, observed={observed}, limit={ctx.max_materialized_weight})", indexed.address, True)
+            ctx.report("FINALIZE_REFERENCE_BUDGET_EXCEEDED", f"Reference materialization budget exceeded for '{target_path}' (budget=maxMaterializedWeight, observed={observed}, limit={ctx.max_materialized_weight})", output_path, True)
             return _reference_token("~", target_path)
         ctx.materialized_weight = observed
     ctx.active_clone_paths.append(target_path)
     try:
-        return _materialize_record(target, ctx, receiver)
+        return _materialize_record(target, ctx, output_path, receiver)
     finally:
         ctx.active_clone_paths.pop()
 
@@ -321,9 +335,9 @@ def _measure_weight(indexed: _IndexedRecord, ctx: _Context, stack: set[str]) -> 
     return weight
 
 
-def _record_metadata(indexed: _IndexedRecord, ctx: _Context) -> object | None:
-    own = _attributes_to_json(indexed, ctx)
-    items = _indexed_item_attributes(indexed, ctx)
+def _record_metadata(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> object | None:
+    own = _attributes_to_json(indexed, ctx, output_path)
+    items = _indexed_item_attributes(indexed, ctx, output_path)
     if own is not None and items is not None:
         own["@items"] = items
         return own
@@ -334,15 +348,16 @@ def _record_metadata(indexed: _IndexedRecord, ctx: _Context) -> object | None:
     return None
 
 
-def _attributes_to_json(indexed: _IndexedRecord, ctx: _Context) -> dict[str, object] | None:
+def _attributes_to_json(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> dict[str, object] | None:
     result: dict[str, object] = {}
     nested: dict[str, object] = {}
     for child in _attribute_children(_plane_for(indexed, ctx), indexed.address):
         key = str(child.segment[1])
-        if not _safe_member(key, child.address, ctx):
+        child_path = _descendant_path(indexed, child, output_path)
+        if not _safe_member(key, child_path, ctx):
             continue
-        result[key] = _materialize_record(child, ctx)
-        metadata = _record_metadata(child, ctx)
+        result[key] = _materialize_record(child, ctx, child_path)
+        metadata = _record_metadata(child, ctx, child_path)
         if metadata is not None:
             nested[key] = metadata
     if nested:
@@ -350,7 +365,7 @@ def _attributes_to_json(indexed: _IndexedRecord, ctx: _Context) -> dict[str, obj
     return result or None
 
 
-def _indexed_item_attributes(indexed: _IndexedRecord, ctx: _Context) -> dict[str, object] | None:
+def _indexed_item_attributes(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> dict[str, object] | None:
     kind = ctx.records[indexed.record].get("kind")
     if kind == "NodeLiteral":
         owners = [child for head in _structural_children(_plane_for(indexed, ctx), indexed.address) for child in _structural_children(_plane_for(head, ctx), head.address)]
@@ -362,10 +377,17 @@ def _indexed_item_attributes(indexed: _IndexedRecord, ctx: _Context) -> dict[str
     for owner in owners:
         if owner.segment[0] != "index":
             continue
-        attributes = _attributes_to_json(owner, ctx)
+        attributes = _attributes_to_json(owner, ctx, _descendant_path(indexed, owner, output_path))
         if attributes is not None:
             result[str(owner.segment[1])] = attributes
     return result or None
+
+
+# A cloned descendant keeps its suffix from the input stream.
+def _descendant_path(parent: _IndexedRecord, child: _IndexedRecord, output_path: str) -> str:
+    if output_path == parent.address:
+        return child.address
+    return output_path + child.address[len(parent.address):]
 
 
 def _structural_children(plane: _Plane, parent: str) -> list[_IndexedRecord]:

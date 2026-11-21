@@ -123,8 +123,7 @@ class ExactRadixTests(unittest.TestCase):
                     portable = finalize_portable_json(records, PortableFinalizeOptions(mode=mode))
                     self.assertEqual(legacy["document"], portable["document"])
                     key = "errors" if mode == "strict" else "warnings"
-                    invalid_path = case["invalidPath"]
-                    expected = [("FINALIZE_INVALID_RADIX_BASE", invalid_path)] if invalid_path else []
+                    expected = [("FINALIZE_INVALID_RADIX_BASE", path) for path in case["invalidPaths"]]
                     for result in (legacy, portable):
                         diagnostics = [(d["code"], d["path"]) for d in result.get("meta", {}).get(key, [])]
                         self.assertEqual(expected, diagnostics)
