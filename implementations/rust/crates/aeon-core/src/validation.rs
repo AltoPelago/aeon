@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::flatten::{FlattenedDocument, ValidationEvent, ValidationReferenceStep};
 use crate::pathing::{
@@ -10,7 +11,7 @@ use crate::pathing::{
 use crate::temporal::invalid_temporal_literal;
 use crate::{
     AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath, DatatypePolicy,
-    Diagnostic, ReferenceSegment, Span, Value, format_path,
+    Diagnostic, PathSegment, ReferenceSegment, SourcePlane, Span, Value, format_path,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -19,35 +20,72 @@ pub(crate) struct ValidationIndexes {
 }
 
 pub(crate) fn build_validation_indexes(flattened: &FlattenedDocument) -> ValidationIndexes {
-    let event_lookup = (0..flattened.events.len())
-        .map(|index| (flattened.event_path(index).to_owned(), index))
-        .collect();
+    let mut event_lookup = BTreeMap::new();
+    for (index, event) in flattened.events.iter().enumerate() {
+        index_datatype_event(
+            &mut event_lookup,
+            flattened.event_path(index),
+            index,
+            event.source_plane,
+            |previous| flattened.events[previous].source_plane,
+        );
+    }
     ValidationIndexes { event_lookup }
 }
 
 pub(crate) fn build_validation_event_lookup(
-    events: &[ValidationEvent],
+    events: &[ValidationEvent<'_>],
     errors: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, usize> {
     let mut event_lookup = BTreeMap::new();
-    let mut duplicate_indexes = Vec::new();
+    let mut planes_at_colliding_paths = HashSet::new();
     for (index, event) in events.iter().enumerate() {
-        if event_lookup.insert(event.path.clone(), index).is_some() {
-            duplicate_indexes.push(index);
+        let path = event.path.as_str();
+        if let Some(previous_plane) = index_datatype_event(
+            &mut event_lookup,
+            path,
+            index,
+            event.source_plane,
+            |previous| events[previous].source_plane,
+        ) {
+            // Track both planes only when a path repeats, including when
+            // their events are interleaved.
+            planes_at_colliding_paths.insert((previous_plane, path));
+            if !planes_at_colliding_paths.insert((event.source_plane, path)) {
+                errors.push(
+                    Diagnostic::new(
+                        "DUPLICATE_KEY",
+                        format!("Duplicate key: '{}'", key_from_path(path)),
+                    )
+                    .at_path(path)
+                    .with_span(event.span),
+                );
+            }
         }
     }
-    for index in duplicate_indexes {
-        let path = &events[index].path;
-        errors.push(
-            Diagnostic::new(
-                "DUPLICATE_KEY",
-                format!("Duplicate key: '{}'", key_from_path(path)),
-            )
-            .at_path(path)
-            .with_span(events[index].span),
-        );
-    }
     event_lookup
+}
+
+fn index_datatype_event(
+    lookup: &mut BTreeMap<String, usize>,
+    path: &str,
+    index: usize,
+    plane: SourcePlane,
+    plane_at: impl FnOnce(usize) -> SourcePlane,
+) -> Option<SourcePlane> {
+    match lookup.entry(path.to_owned()) {
+        Entry::Vacant(entry) => {
+            entry.insert(index);
+            None
+        }
+        Entry::Occupied(mut entry) => {
+            let previous = plane_at(*entry.get());
+            if previous == SourcePlane::Header || plane == SourcePlane::Body {
+                entry.insert(index);
+            }
+            Some(previous)
+        }
+    }
 }
 
 pub(crate) fn top_level_canonical_paths_have_duplicates(bindings: &[Binding]) -> bool {
@@ -406,7 +444,7 @@ impl CompactReferenceStep {
 }
 
 pub(crate) fn compact_reference_steps(
-    steps: &[ValidationReferenceStep],
+    steps: &[ValidationReferenceStep<'_>],
 ) -> Vec<CompactReferenceStep> {
     let mut compact = Vec::new();
     for step in steps {
@@ -419,6 +457,7 @@ pub(crate) fn compact_reference_steps(
             ValidationReferenceStep::VisibleTarget(path) => {
                 compact.push(CompactReferenceStep::VisibleTarget(path.clone()));
             }
+            ValidationReferenceStep::DatatypeTarget { .. } => {}
         }
     }
     compact
@@ -686,10 +725,13 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    recovery: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
+    let mut references = DatatypeReferenceCache::default();
+    let mut authored_targets = AuthoredDatatypeTargets::new(bindings, recovery);
     for (event, path) in events.iter().zip(rendered_event_paths.iter()) {
         let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
@@ -706,11 +748,15 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 errors.push(error.with_span(event.span).at_path(path_override));
                 continue;
             }
-            let resolved_value =
-                resolve_reference_value(&event.value, events, event_lookup).unwrap_or(&event.value);
+            let resolved_value = references.resolve(&event.value, |segments| {
+                resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
+                    let event = &events[*event_lookup.get(path)?];
+                    (event.source_plane == SourcePlane::Body).then_some(&event.value)
+                })
+            });
             if let Some(error) = datatype_value_error(
                 datatype,
-                &CompactDatatypeValue::from_value(resolved_value),
+                &resolved_value,
                 path,
                 event.span,
                 mode,
@@ -720,9 +766,8 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
             }
         }
     }
-    validate_attribute_datatypes_in_scope(
-        bindings,
-        &CanonicalPath::root(),
+    validate_resolved_attribute_datatypes(
+        &mut authored_targets,
         mode,
         datatype_policy,
         max_separator_depth,
@@ -819,10 +864,14 @@ impl CompactDatatypeValue {
             Value::HexLiteral { raw } => Self::Hex(has_valid_literal_underscores(raw)),
             Value::SeparatorLiteral { .. } => Self::Separator,
             Value::SymbolicLiteral { .. } => Self::Symbolic,
-            Value::EncodingLiteral { raw } => Self::Encoding {
-                literal_valid: has_valid_encoding_literal(raw),
-                base64_valid: has_valid_base64url_literal(raw),
-            },
+            Value::EncodingLiteral { raw } => {
+                #[cfg(test)]
+                tests::ENCODING_CLASSIFICATIONS.with(|count| count.set(count.get() + 1));
+                Self::Encoding {
+                    literal_valid: has_valid_encoding_literal(raw),
+                    base64_valid: has_valid_base64url_literal(raw),
+                }
+            }
             Value::RadixLiteral { raw } => Self::Radix(has_valid_radix_literal(raw)),
             Value::DateLiteral { .. } => Self::Date,
             Value::DateTimeLiteral { raw } => {
@@ -922,29 +971,27 @@ pub(crate) fn validate_compact_reference_datatype(
     )
 }
 
-pub(crate) fn validate_attribute_datatypes(
+pub(crate) fn collect_attribute_datatype_checks(
     bindings: &[Binding],
     mode: BehaviorMode,
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
-    validate_datatypes::<String>(
-        &[],
-        &[],
-        &BTreeMap::new(),
+    validate_attribute_datatypes_in_scope(
         bindings,
-        Some(mode),
-        datatype_policy,
+        &CanonicalPath::root(),
+        mode,
+        effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
         max_generic_depth,
-        errors,
+        checks,
     );
 }
 
 pub(crate) fn validate_datatypes_light(
-    events: &[ValidationEvent],
+    events: &[ValidationEvent<'_>],
     event_lookup: &BTreeMap<String, usize>,
     bindings: &[Binding],
     effective_mode: Option<BehaviorMode>,
@@ -955,11 +1002,13 @@ pub(crate) fn validate_datatypes_light(
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
     let datatype_policy = effective_datatype_policy(mode, datatype_policy);
+    let mut references = DatatypeReferenceCache::default();
+    let mut authored_targets = AuthoredDatatypeTargets::new(bindings, false);
     for event in events {
         if let Some(datatype) = &event.datatype {
             if let Some(error) = validate_datatype_shape_light(
                 datatype,
-                &event.value,
+                event.value,
                 max_separator_depth,
                 max_generic_depth,
             ) {
@@ -987,9 +1036,14 @@ pub(crate) fn validate_datatypes_light(
                 );
                 continue;
             }
-            let resolved_value = resolve_reference_value_light(&event.value, events, event_lookup)
-                .unwrap_or(&event.value);
-            if datatype_base(datatype) == "switch" && resolved_value.value_kind() == "ToggleLiteral"
+            let resolved_value = references.resolve(event.value, |segments| {
+                resolve_datatype_reference_target(segments, &mut authored_targets, |path| {
+                    let event = &events[*event_lookup.get(path)?];
+                    (event.source_plane == SourcePlane::Body).then_some(event.value)
+                })
+            });
+            if datatype_base(datatype) == "switch"
+                && matches!(resolved_value, CompactDatatypeValue::Toggle)
             {
                 errors.push(
                     Diagnostic::new(
@@ -1006,7 +1060,7 @@ pub(crate) fn validate_datatypes_light(
             }
             if !is_reserved_datatype(datatype)
                 && mode == BehaviorMode::Strict
-                && resolved_value.value_kind() == "ToggleLiteral"
+                && matches!(resolved_value, CompactDatatypeValue::Toggle)
             {
                 errors.push(
                     Diagnostic::new(
@@ -1021,7 +1075,7 @@ pub(crate) fn validate_datatypes_light(
                 );
                 continue;
             }
-            if !datatype_matches_value(datatype, resolved_value) {
+            if !datatype_matches_compact_value(datatype, &resolved_value) {
                 let message =
                     datatype_mismatch_message(&event.path, datatype, resolved_value.value_kind());
                 errors.push(
@@ -1032,9 +1086,8 @@ pub(crate) fn validate_datatypes_light(
             }
         }
     }
-    validate_attribute_datatypes_in_scope(
-        bindings,
-        &CanonicalPath::root(),
+    validate_resolved_attribute_datatypes(
+        &mut authored_targets,
         mode,
         datatype_policy,
         max_separator_depth,
@@ -1084,62 +1137,65 @@ pub(crate) fn effective_datatype_policy(
     }
 }
 
-fn resolve_reference_value<'a>(
-    value: &'a Value,
-    events: &'a [AssignmentEvent],
-    event_lookup: &BTreeMap<String, usize>,
+#[derive(Default)]
+struct DatatypeReferenceCache<'a> {
+    terminals: HashMap<*const Value, &'a Value>,
+    literal_facts: HashMap<*const Value, CompactDatatypeValue>,
+}
+
+impl<'a> DatatypeReferenceCache<'a> {
+    fn resolve(
+        &mut self,
+        value: &'a Value,
+        lookup: impl FnMut(&[ReferenceSegment]) -> Option<&'a Value>,
+    ) -> CompactDatatypeValue {
+        let resolved = resolve_reference_chain(value, &mut self.terminals, lookup).unwrap_or(value);
+        if !std::ptr::eq(value, resolved)
+            && matches!(
+                resolved,
+                Value::EncodingLiteral { .. }
+                    | Value::HexLiteral { .. }
+                    | Value::RadixLiteral { .. }
+                    | Value::DateTimeLiteral { .. }
+            )
+        {
+            // The same literal can terminate several chains. Its validity
+            // depends on the authored bytes, so classify it by identity once.
+            return self
+                .literal_facts
+                .entry(std::ptr::from_ref(resolved))
+                .or_insert_with(|| CompactDatatypeValue::from_value(resolved))
+                .clone();
+        }
+        CompactDatatypeValue::from_value(resolved)
+    }
+}
+
+fn resolve_reference_chain<'a>(
+    mut value: &'a Value,
+    terminal_values: &mut HashMap<*const Value, &'a Value>,
+    mut lookup: impl FnMut(&[ReferenceSegment]) -> Option<&'a Value>,
 ) -> Option<&'a Value> {
     let mut seen = HashSet::new();
-    resolve_reference_value_inner(value, events, event_lookup, &mut seen)
-}
-
-fn resolve_reference_value_light<'a>(
-    value: &'a Value,
-    events: &'a [ValidationEvent],
-    event_lookup: &BTreeMap<String, usize>,
-) -> Option<&'a Value> {
-    let mut seen = HashSet::new();
-    resolve_reference_value_light_inner(value, events, event_lookup, &mut seen)
-}
-
-fn resolve_reference_value_inner<'a>(
-    value: &'a Value,
-    events: &'a [AssignmentEvent],
-    event_lookup: &BTreeMap<String, usize>,
-    seen: &mut HashSet<String>,
-) -> Option<&'a Value> {
-    let segments = match value {
-        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-            segments
+    loop {
+        match value {
+            Value::TypedValue { value: inner, .. } => value = inner,
+            Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
+                let reference = std::ptr::from_ref(value);
+                if let Some(&terminal) = terminal_values.get(&reference) {
+                    value = terminal;
+                    break;
+                }
+                if !seen.insert(reference) {
+                    return Some(value);
+                }
+                value = lookup(segments)?;
+            }
+            _ => break,
         }
-        _ => return Some(value),
-    };
-    let target = format_reference_target(segments);
-    if !seen.insert(target.clone()) {
-        return Some(value);
     }
-    let resolved = resolve_reference_target_value(segments, events, event_lookup)?;
-    resolve_reference_value_inner(resolved, events, event_lookup, seen)
-}
-
-fn resolve_reference_value_light_inner<'a>(
-    value: &'a Value,
-    events: &'a [ValidationEvent],
-    event_lookup: &BTreeMap<String, usize>,
-    seen: &mut HashSet<String>,
-) -> Option<&'a Value> {
-    let segments = match value {
-        Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-            segments
-        }
-        _ => return Some(value),
-    };
-    let target = format_reference_target(segments);
-    if !seen.insert(target.clone()) {
-        return Some(value);
-    }
-    let resolved = resolve_reference_target_value_light(segments, events, event_lookup)?;
-    resolve_reference_value_light_inner(resolved, events, event_lookup, seen)
+    terminal_values.extend(seen.into_iter().map(|reference| (reference, value)));
+    Some(value)
 }
 
 /// Borrowed one-hop binding data for the internal Core/Finalize boundary.
@@ -1186,94 +1242,91 @@ pub fn resolve_assignment_reference_target<'a>(
         if remainder.is_empty() {
             return Some(AssignmentReferenceTarget::Value(&event.value));
         }
-        if let Some(value) =
-            resolve_reference_remainder_target(&event.value, Some(&event.annotations), remainder)
-        {
+        if let Some(value) = resolve_reference_remainder_target(
+            &event.value,
+            Some(&event.annotations),
+            remainder,
+            &mut find_object_member,
+        ) {
             return Some(value);
         }
     }
     None
 }
 
-fn resolve_reference_target_value<'a>(
+fn resolve_datatype_reference_target<'a>(
     segments: &[ReferenceSegment],
-    events: &'a [AssignmentEvent],
-    event_lookup: &BTreeMap<String, usize>,
+    authored_targets: &mut AuthoredDatatypeTargets<'a>,
+    body_event_value: impl FnOnce(&str) -> Option<&'a Value>,
 ) -> Option<&'a Value> {
-    resolve_assignment_reference_target(segments, events, event_lookup)
-        .and_then(AssignmentReferenceTarget::value)
-}
-
-fn resolve_reference_target_value_light<'a>(
-    segments: &[ReferenceSegment],
-    events: &'a [ValidationEvent],
-    event_lookup: &BTreeMap<String, usize>,
-) -> Option<&'a Value> {
-    for split in (1..=segments.len()).rev() {
-        let prefix = &segments[..split];
-        if prefix
-            .iter()
-            .any(|segment| matches!(segment, ReferenceSegment::Attr(_)))
-        {
-            continue;
-        }
-        let prefix_path = format_reference_target(prefix);
-        let event = event_lookup
-            .get(&prefix_path)
-            .and_then(|index| events.get(*index))?;
-        let remainder = &segments[split..];
-        if remainder.is_empty() {
-            return Some(&event.value);
-        }
-        if let Some(value) =
-            resolve_reference_remainder(&event.value, Some(&event.annotations), remainder)
-        {
-            return Some(value);
-        }
+    if !segments
+        .iter()
+        .any(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+        && let Some(value) = body_event_value(&format_reference_target(segments))
+    {
+        return Some(value);
     }
-    None
+    // Compact validation events omit some container slots. Consult the
+    // authored owner before falling back to a header or declaring it absent.
+    authored_targets.lookup(segments)
 }
 
-fn resolve_reference_remainder<'a>(
-    value: &'a Value,
-    annotations: Option<&'a BTreeMap<String, AttributeValue>>,
-    remainder: &[ReferenceSegment],
-) -> Option<&'a Value> {
-    resolve_reference_remainder_target(value, annotations, remainder)
-        .and_then(AssignmentReferenceTarget::value)
+fn find_object_member<'a>(bindings: &'a [Binding], key: &str) -> Option<&'a Binding> {
+    bindings.iter().find(|binding| binding.key == key)
 }
 
 fn resolve_reference_remainder_target<'a>(
     value: &'a Value,
     annotations: Option<&'a BTreeMap<String, AttributeValue>>,
     remainder: &[ReferenceSegment],
+    member: &mut impl FnMut(&'a [Binding], &str) -> Option<&'a Binding>,
 ) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
         return Some(AssignmentReferenceTarget::Value(value));
     }
+    if let Value::TypedValue {
+        attributes,
+        value: payload,
+        ..
+    } = value
+    {
+        let annotations = annotations
+            .filter(|entries| !entries.is_empty())
+            .or(Some(attributes));
+        return resolve_reference_remainder_target(payload, annotations, remainder, member);
+    }
     match &remainder[0] {
         ReferenceSegment::Attr(key) => {
             let attr = annotations?.get(key)?;
-            resolve_reference_remainder_from_attr_target(attr, &remainder[1..])
+            resolve_reference_remainder_from_attr_target(attr, &remainder[1..], member)
         }
         ReferenceSegment::Key(key) => {
             let Value::ObjectNode { bindings } = value else {
                 return None;
             };
-            let binding = bindings.iter().find(|candidate| candidate.key == *key)?;
+            let binding = member(bindings, key)?;
             resolve_reference_remainder_target(
                 &binding.value,
                 Some(&binding.attributes),
                 &remainder[1..],
+                member,
             )
         }
         ReferenceSegment::Index(index) => match value {
             Value::ListNode { items } | Value::TupleLiteral { items } => {
-                resolve_reference_remainder_target(items.get(*index)?, None, &remainder[1..])
+                resolve_reference_remainder_target(
+                    items.get(*index)?,
+                    None,
+                    &remainder[1..],
+                    member,
+                )
             }
-            Value::NodeLiteral { children, .. } => {
-                resolve_reference_remainder_target(children.get(*index)?, None, &remainder[1..])
-            }
+            Value::NodeLiteral { children, .. } => resolve_reference_remainder_target(
+                children.get(*index)?,
+                None,
+                &remainder[1..],
+                member,
+            ),
             _ => None,
         },
     }
@@ -1282,6 +1335,7 @@ fn resolve_reference_remainder_target<'a>(
 fn resolve_reference_remainder_from_attr_target<'a>(
     attr: &'a AttributeValue,
     remainder: &[ReferenceSegment],
+    member: &mut impl FnMut(&'a [Binding], &str) -> Option<&'a Binding>,
 ) -> Option<AssignmentReferenceTarget<'a>> {
     if remainder.is_empty() {
         return Some(AssignmentReferenceTarget::Attribute(attr));
@@ -1290,16 +1344,17 @@ fn resolve_reference_remainder_from_attr_target<'a>(
         ReferenceSegment::Attr(key) => resolve_reference_remainder_from_attr_target(
             attr.nested_attrs.get(key)?,
             &remainder[1..],
+            member,
         ),
         ReferenceSegment::Key(key) => {
-            if let Some(member) = attr.object_members.get(key) {
-                resolve_reference_remainder_from_attr_target(member, &remainder[1..])
+            if let Some(entry) = attr.object_members.get(key) {
+                resolve_reference_remainder_from_attr_target(entry, &remainder[1..], member)
             } else {
-                resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder)
+                resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder, member)
             }
         }
         ReferenceSegment::Index(_) => {
-            resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder)
+            resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder, member)
         }
     }
 }
@@ -1855,7 +1910,276 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{datatype_bracket_specs, separator_spec_depth};
+    use super::*;
+
+    thread_local! {
+        pub(super) static ENCODING_CLASSIFICATIONS: std::cell::Cell<usize> =
+            const { std::cell::Cell::new(0) };
+        pub(super) static AUTHORED_SEQUENCE_READS: std::cell::Cell<usize> =
+            const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn reference_chain_reuses_terminal_values_across_claims() {
+        let count = 64;
+        let mut values = vec![Value::NumberLiteral { raw: "7".into() }];
+        values.extend((0..count).map(|index| Value::PointerReference {
+            segments: vec![ReferenceSegment::Index(index)],
+            span: Span::zero(),
+        }));
+        let mut terminal_values = HashMap::new();
+        let lookups = std::cell::Cell::new(0);
+        for claim in values.iter().rev().take(count) {
+            let terminal = resolve_reference_chain(claim, &mut terminal_values, |segments| {
+                lookups.set(lookups.get() + 1);
+                let [ReferenceSegment::Index(index)] = segments else {
+                    return None;
+                };
+                values.get(*index)
+            });
+            assert_eq!(terminal, values.first());
+        }
+        assert_eq!(lookups.get(), count);
+    }
+
+    #[test]
+    fn typed_attributes_classify_each_shared_encoding_once() {
+        use std::fmt::Write as _;
+
+        let payload = "A".repeat(8192);
+        let mut source = format!("valid = &{payload}TQ\ninvalid = &{payload}TR\nvia = ~>valid\n");
+        for index in 0..64 {
+            writeln!(
+                source,
+                "item{index}@{{encoded:encoding = ~>valid, base:base64 = ~via}} = 1"
+            )
+            .expect("append claims");
+        }
+        source.push_str("last@{bad:base64 = ~>invalid} = 1");
+
+        for validation_only in [false, true] {
+            ENCODING_CLASSIFICATIONS.with(|count| count.set(0));
+            let result = crate::compile(
+                &source,
+                crate::CompileOptions {
+                    shallow_event_values: validation_only,
+                    emit_binding_projections: !validation_only,
+                    include_header: !validation_only,
+                    include_event_annotations: !validation_only,
+                    ..crate::CompileOptions::default()
+                },
+            );
+            let [error] = result.errors.as_slice() else {
+                panic!("validation_only={validation_only}: {:?}", result.errors);
+            };
+            assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+            assert_eq!(error.path.as_deref(), Some("$.last.@.bad"));
+            assert!(error.message.ends_with("got EncodingLiteral"), "{error:?}");
+            assert_eq!(
+                ENCODING_CLASSIFICATIONS.with(std::cell::Cell::get),
+                2,
+                "validation_only={validation_only}"
+            );
+        }
+    }
+
+    #[test]
+    fn authored_datatype_targets_reuse_one_index_for_distinct_object_members() {
+        let binding = |key: String, value: Value| crate::Binding {
+            key,
+            is_header: false,
+            structural_id: None,
+            datatype: None,
+            attributes: BTreeMap::new(),
+            attribute_order: Vec::new(),
+            value,
+            span: Span::zero(),
+        };
+        for width in [64, 128] {
+            let members = (0..width)
+                .map(|index| {
+                    binding(
+                        format!("member{index}"),
+                        Value::NumberLiteral {
+                            raw: index.to_string(),
+                        },
+                    )
+                })
+                .collect();
+            let roots = [binding(
+                "source".into(),
+                Value::ObjectNode { bindings: members },
+            )];
+            let mut targets = AuthoredDatatypeTargets::new(&roots, false);
+            assert!(targets.object_members.is_empty());
+            for index in (0..width).rev() {
+                let target = [
+                    ReferenceSegment::Key("source".into()),
+                    ReferenceSegment::Key(format!("member{index}")),
+                ];
+                let expected = Value::NumberLiteral {
+                    raw: index.to_string(),
+                };
+                assert_eq!(targets.lookup(&target), Some(&expected));
+                let source = &targets.paths.roots.as_ref().expect("root index is built")["source"];
+                let children = source.children.as_ref().expect("children are cached");
+                let members = children.members.as_ref().expect("member index is built");
+                assert_eq!(members.len(), width);
+                assert!(members.values().all(|path| path.children.is_none()));
+                assert!(targets.object_members.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn single_indexed_datatype_lookup_only_caches_the_requested_slot() {
+        for width in [64, 2048] {
+            let source = format!("source = [{}@{{meta = 7}} = 2]", "1, ".repeat(width - 1));
+            let bindings = crate::parse_document(&source, &crate::AeonCompileLimits::default())
+                .expect("valid attributed sequence");
+            let mut targets = AuthoredDatatypeTargets::new(&bindings, false);
+            let segments = [
+                ReferenceSegment::Key("source".into()),
+                ReferenceSegment::Index(width - 1),
+                ReferenceSegment::Attr("meta".into()),
+            ];
+            for _ in 0..2 {
+                assert_eq!(
+                    targets.lookup(&segments),
+                    Some(&Value::NumberLiteral { raw: "7".into() })
+                );
+            }
+            let source = &targets.paths.roots.as_ref().expect("root index is built")["source"];
+            let children = source.children.as_ref().expect("requested child is cached");
+            assert_eq!(children.items.len(), 1);
+            assert!(children.items.contains_key(&(width - 1)));
+            assert!(children.members.is_none());
+            assert!(children.sequences.is_none());
+        }
+    }
+
+    #[test]
+    fn header_visibility_reuses_dense_coverage_across_duplicate_body_sequences() {
+        let mut bindings = crate::parse_document(
+            r#"aeon:x = [0]
+"aeon:x" = [1, 2, 3, 4]"#,
+            &crate::AeonCompileLimits::default(),
+        )
+        .expect("header and body may overlap");
+        let mut shorter = bindings[1].clone();
+        shorter.value = Value::TupleLiteral {
+            items: vec![Value::NumberLiteral { raw: "1".into() }],
+        };
+        bindings.extend(std::iter::repeat_n(shorter, 128));
+
+        let root = CanonicalPath::root().member("aeon:x");
+        let mut paths = AuthoredPayloadPaths::for_header_collisions(&bindings);
+        for index in 0..2048 {
+            let slot = root.index(index);
+            assert_eq!(paths.body_shadows_header(&slot), index < 4, "{index}");
+            if index >= 4 {
+                assert!(!paths.body_shadows_header(&slot.member("child")), "{index}");
+            }
+        }
+        let owner = &paths.roots.as_ref().expect("root index is built")["aeon:x"];
+        let children = owner.children.as_ref().expect("coverage is cached");
+        assert_eq!(children.body_sequence_len, Some(4));
+        assert!(children.items.is_empty());
+    }
+
+    #[test]
+    fn header_visibility_does_not_rescan_short_occurrences_for_covered_descendants() {
+        let width = 128;
+        let source = format!(
+            "aeon:x = [0]\n\"aeon:x\" = [{}{{leaf = 1}}]\n",
+            "{leaf = 1}, ".repeat(width - 1)
+        );
+        let mut bindings = crate::parse_document(&source, &crate::AeonCompileLimits::default())
+            .expect("header and body may overlap");
+        let mut shorter = bindings[1].clone();
+        shorter.value = Value::TupleLiteral {
+            items: vec![Value::NumberLiteral { raw: "1".into() }],
+        };
+        bindings.extend(std::iter::repeat_n(shorter, width));
+        let mut scalar = bindings[1].clone();
+        scalar.value = Value::NumberLiteral { raw: "2".into() };
+        bindings.extend(std::iter::repeat_n(scalar, width));
+
+        let root = CanonicalPath::root().member("aeon:x");
+        let mut paths = AuthoredPayloadPaths::for_header_collisions(&bindings);
+        AUTHORED_SEQUENCE_READS.with(|count| count.set(0));
+        for index in (0..width).rev() {
+            let slot = root.index(index);
+            assert!(paths.body_shadows_header(&slot.member("leaf")), "{index}");
+        }
+        assert_eq!(
+            AUTHORED_SEQUENCE_READS.with(std::cell::Cell::get),
+            2 * (bindings.len() - 1)
+        );
+    }
+
+    #[test]
+    fn sparse_sequence_traversal_yields_covering_occurrences_in_authored_order() {
+        let widths = [2, 3, 0, 2, 5, 1, 4, 3, 0, 4, 5];
+        let values: Vec<_> = widths
+            .iter()
+            .enumerate()
+            .map(|(ordinal, &width)| Value::ListNode {
+                items: vec![
+                    Value::NumberLiteral {
+                        raw: ordinal.to_string()
+                    };
+                    width
+                ],
+            })
+            .collect();
+        let sequences = AuthoredSequenceIndex::new(values.iter().map(|value| AuthoredPayload {
+            value,
+            annotations: None,
+            is_header: false,
+        }));
+        for slot in 0..=5 {
+            let actual: Vec<_> = sequences.items_at(slot).map(|item| item.value).collect();
+            let expected: Vec<_> = values
+                .iter()
+                .filter_map(|value| {
+                    let Value::ListNode { items } = value else {
+                        unreachable!("test constructs only lists");
+                    };
+                    items.get(slot)
+                })
+                .collect();
+            assert_eq!(actual, expected, "slot {slot}");
+        }
+    }
+
+    #[test]
+    fn indexed_collisions_keep_authored_order_and_unique_descendants() {
+        let limits = crate::AeonCompileLimits::default();
+        let mut bindings =
+            crate::parse_document("source = [@{meta = 1} = 0]", &limits).expect("short source");
+        bindings.extend(
+            crate::parse_document("source = [@{meta = 2} = 0, @{meta = 3} = 0]", &limits)
+                .expect("long source"),
+        );
+
+        for (recovery, shared) in [(true, "1"), (false, "2")] {
+            let mut targets = AuthoredDatatypeTargets::new(&bindings, recovery);
+            for (index, expected) in [(1, "3"), (0, shared)] {
+                let target = [
+                    ReferenceSegment::Key("source".into()),
+                    ReferenceSegment::Index(index),
+                    ReferenceSegment::Attr("meta".into()),
+                ];
+                assert_eq!(
+                    targets.lookup(&target),
+                    Some(&Value::NumberLiteral {
+                        raw: expected.into()
+                    })
+                );
+            }
+        }
+    }
 
     #[test]
     fn bracket_spec_helpers_ignore_brackets_inside_generics() {
@@ -2002,6 +2326,447 @@ fn base64url_sextet(byte: u8) -> Option<u8> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) enum AttributeDatatypeCheck {
+    Error(Diagnostic),
+    Reference {
+        path: String,
+        datatype: String,
+        value: Value,
+    },
+}
+
+impl AttributeDatatypeCheck {
+    pub(crate) fn diagnostic<'a>(
+        &'a self,
+        resolve: impl FnOnce(&'a Value) -> CompactDatatypeValue,
+    ) -> Option<Diagnostic> {
+        match self {
+            Self::Error(error) => Some(error.clone()),
+            Self::Reference {
+                path,
+                datatype,
+                value,
+            } => {
+                let resolved = resolve(value);
+                (!datatype_matches_compact_value(datatype, &resolved)).then(|| {
+                    Diagnostic::new(
+                        "DATATYPE_LITERAL_MISMATCH",
+                        datatype_mismatch_message(path, datatype, resolved.value_kind()),
+                    )
+                    .at_path(path)
+                })
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct AuthoredPayload<'a> {
+    value: &'a Value,
+    annotations: Option<&'a BTreeMap<String, AttributeValue>>,
+    is_header: bool,
+}
+
+impl<'a> AuthoredPayload<'a> {
+    fn binding(binding: &'a Binding, parent_is_header: bool) -> Self {
+        Self {
+            value: &binding.value,
+            annotations: Some(&binding.attributes),
+            is_header: parent_is_header || binding.is_header,
+        }
+    }
+
+    fn payload(self) -> &'a Value {
+        let mut value = self.value;
+        while let Value::TypedValue { value: inner, .. } = value {
+            value = inner;
+        }
+        value
+    }
+
+    fn sequence(self) -> Option<&'a [Value]> {
+        #[cfg(test)]
+        tests::AUTHORED_SEQUENCE_READS.with(|count| count.set(count.get() + 1));
+        match self.payload() {
+            Value::ListNode { items } | Value::TupleLiteral { items } => Some(items),
+            Value::NodeLiteral { children, .. } => Some(children),
+            _ => None,
+        }
+    }
+
+    fn item(self, index: usize) -> Option<Self> {
+        Some(Self {
+            value: self.sequence()?.get(index)?,
+            annotations: None,
+            is_header: self.is_header,
+        })
+    }
+}
+
+// Colliding payloads contribute descendants independently. Select the visible
+// occurrence only at the exact owner path, before looking at its attributes.
+struct AuthoredPayloadPath<'a> {
+    first: AuthoredPayload<'a>,
+    later: Vec<AuthoredPayload<'a>>,
+    selected: usize,
+    children: Option<Box<AuthoredPayloadChildren<'a>>>,
+}
+
+struct AuthoredSequence<'a> {
+    items: &'a [Value],
+    is_header: bool,
+    left: Option<usize>,
+    right: Option<usize>,
+}
+
+impl<'a> AuthoredSequence<'a> {
+    fn item(&self, index: usize) -> AuthoredPayload<'a> {
+        AuthoredPayload {
+            value: &self.items[index],
+            annotations: None,
+            is_header: self.is_header,
+        }
+    }
+}
+
+// This Cartesian tree preserves authored order in an in-order traversal.
+// The longest sequence is at the root of each subtree, so a short root
+// rules out every sequence below it for the requested index.
+struct AuthoredSequenceIndex<'a> {
+    sequences: Vec<AuthoredSequence<'a>>,
+    root: Option<usize>,
+}
+
+impl<'a> AuthoredSequenceIndex<'a> {
+    fn new(owners: impl Iterator<Item = AuthoredPayload<'a>>) -> Self {
+        let mut sequences: Vec<AuthoredSequence<'a>> = Vec::new();
+        let mut right_branch: Vec<usize> = Vec::new();
+        for owner in owners {
+            let Some(items) = owner.sequence().filter(|items| !items.is_empty()) else {
+                continue;
+            };
+            let index = sequences.len();
+            let mut left = None;
+            while let Some(&parent) = right_branch.last()
+                && sequences[parent].items.len() < items.len()
+            {
+                left = right_branch.pop();
+            }
+            if let Some(&parent) = right_branch.last() {
+                sequences[parent].right = Some(index);
+            }
+            sequences.push(AuthoredSequence {
+                items,
+                is_header: owner.is_header,
+                left,
+                right: None,
+            });
+            right_branch.push(index);
+        }
+        Self {
+            sequences,
+            root: right_branch.first().copied(),
+        }
+    }
+
+    fn items_at(&self, index: usize) -> impl Iterator<Item = AuthoredPayload<'a>> + '_ {
+        let covers = move |branch: Option<usize>| {
+            branch.filter(|&sequence| index < self.sequences[sequence].items.len())
+        };
+        let mut next = covers(self.root);
+        let mut parents = Vec::new();
+        std::iter::from_fn(move || {
+            while let Some(current) = next {
+                let sequence = &self.sequences[current];
+                next = covers(sequence.left);
+                if next.is_some() {
+                    parents.push(current);
+                    continue;
+                }
+                next = covers(sequence.right);
+                return Some(sequence.item(index));
+            }
+            let sequence = &self.sequences[parents.pop()?];
+            next = covers(sequence.right);
+            Some(sequence.item(index))
+        })
+    }
+}
+
+#[derive(Default)]
+struct AuthoredPayloadChildren<'a> {
+    members: Option<HashMap<&'a str, AuthoredPayloadPath<'a>>>,
+    items: HashMap<usize, AuthoredPayloadPath<'a>>,
+    sequences: Option<AuthoredSequenceIndex<'a>>,
+    body_sequence_len: Option<usize>,
+}
+
+impl<'a> AuthoredPayloadPath<'a> {
+    fn new(payload: AuthoredPayload<'a>) -> Self {
+        Self {
+            first: payload,
+            later: Vec::new(),
+            selected: 0,
+            children: None,
+        }
+    }
+
+    fn selected(&self) -> AuthoredPayload<'a> {
+        if self.selected == 0 {
+            self.first
+        } else {
+            self.later[self.selected - 1]
+        }
+    }
+
+    fn add(&mut self, payload: AuthoredPayload<'a>, recovery: bool) {
+        // Body payloads shadow header payloads at this path. Within each
+        // plane, recovery keeps the first occurrence, like event filtering.
+        let selected_is_header = self.selected().is_header;
+        if (selected_is_header && !payload.is_header)
+            || (!recovery && selected_is_header == payload.is_header)
+        {
+            self.selected = self.later.len() + 1;
+        }
+        self.later.push(payload);
+    }
+
+    fn member(&mut self, key: &str, recovery: bool) -> Option<&mut Self> {
+        let children = self.children.get_or_insert_with(Box::default);
+        let members = children.members.get_or_insert_with(|| {
+            let mut members = HashMap::<_, Self>::new();
+            for owner in std::iter::once(self.first).chain(self.later.iter().copied()) {
+                if let Value::ObjectNode { bindings } = owner.payload() {
+                    for binding in bindings {
+                        let child = AuthoredPayload::binding(binding, owner.is_header);
+                        members
+                            .entry(binding.key.as_str())
+                            .and_modify(|path| path.add(child, recovery))
+                            .or_insert_with(|| Self::new(child));
+                    }
+                }
+            }
+            members
+        });
+        members.get_mut(key)
+    }
+
+    fn body_sequence_covers(&mut self, index: usize) -> bool {
+        let children = self.children.get_or_insert_with(Box::default);
+        // Sequences have dense indexes. Their union is the longest body's
+        // prefix, even when shorter or scalar occurrences share the path.
+        let length = children.body_sequence_len.get_or_insert_with(|| {
+            std::iter::once(self.first)
+                .chain(self.later.iter().copied())
+                .filter(|payload| !payload.is_header)
+                .filter_map(AuthoredPayload::sequence)
+                .map(<[Value]>::len)
+                .max()
+                .unwrap_or(0)
+        });
+        index < *length
+    }
+
+    fn item(&mut self, index: usize, recovery: bool) -> Option<&mut Self> {
+        use std::collections::hash_map::Entry;
+        let children = self.children.get_or_insert_with(Box::default);
+        match children.items.entry(index) {
+            Entry::Occupied(entry) => Some(entry.into_mut()),
+            Entry::Vacant(entry) => {
+                if self.later.is_empty() {
+                    return Some(entry.insert(Self::new(self.first.item(index)?)));
+                }
+                let sequences = children.sequences.get_or_insert_with(|| {
+                    AuthoredSequenceIndex::new(
+                        std::iter::once(self.first).chain(self.later.iter().copied()),
+                    )
+                });
+                let mut items = sequences.items_at(index);
+                let mut path = Self::new(items.next()?);
+                for item in items {
+                    path.add(item, recovery);
+                }
+                Some(entry.insert(path))
+            }
+        }
+    }
+}
+
+pub(crate) struct AuthoredPayloadPaths<'a> {
+    bindings: &'a [Binding],
+    recovery: bool,
+    roots: Option<HashMap<&'a str, AuthoredPayloadPath<'a>>>,
+}
+
+impl<'a> AuthoredPayloadPaths<'a> {
+    pub(crate) fn new(bindings: &'a [Binding], recovery: bool) -> Self {
+        Self {
+            bindings,
+            recovery,
+            roots: None,
+        }
+    }
+
+    fn root(&mut self, key: &str) -> Option<&mut AuthoredPayloadPath<'a>> {
+        let roots = self
+            .roots
+            .get_or_insert_with(|| index_authored_roots(self.bindings.iter(), self.recovery));
+        roots.get_mut(key)
+    }
+
+    pub(crate) fn for_header_collisions(bindings: &'a [Binding]) -> Self {
+        let headers: HashSet<_> = bindings
+            .iter()
+            .filter(|binding| binding.is_header)
+            .map(|binding| binding.key.as_str())
+            .collect();
+        let roots = index_authored_roots(
+            bindings
+                .iter()
+                .filter(|binding| !binding.is_header && headers.contains(binding.key.as_str())),
+            false,
+        );
+        Self {
+            bindings,
+            recovery: false,
+            roots: Some(roots),
+        }
+    }
+
+    pub(crate) fn body_shadows_header(&mut self, path: &CanonicalPath) -> bool {
+        let [PathSegment::Root, PathSegment::Member(root), rest @ ..] = &path.segments[..] else {
+            return false;
+        };
+        let recovery = self.recovery;
+        let Some(mut owner) = self.root(root) else {
+            return false;
+        };
+        let (last_index, ancestors) = match rest.split_last() {
+            Some((PathSegment::Index(index), ancestors)) => (Some(*index), ancestors),
+            _ => (None, rest),
+        };
+        for segment in ancestors {
+            let child = match segment {
+                PathSegment::Member(key) => owner.member(key, recovery),
+                PathSegment::Index(index) if owner.body_sequence_covers(*index) => {
+                    owner.item(*index, recovery)
+                }
+                PathSegment::Index(_) => None,
+                PathSegment::Root => return false,
+            };
+            let Some(child) = child else {
+                return false;
+            };
+            owner = child;
+        }
+        match last_index {
+            // The flattening walk visits every slot. Reuse the coverage
+            // without creating an individual path entry for each visit.
+            Some(index) => owner.body_sequence_covers(index),
+            None => !owner.selected().is_header,
+        }
+    }
+}
+
+fn index_authored_roots<'a>(
+    bindings: impl Iterator<Item = &'a Binding>,
+    recovery: bool,
+) -> HashMap<&'a str, AuthoredPayloadPath<'a>> {
+    let mut roots = HashMap::<_, AuthoredPayloadPath<'_>>::new();
+    for binding in bindings {
+        let payload = AuthoredPayload::binding(binding, false);
+        roots
+            .entry(binding.key.as_str())
+            .and_modify(|path| path.add(payload, recovery))
+            .or_insert_with(|| AuthoredPayloadPath::new(payload));
+    }
+    roots
+}
+
+struct AuthoredDatatypeTargets<'a> {
+    paths: AuthoredPayloadPaths<'a>,
+    object_members: HashMap<*const Binding, HashMap<&'a str, &'a Binding>>,
+}
+
+impl<'a> AuthoredDatatypeTargets<'a> {
+    fn new(bindings: &'a [Binding], recovery: bool) -> Self {
+        Self {
+            paths: AuthoredPayloadPaths::new(bindings, recovery),
+            object_members: HashMap::new(),
+        }
+    }
+
+    fn lookup(&mut self, segments: &[ReferenceSegment]) -> Option<&'a Value> {
+        let [ReferenceSegment::Key(root), remainder @ ..] = segments else {
+            return None;
+        };
+        let recovery = self.paths.recovery;
+        let mut owner = self.paths.root(root)?;
+        let owner_length = remainder
+            .iter()
+            .position(|segment| matches!(segment, ReferenceSegment::Attr(_)))
+            .unwrap_or(remainder.len());
+        for segment in &remainder[..owner_length] {
+            owner = match segment {
+                ReferenceSegment::Key(key) => owner.member(key, recovery),
+                ReferenceSegment::Index(index) => owner.item(*index, recovery),
+                ReferenceSegment::Attr(_) => {
+                    unreachable!("owner path precedes the first attribute")
+                }
+            }?;
+        }
+        let owner = owner.selected();
+        let object_members = &mut self.object_members;
+        let target = resolve_reference_remainder_target(
+            owner.value,
+            owner.annotations,
+            &remainder[owner_length..],
+            &mut |bindings, key| {
+                let members = object_members.entry(bindings.as_ptr()).or_insert_with(|| {
+                    let mut members = HashMap::with_capacity(bindings.len());
+                    for binding in bindings {
+                        // Keep the first match, including in recovery with duplicate keys.
+                        members.entry(binding.key.as_str()).or_insert(binding);
+                    }
+                    members
+                });
+                members.get(key).copied()
+            },
+        )?;
+        // Attribute objects have a member map rather than a scalar value slot.
+        static OBJECT: Value = Value::ObjectNode {
+            bindings: Vec::new(),
+        };
+        Some(target.value().unwrap_or(&OBJECT))
+    }
+}
+
+fn validate_resolved_attribute_datatypes(
+    authored_targets: &mut AuthoredDatatypeTargets<'_>,
+    mode: BehaviorMode,
+    datatype_policy: DatatypePolicy,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+    errors: &mut Vec<Diagnostic>,
+) {
+    let mut checks = Vec::new();
+    collect_attribute_datatype_checks(
+        authored_targets.paths.bindings,
+        mode,
+        Some(datatype_policy),
+        max_separator_depth,
+        max_generic_depth,
+        &mut checks,
+    );
+    let mut references = DatatypeReferenceCache::default();
+    for check in &checks {
+        errors.extend(check.diagnostic(|value| {
+            references.resolve(value, |segments| authored_targets.lookup(segments))
+        }));
+    }
+}
+
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &CanonicalPath,
@@ -2009,7 +2774,7 @@ fn validate_attribute_datatypes_in_scope(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     for binding in bindings {
         let path = parent.member(binding.key.clone());
@@ -2021,7 +2786,7 @@ fn validate_attribute_datatypes_in_scope(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
         validate_value_attribute_datatypes(
             &binding.value,
@@ -2030,7 +2795,7 @@ fn validate_attribute_datatypes_in_scope(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
     }
 }
@@ -2042,7 +2807,7 @@ fn validate_value_attribute_datatypes(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     match value {
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
@@ -2052,7 +2817,7 @@ fn validate_value_attribute_datatypes(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         ),
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             for (index, item) in items.iter().enumerate() {
@@ -2063,7 +2828,7 @@ fn validate_value_attribute_datatypes(
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
-                    errors,
+                    checks,
                 );
             }
         }
@@ -2082,7 +2847,7 @@ fn validate_value_attribute_datatypes(
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
-                    errors,
+                    checks,
                 );
             }
             for (index, child) in children.iter().enumerate() {
@@ -2093,7 +2858,7 @@ fn validate_value_attribute_datatypes(
                     datatype_policy,
                     max_separator_depth,
                     max_generic_depth,
-                    errors,
+                    checks,
                 );
             }
         }
@@ -2109,7 +2874,7 @@ fn validate_attribute_datatype_map(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    errors: &mut Vec<Diagnostic>,
+    checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     for key in attribute_order {
         let Some(entry) = attributes.get(key) else {
@@ -2122,7 +2887,7 @@ fn validate_attribute_datatype_map(
         {
             if matches!(mode, BehaviorMode::Strict) && matches!(value, Value::ToggleLiteral { .. })
             {
-                errors.push(
+                checks.push(AttributeDatatypeCheck::Error(
                     Diagnostic::new(
                         "UNTYPED_TOGGLE_LITERAL",
                         format!(
@@ -2131,9 +2896,9 @@ fn validate_attribute_datatype_map(
                         ),
                     )
                     .at_path(attr_path.clone()),
-                );
+                ));
             } else {
-                errors.push(
+                checks.push(AttributeDatatypeCheck::Error(
                     Diagnostic::new(
                         "UNTYPED_VALUE_IN_STRICT_MODE",
                         format!(
@@ -2142,7 +2907,7 @@ fn validate_attribute_datatype_map(
                         ),
                     )
                     .at_path(attr_path.clone()),
-                );
+                ));
             }
         } else if let Some(datatype) = &entry.datatype
             && let Some(value) = &entry.value
@@ -2160,12 +2925,12 @@ fn validate_attribute_datatype_map(
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
                     _ => attr_path.as_str(),
                 };
-                errors.push(error.at_path(path_override));
+                checks.push(AttributeDatatypeCheck::Error(error.at_path(path_override)));
                 continue;
             }
             if !is_reserved_datatype(datatype) {
                 if datatype_policy == DatatypePolicy::ReservedOnly {
-                    errors.push(
+                    checks.push(AttributeDatatypeCheck::Error(
                         Diagnostic::new(
                             "CUSTOM_DATATYPE_NOT_ALLOWED",
                             format!(
@@ -2174,16 +2939,25 @@ fn validate_attribute_datatype_map(
                             ),
                         )
                         .at_path(attr_path.clone()),
-                    );
+                    ));
                 }
+            } else if matches!(
+                value,
+                Value::CloneReference { .. } | Value::PointerReference { .. }
+            ) {
+                checks.push(AttributeDatatypeCheck::Reference {
+                    path: attr_path,
+                    datatype: datatype.clone(),
+                    value: value.clone(),
+                });
             } else if !datatype_matches_value(datatype, value) {
-                errors.push(
+                checks.push(AttributeDatatypeCheck::Error(
                     Diagnostic::new(
                         "DATATYPE_LITERAL_MISMATCH",
                         datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
                     )
                     .at_path(attr_path.clone()),
-                );
+                ));
             }
         }
         validate_attribute_datatype_map(
@@ -2194,7 +2968,7 @@ fn validate_attribute_datatype_map(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
         validate_attribute_datatype_map(
             &entry.object_members,
@@ -2204,7 +2978,7 @@ fn validate_attribute_datatype_map(
             datatype_policy,
             max_separator_depth,
             max_generic_depth,
-            errors,
+            checks,
         );
         if let Some(value) = &entry.value {
             validate_value_attribute_datatypes(
@@ -2214,7 +2988,7 @@ fn validate_attribute_datatype_map(
                 datatype_policy,
                 max_separator_depth,
                 max_generic_depth,
-                errors,
+                checks,
             );
         }
     }

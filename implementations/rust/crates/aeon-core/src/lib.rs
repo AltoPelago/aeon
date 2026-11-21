@@ -1211,6 +1211,7 @@ fn finalize_compile(
             options.datatype_policy,
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
+            options.recovery,
             &mut errors,
         );
     } else {
@@ -1223,6 +1224,7 @@ fn finalize_compile(
             options.datatype_policy,
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
+            options.recovery,
             &mut errors,
         );
     }
@@ -1423,7 +1425,7 @@ pub(crate) fn validate_gp_datatype_clarifiers<P: AsRef<str>>(
 }
 
 fn validate_gp_validation_datatype_clarifiers(
-    events: &[ValidationEvent],
+    events: &[ValidationEvent<'_>],
     errors: &mut Vec<Diagnostic>,
 ) {
     for event in events {
@@ -1438,7 +1440,7 @@ fn validate_gp_validation_datatype_clarifiers(
             &event.path,
             event.span,
             errors,
-            gp_custom_clarifier_literal(&event.value),
+            gp_custom_clarifier_literal(event.value),
         );
     }
 }
@@ -3998,6 +4000,318 @@ z = 7"###,
     }
 
     #[test]
+    fn recovery_checks_datatypes_against_the_first_duplicate_bindings_metadata() {
+        for (first, second, expected_mismatch_paths) in [
+            ("7", "\"second\"", &[][..]),
+            ("\"first\"", "7", &["$.item", "$.item.@.copy"][..]),
+        ] {
+            let source = format!(
+                "source@{{metadata = {first}}}:number = 1\n\
+                 source@{{metadata = {second}}}:number = 2\n\
+                 item@{{copy:number = ~>source.@.metadata}}:number = ~>source.@.metadata\n"
+            );
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for include_event_annotations in [true, false] {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        CompileOptions {
+                            recovery: true,
+                            include_event_annotations,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    assert_eq!(result.events.len(), 2);
+                    assert_eq!(result.events[0].key, "source");
+                    assert_eq!(
+                        result.events[0].value,
+                        Value::NumberLiteral { raw: "1".into() },
+                    );
+                    let (duplicate, mismatches) = result
+                        .errors
+                        .split_first()
+                        .expect("duplicate key is reported");
+                    assert_eq!(duplicate.code, "DUPLICATE_KEY");
+                    assert_eq!(duplicate.path.as_deref(), Some("$.source"));
+                    assert_eq!(
+                        mismatches.len(),
+                        expected_mismatch_paths.len(),
+                        "{implementation:?}: {:?}",
+                        result.errors
+                    );
+                    for (error, path) in mismatches.iter().zip(expected_mismatch_paths) {
+                        assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                        assert_eq!(error.path.as_deref(), Some(*path));
+                        assert!(error.message.ends_with("got StringLiteral"), "{error:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn datatype_references_can_reach_header_descendants_of_shadowed_roots() {
+        for source in [
+            r#"aeon:header = {x = {leaf@{meta = 7} = 2}}
+"aeon:x" = 0
+value@{copy:number = ~>["aeon:x"].leaf.@.meta}:number = ~>["aeon:x"].leaf.@.meta"#,
+            r#"aeon:header = {x = [@{meta = 7} = 2]}
+"aeon:x" = 0
+value:number = ~>["aeon:x"][0].@.meta"#,
+        ] {
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.to_owned(),
+                        CompileOptions {
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    assert!(
+                        result.errors.is_empty(),
+                        "{source}\n{implementation:?}, validation_only={validation_only}: {:?}",
+                        result.errors
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn validation_only_accepts_header_and_body_at_the_same_descendant_path() {
+        let source = r#"aeon:header = {
+  x = {leaf@{meta = "header"} = "header"}
+  items = [{leaf = "header"}]
+}
+"aeon:x" = {leaf@{meta = 7} = 3}
+"aeon:items" = [{leaf = 4}]
+value@{metadata:number = ~>["aeon:x"].leaf.@.meta}:number = ~>["aeon:x"].leaf
+indexed:number = ~>["aeon:items"][0].leaf"#;
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions {
+                    shallow_event_values: true,
+                    emit_binding_projections: false,
+                    include_header: false,
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+                implementation,
+            );
+            assert!(
+                result.errors.is_empty(),
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+        }
+    }
+
+    #[test]
+    fn datatype_references_use_body_values_regardless_of_header_order() {
+        let header = r#"aeon:x = {leaf = "header"}"#;
+        let body = r#""aeon:x" = {leaf = 3}"#;
+        for (first, second, target, datatype, value_kind) in [
+            (
+                header,
+                body,
+                r#"~["aeon:x"].leaf"#,
+                "number",
+                "NumberLiteral",
+            ),
+            (
+                body,
+                header,
+                r#"~["aeon:x"].leaf"#,
+                "number",
+                "NumberLiteral",
+            ),
+            (
+                r#"aeon:x = ["header"]"#,
+                r#""aeon:x" = [[]]"#,
+                r#"~["aeon:x"][0]"#,
+                "list",
+                "ListNode",
+            ),
+        ] {
+            let source =
+                format!("{first}\n{second}\nok:{datatype} = {target}\nbad:string = {target}");
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        CompileOptions {
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    let [error] = result.errors.as_slice() else {
+                        panic!(
+                            "{source}\n{implementation:?}, validation_only={validation_only}: {:?}",
+                            result.errors
+                        );
+                    };
+                    assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                    assert_eq!(error.path.as_deref(), Some("$.bad"));
+                    assert!(error.message.ends_with(value_kind), "{error:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reference_validation_publishes_metadata_only_for_visible_header_owners() {
+        let header = r#"aeon:header = {x = {leaf@{meta = 7} = 2}, items = [@{meta = 8} = 4]}"#;
+        for (body, expected) in [
+            (
+                r#""aeon:x" = {leaf = 3}
+out = ~>["aeon:x"].leaf.@.meta"#,
+                &["MISSING_REFERENCE_TARGET"][..],
+            ),
+            (
+                r#""aeon:items" = [3]
+out = ~>["aeon:items"][0].@.meta"#,
+                &["MISSING_REFERENCE_TARGET"][..],
+            ),
+            (
+                r#"out = ~>["aeon:x"].leaf.@.meta
+"aeon:x" = {leaf@{meta = 9} = 3}"#,
+                &["FORWARD_REFERENCE"][..],
+            ),
+            (
+                r#"out = ~>["aeon:x"].leaf
+"aeon:x" = {leaf = 3}"#,
+                &["FORWARD_REFERENCE"][..],
+            ),
+            (
+                r#""aeon:x" = {leaf@{meta = 9} = 3}
+out = ~>["aeon:x"].leaf.@.meta"#,
+                &[][..],
+            ),
+            (
+                r#""aeon:x" = 3
+out = ~>["aeon:x"].leaf.@.meta"#,
+                &[][..],
+            ),
+        ] {
+            let source = format!("{header}\n{body}");
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                for validation_only in [false, true] {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        CompileOptions {
+                            shallow_event_values: validation_only,
+                            emit_binding_projections: !validation_only,
+                            include_header: !validation_only,
+                            include_event_annotations: !validation_only,
+                            ..CompileOptions::default()
+                        },
+                        implementation,
+                    );
+                    let codes = result
+                        .errors
+                        .iter()
+                        .map(|error| error.code.as_str())
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        codes, expected,
+                        "{source}\n{implementation:?}, validation_only={validation_only}: {:?}",
+                        result.errors
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn validation_only_reports_duplicates_within_the_same_plane_after_an_overlap() {
+        let source = r#""aeon:x" = [1]
+aeon:x = [2]
+"aeon:x" = [3]"#;
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions {
+                    shallow_event_values: true,
+                    emit_binding_projections: false,
+                    include_header: false,
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+                implementation,
+            );
+            let diagnostics = result
+                .errors
+                .iter()
+                .map(|error| {
+                    (
+                        error.code.as_str(),
+                        error.path.as_deref(),
+                        error.span.map(|span| span.start.line),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                diagnostics,
+                [
+                    ("DUPLICATE_KEY", Some(r#"$.["aeon:x"]"#), Some(3)),
+                    ("DUPLICATE_KEY", Some(r#"$.["aeon:x"][0]"#), Some(3)),
+                ],
+                "{implementation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_checks_datatypes_against_retained_duplicate_descendants() {
+        let source = r#"source = {earlier = 1, shared@{metadata = 7}:number = 1}
+source = {child@{metadata = 7}:number = 2, shared@{metadata = "discarded"}:number = 2}
+item@{copy:number = ~>source.child.@.metadata}:number = ~>source.child.@.metadata
+other:number = ~>source.shared.@.metadata"#;
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            for include_event_annotations in [true, false] {
+                let result = compile_owned_with_implementation(
+                    source.to_owned(),
+                    CompileOptions {
+                        recovery: true,
+                        include_event_annotations,
+                        ..CompileOptions::default()
+                    },
+                    implementation,
+                );
+                let diagnostics = result
+                    .errors
+                    .iter()
+                    .map(|error| (error.code.as_str(), error.path.as_deref()))
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    diagnostics,
+                    [
+                        ("DUPLICATE_KEY", Some("$.source")),
+                        ("DUPLICATE_KEY", Some("$.source.shared"))
+                    ],
+                    "{implementation:?}, include_event_annotations={include_event_annotations}"
+                );
+                assert!(
+                    result
+                        .events
+                        .iter()
+                        .any(|event| format_path(&event.path) == "$.source.child")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn reports_nested_duplicate_object_member_path() {
         let result = compile(
             "app:object = {\n  config:object = {\n    name:string = \"first\"\n    name:string = \"second\"\n  }\n}\n",
@@ -4331,6 +4645,141 @@ z = 7"###,
             "Datatype/literal mismatch at '$.b.@.n': datatype ':string' expects StringLiteral, got NumberLiteral"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.b.@.n"));
+    }
+
+    #[test]
+    fn accepts_typed_attribute_reference_chains() {
+        let source = concat!(
+            "aeon:mode = \"transport\"\n",
+            "target:list = [1]\n",
+            "alias:list = ~>target\n",
+            "item@{first:list = ~>alias, second:list = ~item.@.first, third:list = ~>item.@.second}:number = 1\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions::default(),
+                implementation,
+            );
+            assert!(
+                result.errors.is_empty(),
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+            let item = result
+                .events
+                .iter()
+                .find(|event| event.key == "item")
+                .expect("compiled document must contain the item binding");
+            for (key, kind) in [
+                ("first", "PointerReference"),
+                ("second", "CloneReference"),
+                ("third", "PointerReference"),
+            ] {
+                assert_eq!(
+                    item.annotations[key]
+                        .value
+                        .as_ref()
+                        .expect("typed attribute must retain its value")
+                        .value_kind(),
+                    kind
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reports_terminal_kind_of_mismatched_attribute_reference_chain() {
+        let source = concat!(
+            "aeon:mode = \"transport\"\n",
+            "target:list = [1]\n",
+            "alias:list = ~>target\n",
+            "item@{value:number = ~>alias}:number = 1\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions::default(),
+                implementation,
+            );
+            assert!(result.events.is_empty(), "{implementation:?}");
+            assert_eq!(
+                result.errors.len(),
+                1,
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+            assert_eq!(
+                result.errors[0].code, "DATATYPE_LITERAL_MISMATCH",
+                "{implementation:?}"
+            );
+            assert_eq!(
+                result.errors[0].message,
+                "Datatype/literal mismatch at '$.item.@.value': datatype ':number' expects NumberLiteral, got ListNode",
+                "{implementation:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolves_typed_attribute_reference_chains_without_emitting_annotations() {
+        let source = concat!(
+            "source@{items:list = [1], metadata:object = { code:number = 2 }}:number = 0\n",
+            "item@{itemsAlias:list = ~>source.@.items, metadataAlias:object = ~source.@.metadata}:number = 1\n",
+            "next@{items:list = ~item.@.itemsAlias, metadata:object = ~>item.@.metadataAlias}:number = 2\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            for shallow_event_values in [false, true] {
+                let options = CompileOptions {
+                    include_event_annotations: false,
+                    include_header: !shallow_event_values,
+                    emit_binding_projections: !shallow_event_values,
+                    shallow_event_values,
+                    ..CompileOptions::default()
+                };
+                let result =
+                    compile_owned_with_implementation(source.to_owned(), options, implementation);
+                assert!(
+                    result.errors.is_empty(),
+                    "{implementation:?}: {:?}",
+                    result.errors
+                );
+                assert!(
+                    result
+                        .events
+                        .iter()
+                        .all(|event| event.annotations.is_empty())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn typed_attributes_resolve_metadata_and_payload_fields_of_indexed_items() {
+        let source = concat!(
+            "source = [@{leaf:number = 7} = {field:number = 8}]\n",
+            "item@{metadata:number = ~>source[0].@.leaf, payload:number = ~>source[0].field}:number = 1\n",
+        );
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            for options in [
+                CompileOptions::default(),
+                CompileOptions {
+                    include_event_annotations: false,
+                    include_header: false,
+                    emit_binding_projections: false,
+                    shallow_event_values: true,
+                    ..CompileOptions::default()
+                },
+            ] {
+                let result =
+                    compile_owned_with_implementation(source.to_owned(), options, implementation);
+                assert!(
+                    result.errors.is_empty(),
+                    "{implementation:?}: {:?}",
+                    result.errors
+                );
+            }
+        }
     }
 
     #[test]
@@ -5111,6 +5560,8 @@ z = 7"###,
                       h:hex = #ff_ff\n\
                       r:radix = %10_10\n\
                       e:encoding = &QmFzZTY0IQ==\n\
+                      b:base64 = &TQ\n\
+                      alias:base64 = ~>b\n\
                       dt:datetime = 2025-01-01T09:30:00Z\n\
                       z:wtc = 2025-01-01T00:00:00Z&Australia/Sydney\n";
         let result = compile(

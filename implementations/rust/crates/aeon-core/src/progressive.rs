@@ -15,10 +15,11 @@ use crate::token_parser::{
 #[cfg(feature = "sofia")]
 use crate::utf8_decoder::Utf8Decoder;
 use crate::validation::{
-    CompactDatatypeValue, CompactReferenceStep, compact_reference_steps,
-    validate_attribute_datatypes, validate_compact_reference_datatype,
-    validate_compact_reference_steps, validate_direct_event_datatype,
-    validate_duplicate_object_member_keys, validate_typed_mode_rules,
+    AttributeDatatypeCheck, CompactDatatypeValue, CompactReferenceStep,
+    collect_attribute_datatype_checks, compact_reference_steps,
+    validate_compact_reference_datatype, validate_compact_reference_steps,
+    validate_direct_event_datatype, validate_duplicate_object_member_keys,
+    validate_typed_mode_rules,
 };
 use crate::{
     AssignmentEvent, BehaviorMode, Binding, BindingProjection, CanonicalPath, CompileOptions,
@@ -53,11 +54,21 @@ impl ProvisionalEventBatch {
     }
 }
 
-#[derive(Debug, Default)]
-struct ModeDiagnosticLedger {
-    transport: Vec<Diagnostic>,
-    strict: Vec<Diagnostic>,
-    custom: Vec<Diagnostic>,
+#[derive(Debug)]
+struct ModeDiagnosticLedger<T = Diagnostic> {
+    transport: Vec<T>,
+    strict: Vec<T>,
+    custom: Vec<T>,
+}
+
+impl<T> Default for ModeDiagnosticLedger<T> {
+    fn default() -> Self {
+        Self {
+            transport: Vec::new(),
+            strict: Vec::new(),
+            custom: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -104,8 +115,8 @@ impl CompactReferenceDatatypeClaim {
     }
 }
 
-impl ModeDiagnosticLedger {
-    fn errors(&self, mode: BehaviorMode) -> &[Diagnostic] {
+impl<T> ModeDiagnosticLedger<T> {
+    fn errors(&self, mode: BehaviorMode) -> &[T] {
         match mode {
             BehaviorMode::Transport => &self.transport,
             BehaviorMode::Strict => &self.strict,
@@ -113,7 +124,7 @@ impl ModeDiagnosticLedger {
         }
     }
 
-    fn errors_mut(&mut self, mode: BehaviorMode) -> &mut Vec<Diagnostic> {
+    fn errors_mut(&mut self, mode: BehaviorMode) -> &mut Vec<T> {
         match mode {
             BehaviorMode::Transport => &mut self.transport,
             BehaviorMode::Strict => &mut self.strict,
@@ -140,7 +151,7 @@ struct ProgressiveValidationState {
     event_path_error: Option<Diagnostic>,
     duplicate_errors: Vec<Diagnostic>,
     datatype_event_errors: ModeOrderedDiagnosticLedger,
-    datatype_attribute_errors: ModeDiagnosticLedger,
+    datatype_attribute_checks: ModeDiagnosticLedger<AttributeDatatypeCheck>,
     gp_profile_errors: Vec<Diagnostic>,
     gp_unprojected_errors: Vec<Diagnostic>,
     reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
@@ -190,7 +201,7 @@ impl ProgressiveValidationState {
             event_path_error: None,
             duplicate_errors: Vec::new(),
             datatype_event_errors: ModeOrderedDiagnosticLedger::default(),
-            datatype_attribute_errors: ModeDiagnosticLedger::default(),
+            datatype_attribute_checks: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
             gp_unprojected_errors: Vec::new(),
             reference_datatype_claims: Vec::new(),
@@ -235,13 +246,13 @@ impl ProgressiveValidationState {
                 if body_start == body_end {
                     break;
                 }
-                validate_attribute_datatypes(
+                collect_attribute_datatype_checks(
                     &bindings[body_start..body_end],
                     mode,
                     self.options.datatype_policy,
                     self.options.effective_max_clarifier_values(),
                     self.options.max_generic_depth,
-                    self.datatype_attribute_errors.errors_mut(mode),
+                    self.datatype_attribute_checks.errors_mut(mode),
                 );
                 body_start = body_end;
             }
@@ -320,13 +331,22 @@ impl ProgressiveValidationState {
         validate_gp_datatype_clarifiers(events, &rendered_paths, &mut self.gp_profile_errors);
     }
 
-    fn observe_references(&mut self, targets: &HashSet<String>, steps: &[ValidationReferenceStep]) {
+    fn observe_references(
+        &mut self,
+        targets: &HashSet<String>,
+        steps: &[ValidationReferenceStep<'_>],
+    ) {
         self.reference_targets.extend(targets.iter().cloned());
         for step in steps {
-            if let ValidationReferenceStep::ValidateValue { path, value, .. } = step {
-                let _ = self
-                    .datatype_targets
-                    .insert(path.clone(), CompactDatatypeValue::from_value(value));
+            match step {
+                ValidationReferenceStep::ValidateValue { path, value, .. } => {
+                    self.datatype_targets
+                        .insert(path.clone(), CompactDatatypeValue::from_value(value));
+                }
+                ValidationReferenceStep::DatatypeTarget { path, value } => {
+                    self.datatype_targets.insert(path.clone(), value.clone());
+                }
+                ValidationReferenceStep::VisibleTarget(_) => {}
             }
         }
         self.reference_steps.extend(compact_reference_steps(steps));
@@ -367,10 +387,11 @@ impl ProgressiveValidationState {
             .chain(self.event_path_error.iter().cloned())
             .chain(self.duplicate_errors.iter().cloned())
             .collect::<Vec<_>>();
+        let mut terminal_values = HashMap::new();
         if !self.fail_closed_duplicate_suppresses_events() {
-            errors.extend(self.effective_datatype_event_errors());
+            errors.extend(self.effective_datatype_event_errors(&mut terminal_values));
         }
-        errors.extend(self.effective_datatype_attribute_errors().iter().cloned());
+        errors.extend(self.effective_datatype_attribute_errors(&mut terminal_values));
         if self.gp_profile_active() && !self.fail_closed_duplicate_suppresses_events() {
             errors.extend(self.gp_profile_errors.iter().cloned());
             errors.extend(self.gp_unprojected_errors.iter().cloned());
@@ -400,11 +421,15 @@ impl ProgressiveValidationState {
             && !self.options.recovery
     }
 
-    fn effective_datatype_event_errors(&self) -> Vec<Diagnostic> {
+    fn effective_datatype_event_errors(
+        &self,
+        terminal_values: &mut HashMap<String, CompactDatatypeValue>,
+    ) -> Vec<Diagnostic> {
         let mode = self.effective_mode();
         let mut ordered = self.datatype_event_errors.errors(mode).to_vec();
         for claim in &self.reference_datatype_claims {
-            let resolved = self.resolve_compact_datatype_reference(&claim.reference);
+            let resolved =
+                self.resolve_compact_datatype_reference(&claim.reference, terminal_values);
             if let Some(error) = validate_compact_reference_datatype(
                 &claim.datatype,
                 &resolved,
@@ -425,26 +450,47 @@ impl ProgressiveValidationState {
     fn resolve_compact_datatype_reference(
         &self,
         reference: &CompactDatatypeValue,
+        terminal_values: &mut HashMap<String, CompactDatatypeValue>,
     ) -> CompactDatatypeValue {
-        let original = reference.clone();
-        let mut current = reference.clone();
+        let mut current = reference;
         let mut seen = HashSet::new();
-        loop {
+        let terminal = loop {
             let Some(target) = current.reference_target() else {
-                return current;
+                break current.clone();
             };
-            if !seen.insert(target.to_owned()) {
-                return current;
+            if let Some(terminal) = terminal_values.get(target) {
+                break terminal.clone();
+            }
+            if !seen.insert(target) {
+                return current.clone();
             }
             let Some(next) = self.datatype_targets.get(target) else {
-                return original;
+                return reference.clone();
             };
-            current = next.clone();
-        }
+            current = next;
+        };
+        terminal_values.extend(
+            seen.into_iter()
+                .map(|target| (target.to_owned(), terminal.clone())),
+        );
+        terminal
     }
 
-    fn effective_datatype_attribute_errors(&self) -> &[Diagnostic] {
-        self.datatype_attribute_errors.errors(self.effective_mode())
+    fn effective_datatype_attribute_errors<'a>(
+        &'a self,
+        terminal_values: &'a mut HashMap<String, CompactDatatypeValue>,
+    ) -> impl Iterator<Item = Diagnostic> + 'a {
+        self.datatype_attribute_checks
+            .errors(self.effective_mode())
+            .iter()
+            .filter_map(|check| {
+                check.diagnostic(|value| {
+                    self.resolve_compact_datatype_reference(
+                        &CompactDatatypeValue::from_value(value),
+                        terminal_values,
+                    )
+                })
+            })
     }
 
     fn effective_typed_mode_errors(&self) -> &[Diagnostic] {
@@ -499,7 +545,7 @@ impl ProgressiveValidationState {
                 .map(CompactReferenceStep::retained_string_bytes)
                 .sum(),
             retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
-                + self.datatype_attribute_errors.retained_error_count()
+                + self.datatype_attribute_checks.retained_error_count()
                 + self.gp_profile_errors.len()
                 + self.gp_unprojected_errors.len()
                 + self.typed_mode_errors.retained_error_count(),
@@ -2434,6 +2480,36 @@ mod tests {
     use crate::token_parser::ParserImplementation;
     use crate::{SourcePlane, compile_owned_with_implementation};
 
+    #[test]
+    fn compact_reference_chain_reuses_cached_suffixes() {
+        let mut state = ProgressiveValidationState::new(&CompileOptions::default());
+        let mut terminal_values = HashMap::new();
+        state
+            .datatype_targets
+            .insert("$.target".into(), CompactDatatypeValue::Number);
+        state.datatype_targets.insert(
+            "$.alias".into(),
+            CompactDatatypeValue::PointerReference("$.target".into()),
+        );
+        for path in ["$.alias", "$.target"] {
+            let terminal = state.resolve_compact_datatype_reference(
+                &CompactDatatypeValue::CloneReference(path.into()),
+                &mut terminal_values,
+            );
+            assert!(matches!(terminal, CompactDatatypeValue::Number));
+        }
+        assert_eq!(terminal_values.len(), 2);
+        // A second claim can resolve from the cached suffix without consulting the targets.
+        state.datatype_targets.clear();
+        assert!(matches!(
+            state.resolve_compact_datatype_reference(
+                &CompactDatatypeValue::PointerReference("$.alias".into()),
+                &mut terminal_values,
+            ),
+            CompactDatatypeValue::Number
+        ));
+    }
+
     fn collect_progressive(
         source: &str,
         options: &CompileOptions,
@@ -2527,6 +2603,61 @@ mod tests {
         compiler
             .take_terminal()
             .expect("drained compiler must expose its terminal disposition")
+    }
+
+    #[test]
+    fn typed_bindings_check_object_attribute_targets_in_all_compile_paths() {
+        for datatype in ["object", "number"] {
+            let source = format!(
+                "source@{{metadata = {{leaf = 7}}}}:number = 0\nitem:{datatype} = ~>source.@.metadata\n"
+            );
+            for options in [
+                CompileOptions::default(),
+                CompileOptions {
+                    include_event_annotations: false,
+                    ..CompileOptions::default()
+                },
+                CompileOptions {
+                    include_event_annotations: false,
+                    include_header: false,
+                    emit_binding_projections: false,
+                    shallow_event_values: true,
+                    ..CompileOptions::default()
+                },
+            ] {
+                let (_, streamed) = collect_progressive(&source, &options, 2);
+                assert!(streamed.parse_valid);
+                assert!(!streamed.retention_fallback);
+
+                for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia]
+                {
+                    let result = compile_owned_with_implementation(
+                        source.clone(),
+                        options.clone(),
+                        implementation,
+                    );
+                    assert_eq!(
+                        result.errors, streamed.prevalidation_errors,
+                        "{implementation:?}"
+                    );
+                    if datatype == "object" {
+                        assert!(
+                            result.errors.is_empty(),
+                            "{implementation:?}: {:?}",
+                            result.errors
+                        );
+                    } else {
+                        let [error] = result.errors.as_slice() else {
+                            panic!("{implementation:?}: {:?}", result.errors);
+                        };
+                        assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                        assert_eq!(error.path.as_deref(), Some("$.item"));
+                        assert!(error.message.ends_with("got ObjectNode"), "{error:?}");
+                        assert!(result.events.is_empty());
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -2898,12 +3029,37 @@ mod tests {
     #[test]
     fn compact_mode_discards_source_while_matching_validation_only_results() {
         let cases = [
-            ("valid", "first = 1\nsecond:string = \"two\""),
-            ("semantic invalidation", "first = 1\ncopy = ~missing"),
-            ("syntax invalidation", "first = 1\nbroken = [2,,3]"),
+            ("valid", "first = 1\nsecond:string = \"two\"", Some(2)),
+            (
+                "object-valued attribute target",
+                "source@{metadata = {leaf = 7}}:number = 0\nitem:object = ~>source.@.metadata",
+                Some(2),
+            ),
+            (
+                "Base64 attribute target",
+                "target = &TQ\nitem@{claim:base64 = ~>target} = 1",
+                Some(2),
+            ),
+            (
+                "Base64 indexed terminal reached through an alias",
+                "targets = [&TQ==]\nalias = ~>targets[0]\nitem@{claim:base64 = ~alias} = 1",
+                Some(4),
+            ),
+            (
+                "invalid Base64 tail bits",
+                "target = &TR\nitem@{claim:base64 = ~>target} = 1",
+                None,
+            ),
+            (
+                "generic encoding distinct from Base64",
+                "target = &A\nitem@{claim:encoding = ~>target} = 1",
+                Some(2),
+            ),
+            ("semantic invalidation", "first = 1\ncopy = ~missing", None),
+            ("syntax invalidation", "first = 1\nbroken = [2,,3]", None),
         ];
 
-        for (name, source) in cases {
+        for (name, source, expected_event_count) in cases {
             let validation_options = CompileOptions {
                 shallow_event_values: true,
                 emit_binding_projections: false,
@@ -2944,12 +3100,11 @@ mod tests {
                     result,
                     event_count,
                 } => {
-                    assert_eq!(name, "valid");
-                    assert_eq!(event_count, 2);
+                    assert_eq!(Some(event_count), expected_event_count, "{name}");
                     assert_eq!(result, expected);
                 }
                 ProgressiveDisposition::Invalidated { result, .. } => {
-                    assert_ne!(name, "valid");
+                    assert_eq!(expected_event_count, None, "{name}");
                     assert_eq!(result, expected);
                 }
             }

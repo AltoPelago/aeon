@@ -233,6 +233,8 @@ export function enforceMode(
     const datatypePolicy = options.datatypePolicy ?? defaultDatatypePolicyForMode(mode);
     const errors: ModeEnforcementError[] = [];
     const pathToIndex = new Map<string, number>();
+    // Keep the terminal value, since literal classification can depend on the requested datatype.
+    const terminalValues = new Map<Value, Value>();
 
     for (let i = 0; i < events.length; i++) {
         pathToIndex.set(formatPath(events[i]!.path), i);
@@ -268,8 +270,12 @@ export function enforceMode(
         }
 
         const expectedKinds = expectedKindsForReservedDatatype(event.datatype);
-        const actualKind = resolveDatatypeCheckKind(event, events, pathToIndex, event.datatype) ?? event.value.type;
-        if (datatypeBase(event.datatype) === 'switch' && actualKind === 'ToggleLiteral') {
+        const kinds = expectedKinds ?? expectedKindsForCustomDatatype(event.datatype);
+        const isSwitch = datatypeBase(event.datatype) === 'switch';
+        const actualKind = kinds || isSwitch || mode === 'strict'
+            ? resolveDatatypeCheckKind(event.value, events, pathToIndex, event.datatype, terminalValues)
+            : undefined;
+        if (isSwitch && actualKind === 'ToggleLiteral') {
             errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
@@ -281,26 +287,14 @@ export function enforceMode(
             errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
-        if (expectedKinds && !expectedKinds.includes(actualKind)) {
+        if (kinds && actualKind !== undefined && !kinds.includes(actualKind)) {
             errors.push(new DatatypeLiteralMismatchError(
                 event.span,
                 formatPath(event.path),
                 event.datatype,
                 actualKind,
-                expectedKinds
+                kinds
             ));
-        }
-        if (!expectedKinds) {
-            const customExpectedKinds = expectedKindsForCustomDatatype(event.datatype);
-            if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                errors.push(new DatatypeLiteralMismatchError(
-                    event.span,
-                    formatPath(event.path),
-                    event.datatype,
-                    actualKind,
-                    customExpectedKinds
-                ));
-            }
         }
         errors.push(...validateAnnotationEntries(
             event.annotations,
@@ -309,7 +303,8 @@ export function enforceMode(
             events,
             pathToIndex,
             mode,
-            datatypePolicy
+            datatypePolicy,
+            terminalValues
         ));
         errors.push(...validateAnonymousTypedValues(
             event.value,
@@ -360,29 +355,31 @@ function isIndexedElementEvent(event: AssignmentEvent): boolean {
 }
 
 function resolveDatatypeCheckKind(
-    event: AssignmentEvent,
+    value: Value,
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
     datatype: string,
-    stack: readonly string[] = []
-): string | null {
-    const resolved = resolveReferenceValue(event.value, events, pathToIndex);
-    if (!resolved) {
-        return null;
-    }
-
-    if ((resolved.type === 'CloneReference' || resolved.type === 'PointerReference')) {
-        const resolution = resolveReferenceTarget(resolved.path, events, pathToIndex);
-        if (!resolution || stack.includes(resolution.targetPath)) {
-            return resolved.type;
+    terminalValues: Map<Value, Value>
+): string {
+    let current = unwrapTypedValue(value);
+    let seen: Set<Value> | undefined;
+    while (current.type === 'CloneReference' || current.type === 'PointerReference') {
+        const cached = terminalValues.get(current);
+        if (cached) {
+            current = cached;
+            break;
         }
-        if (!resolution.event) {
-            return resolved.type;
-        }
-        return resolveDatatypeCheckKind(resolution.event, events, pathToIndex, datatype, [...stack, resolution.targetPath]) ?? resolved.type;
+        seen ??= new Set();
+        if (seen.has(current)) return resolvedValueKind(current, datatype);
+        seen.add(current);
+        const target = resolveReferenceValue(current, events, pathToIndex);
+        if (!target) return resolvedValueKind(current, datatype);
+        current = unwrapTypedValue(target);
     }
-
-    return resolvedValueKind(resolved, datatype);
+    if (seen) {
+        for (const reference of seen) terminalValues.set(reference, current);
+    }
+    return resolvedValueKind(current, datatype);
 }
 
 function resolvedValueKind(value: Value, datatype?: string): string {
@@ -564,7 +561,8 @@ function validateAnnotationEntries(
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
-    datatypePolicy: DatatypePolicy
+    datatypePolicy: DatatypePolicy,
+    terminalValues: Map<Value, Value>
 ): readonly ModeEnforcementError[] {
     if (!annotations || annotations.size === 0) {
         return [];
@@ -584,27 +582,11 @@ function validateAnnotationEntries(
             if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
-                const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
-                const actualKind = resolvedValueKind(resolved, entry.datatype);
-                if (expectedKinds && !expectedKinds.includes(actualKind)) {
-                    errors.push(new DatatypeLiteralMismatchError(
-                        span,
-                        attrPath,
-                        entry.datatype,
-                        actualKind,
-                        expectedKinds
-                    ));
-                }
-                if (!expectedKinds) {
-                    const customExpectedKinds = expectedKindsForCustomDatatype(entry.datatype);
-                    if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                        errors.push(new DatatypeLiteralMismatchError(
-                            span,
-                            attrPath,
-                            entry.datatype,
-                            actualKind,
-                            customExpectedKinds
-                        ));
+                const kinds = expectedKinds ?? expectedKindsForCustomDatatype(entry.datatype);
+                if (kinds) {
+                    const actualKind = resolveDatatypeCheckKind(entry.value, events, pathToIndex, entry.datatype, terminalValues);
+                    if (!kinds.includes(actualKind)) {
+                        errors.push(new DatatypeLiteralMismatchError(span, attrPath, entry.datatype, actualKind, kinds));
                     }
                 }
             }
@@ -617,7 +599,8 @@ function validateAnnotationEntries(
             events,
             pathToIndex,
             mode,
-            datatypePolicy
+            datatypePolicy,
+            terminalValues
         ));
     }
     return errors;

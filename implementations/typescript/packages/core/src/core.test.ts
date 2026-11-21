@@ -994,6 +994,33 @@ describe('Core - compile()', () => {
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
         });
 
+        it('should check typed attributes against the terminal kind of reference chains', () => {
+            const result = compile([
+                'aeon:mode = "transport"',
+                'target:list = [1]',
+                'alias:list = ~>target',
+                'item@{first:list = ~>alias, second:list = ~item.@.first, third:list = ~>item.@.second}:number = 1',
+            ].join('\n'));
+            assert.deepStrictEqual(result.errors.map(error => error.message), []);
+            const attributes = result.events.find(event => formatPath(event.path) === '$.item')?.annotations;
+            assert.strictEqual(attributes?.get('first')?.value.type, 'PointerReference');
+            assert.strictEqual(attributes?.get('second')?.value.type, 'CloneReference');
+            assert.strictEqual(attributes?.get('third')?.value.type, 'PointerReference');
+        });
+
+        it('should report the terminal kind of a mismatched attribute reference chain', () => {
+            const result = compile([
+                'aeon:mode = "transport"',
+                'target:list = [1]',
+                'alias:list = ~>target',
+                'item@{value:number = ~>alias}:number = 1',
+            ].join('\n'));
+            assert.strictEqual(result.events.length, 0);
+            assert.deepStrictEqual(result.errors.map(error => error.code), ['DATATYPE_LITERAL_MISMATCH']);
+            assert.strictEqual(result.errors[0]?.message,
+                "Datatype/literal mismatch at '$.item.@.value': datatype ':number' expects NumberLiteral, got ListNode");
+        });
+
         it('should accept singleton tuple literals', () => {
             const result = compile('aa:tuple<string> = (3)');
             assert.strictEqual(result.errors.length, 0);

@@ -35,6 +35,36 @@ describe('Mode Enforcement', () => {
         return enforceMode(validated.events, ast.document.header);
     }
 
+    it('looks up each shared attribute reference once and skips unconstrained custom labels', () => {
+        const count = 64;
+        for (const [datatype, expectedLookups] of [['number', count], ['applicationLabel', 0]] as const) {
+            const entries = Array.from({ length: count }, (_, index) => {
+                const target = index === 0 ? 'target' : `item.@.a${index - 1}`;
+                return `a${index}:${datatype} = ~>${target}`;
+            });
+            const ast = parse(tokenize(`target:number = 7\nitem@{${entries.join(', ')}}:number = 1`).tokens);
+            assert.ok(ast.document);
+            const { events, errors } = emitEvents(resolvePaths(ast.document, { indexedPaths: true }));
+            assert.deepStrictEqual(errors, []);
+            const attributes = events.find(event => event.key === 'item')?.annotations;
+            assert.strictEqual(attributes?.size, count);
+            let lookups = 0;
+            for (const { value } of attributes!.values()) {
+                assert.strictEqual(value.type, 'PointerReference');
+                if (value.type !== 'PointerReference') continue;
+                const path = value.path;
+                Object.defineProperty(value, 'path', {
+                    get: () => {
+                        lookups++;
+                        return path;
+                    },
+                });
+            }
+            assert.deepStrictEqual(enforceMode(events, ast.document.header).errors, []);
+            assert.strictEqual(lookups, expectedLookups, datatype);
+        }
+    });
+
     // ============================================
     // STRICT MODE TYPING (Red Team required)
     // ============================================

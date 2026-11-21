@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.core import CompileOptions, compile_source, datatype_has_generic_args
+from aeon.core import CompileOptions, compile_source, datatype_has_generic_args, resolve_reference_value
 
 
 class CoreCompileTests(unittest.TestCase):
@@ -979,6 +980,48 @@ class CoreCompileTests(unittest.TestCase):
     def test_attribute_datatype_mismatch_is_rejected(self) -> None:
         result = compile_source("b@{n:string=3}:n = 3")
         self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+
+    def test_typed_attributes_check_terminal_kind_of_reference_chains(self) -> None:
+        result = compile_source(
+            'aeon:mode = "transport"\n'
+            'target:list = [1]\n'
+            'alias:list = ~>target\n'
+            'item@{first:list = ~>alias, second:list = ~item.@.first, third:list = ~>item.@.second}:number = 1'
+        )
+        self.assertEqual([], [str(error) for error in result.errors])
+        item = next(event for event in result.internal_events if event["path"] == "$.item")
+        attributes = item["annotations"]
+        self.assertEqual("PointerReference", attributes["first"]["value"]["type"])
+        self.assertEqual("CloneReference", attributes["second"]["value"]["type"])
+        self.assertEqual("PointerReference", attributes["third"]["value"]["type"])
+
+    def test_attribute_reference_chain_mismatch_reports_terminal_kind(self) -> None:
+        result = compile_source(
+            'aeon:mode = "transport"\n'
+            'target:list = [1]\n'
+            'alias:list = ~>target\n'
+            'item@{value:number = ~>alias}:number = 1'
+        )
+        self.assertEqual([], result.events)
+        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertEqual(
+            "Datatype/literal mismatch at '$.item.@.value': datatype ':number' expects NumberLiteral, got ListNode",
+            str(result.errors[0]),
+        )
+
+    def test_attribute_reference_chains_reuse_terminal_values(self) -> None:
+        count = 64
+        for datatype, expected_lookups in (("number", count), ("applicationLabel", 0)):
+            with self.subTest(datatype=datatype):
+                entries = []
+                for index in range(count):
+                    target = "target" if index == 0 else f"item.@.a{index - 1}"
+                    entries.append(f"a{index}:{datatype} = ~>{target}")
+                source = "target:number = 7\nitem@{" + ", ".join(entries) + "}:number = 1"
+                with patch("aeon.core.resolve_reference_value", wraps=resolve_reference_value) as lookup:
+                    result = compile_source(source)
+                self.assertEqual([], result.errors)
+                self.assertEqual(expected_lookups, lookup.call_count)
 
     def test_strict_mode_rejects_untyped_attribute_entries(self) -> None:
         result = compile_source('aeon:mode = "strict"\nb@{n=3}:n = 3')
