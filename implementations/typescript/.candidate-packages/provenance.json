@@ -1,12 +1,12 @@
 {
-  "sourceCommit": "edcb32cc41a5bfc12efe3f667031329273ed1f9b",
-  "sourceTree": "349bdd370b67cfc5b54af5a52653d068af1a80dd",
-  "sourceBase": "798532aa7f0f5ad9485e74d7b950355a291f119a",
+  "sourceCommit": "8ffe39439d38043f3a518b7e5ef8348be8d04074",
+  "sourceTree": "ecbafe94f36c36597b636b270b006d0bcb4a55dd",
+  "sourceBase": "921f251cd8f67a65ec293e6073bd50976f11d974",
   "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "fbbf754ad6e5c15523ccf51961d962c490796b97aa7ae82147a7913cc277833a",
-  "archiveFile": "altopelago-sansa-0.15.0-rc.1-query-qa-fbbf754a.tgz",
-  "matchedSourceFiles": 155,
-  "contents": "Property Query QA fixes: preserve qualifier DAG snapshots, bound semantic rendering, assert each repeated/reentrant result; same portable budgets and consumer boundaries",
+  "archiveSha256": "1ad50e9d20d70b104138f4d806bb87778ece204e5892eb9de1bc4fce92a145b7",
+  "archiveFile": "altopelago-sansa-0.15.0-rc.1-radix16-1ad50e9d.tgz",
+  "matchedSourceFiles": 180,
+  "contents": "SANSA main plus radix16 AEON target validation and numeric comparison support",
   "publication": false,
   "registryArtifact": false
 }

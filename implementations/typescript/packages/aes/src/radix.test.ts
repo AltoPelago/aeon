@@ -77,10 +77,10 @@ describe('AEON radix utilities', () => {
         assert.equal(aeonRadixBaseFromDatatype('radix6'), 6);
         assert.equal(aeonRadixBaseFromDatatype('radix8'), 8);
         assert.equal(aeonRadixBaseFromDatatype('radix12'), 12);
+        assert.equal(aeonRadixBaseFromDatatype('radix16'), 16);
         assert.equal(aeonRadixBaseFromDatatype('radix[ 64 ]'), 64);
         assert.equal(aeonRadixBaseFromDatatype('radix[1]'), undefined);
         assert.equal(aeonRadixBaseFromDatatype('radix[65]'), undefined);
-        assert.equal(aeonRadixBaseFromDatatype('radix16'), undefined);
         assert.equal(aeonRadixBaseFromDatatype(undefined), undefined);
     });
 

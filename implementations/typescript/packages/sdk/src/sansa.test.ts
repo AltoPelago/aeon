@@ -184,6 +184,15 @@ test('infers WTC metadata for an untyped temporal context claim', () => {
   assert.equal(world.scalarKind, 'wtc');
 });
 
+test('the SDK dependency accepts radix16 on an AEON mutation target', () => {
+  const { namespace } = readAeonNamespace('value:radix16 = %10\n');
+  const planned = planMutation({
+    op: 'replace', target: '$.value', datatype: 'radix16', kind: 'radix', value: 'BEEF',
+  }, namespace);
+  if (!planned.ok) assert.fail(JSON.stringify(planned.errors));
+  assert.equal(validateMutationPlanTarget(planned.plan, 'aeon').ok, true);
+});
+
 test('shared Query and target validation accept Core calendar/clock payloads', () => {
   for (const [family, payload] of [
     ['wtc', '2024-T10:&Europe'],

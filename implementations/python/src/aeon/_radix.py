@@ -63,7 +63,14 @@ def resolve_radix_base_from_datatype(datatype: str | None) -> RadixBaseResolutio
         return RadixBaseResolution()
     # Datatype names are case-sensitive: Radix and Decimal are custom names.
     normalized = datatype.strip()
-    aliases = {"decimal": 10, "radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
+    aliases = {
+        "decimal": 10,
+        "radix2": 2,
+        "radix6": 6,
+        "radix8": 8,
+        "radix12": 12,
+        "radix16": 16,
+    }
     if normalized in aliases:
         return RadixBaseResolution(base=aliases[normalized])
     if not normalized.startswith("radix["):

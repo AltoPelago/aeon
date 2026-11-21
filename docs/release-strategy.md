@@ -78,10 +78,10 @@ this is not a total-worker-memory or new performance-qualification claim. This
 does not authorize publication or change the existing compatibility/target/performance gates.
 
 The Rust and TypeScript SDK provider slice selects the coordinated SANSA development source
-`edcb32cc41a5bfc12efe3f667031329273ed1f9b`. The central TypeScript workspace override
+`8ffe39439d38043f3a518b7e5ef8348be8d04074`. The central TypeScript workspace override
 selects the retained local archive
-`altopelago-sansa-0.15.0-rc.1-query-qa-fbbf754a.tgz`, SHA-256
-`fbbf754ad6e5c15523ccf51961d962c490796b97aa7ae82147a7913cc277833a`;
+`altopelago-sansa-0.15.0-rc.1-radix16-1ad50e9d.tgz`, SHA-256
+`1ad50e9d20d70b104138f4d806bb87778ece204e5892eb9de1bc4fce92a145b7`;
 the staging helper, provenance record and lockfile must agree. Rust pins the same
 source revision. Previous archives remain available for provenance.
 

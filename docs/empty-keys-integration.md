@@ -24,8 +24,9 @@ canonical target is a separate profile and is not newly qualified here.
 
 Historical commands, fixture bytes and assertions are unchanged. The development
 gate executes historical Core 0.5 (299 selected cases), AES projection 0.4 (83),
-and WASM Core 0.5 (299) and requires exactly the following superseded rejections,
-with no other failures or missing cases:
+and WASM Core 0.5 (299) and checks the exact set of superseded rejections,
+including the empty-key cases below and the historical Core and AES rejections
+of `radix16`.
 
 - `core-addr-001b-empty-quoted-key-reject`
 - `core-addr-001c-empty-quoted-path-segment-reject`

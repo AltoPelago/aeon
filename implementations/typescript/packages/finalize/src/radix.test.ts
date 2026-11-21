@@ -30,6 +30,22 @@ for (const { datatype, base, invalid } of datatypeNames) {
     });
 }
 
+test('radix16 and radix[16] enforce the same digit alphabet', () => {
+    for (const datatype of ['radix16', 'radix[16]']) {
+        for (const [payload, invalid] of [['F', false], ['G', true], ['f', true]] as const) {
+            const parsed = parse(tokenize(`mask:${datatype}=%${payload}`).tokens);
+            assert.deepEqual(parsed.errors, []);
+            assert.ok(parsed.document);
+            const { events, errors } = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+            assert.deepEqual(errors, []);
+            for (const result of [finalizeJson(events), finalizePortableJson(projectPortableEvents(events))]) {
+                assert.deepEqual(result.meta?.errors?.map(error => error.code) ?? [],
+                    invalid ? ['FINALIZE_INVALID_RADIX_BASE'] : []);
+            }
+        }
+    }
+});
+
 for (const { literal, base } of fixtures.filter(f => f.testSource)) {
     test(`source/portable radix finalization agrees for ${literal}`, () => {
         for (const payload of ['1', '2']) {

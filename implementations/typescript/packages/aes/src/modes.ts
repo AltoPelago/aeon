@@ -926,6 +926,7 @@ const RADIX_TYPES = new Set([
     'radix6',
     'radix8',
     'radix12',
+    'radix16',
 ]);
 
 const ENCODING_TYPES = new Set([

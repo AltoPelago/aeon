@@ -370,6 +370,19 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual("radix12", result.events[0]["datatype"])
 
+    def test_radix16_and_hex_are_distinct_in_strict_mode(self) -> None:
+        header = 'aeon:mode = "strict"\n'
+        result = compile_source(header + "r:radix16 = %00_A.F\ncolor:hex = #ff00aa")
+        self.assertEqual([], result.errors)
+        self.assertEqual(
+            [("radix16", "RadixLiteral"), ("hex", "HexLiteral")],
+            [(event["datatype"], event["value"]["type"]) for event in result.events],
+        )
+        for binding in ("r:radix16 = #ff", "r:hex = %FF"):
+            with self.subTest(binding=binding):
+                rejected = compile_source(header + binding)
+                self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in rejected.errors])
+
     def test_reserved_radix_brackets_allowed_in_strict_mode(self) -> None:
         result = compile_source('aeon:mode = "strict"\nr:radix[2] = %0101')
         self.assertEqual([], result.errors)
@@ -565,7 +578,6 @@ class CoreCompileTests(unittest.TestCase):
         cases = (
             ("localdatetime", "2026-03-11T10:30:00Z"),
             ("radix10", "%123"),
-            ("radix16", "%BEEF"),
         )
         for datatype, literal in cases:
             with self.subTest(datatype=datatype):

@@ -1581,6 +1581,7 @@ fn is_reserved_v1_datatype(base: &str) -> bool {
             | "radix6"
             | "radix8"
             | "radix12"
+            | "radix16"
             | "rfc3339"
             | "separated"
             | "sep"

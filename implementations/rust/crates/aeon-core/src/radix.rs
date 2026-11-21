@@ -95,6 +95,7 @@ pub fn resolve_radix_base_from_datatype(datatype: Option<&str>) -> RadixBaseReso
         "radix6" => Some(6),
         "radix8" => Some(8),
         "radix12" => Some(12),
+        "radix16" => Some(16),
         _ => None,
     };
     if let Some(base) = alias {

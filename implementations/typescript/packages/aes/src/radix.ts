@@ -73,7 +73,7 @@ export function resolveAeonRadixBaseFromDatatype(datatype: string | undefined): 
     // Datatype names are case-sensitive: Radix and Decimal are custom names.
     const normalized = datatype.trim();
     if (normalized === 'decimal') return { kind: 'base', base: 10 };
-    const alias = /^radix(2|6|8|12)$/u.exec(normalized);
+    const alias = /^radix(2|6|8|12|16)$/u.exec(normalized);
     if (alias !== null) return { kind: 'base', base: Number(alias[1]) };
     if (!normalized.startsWith('radix[')) return { kind: 'unspecified' };
     const base = normalized.endsWith(']')

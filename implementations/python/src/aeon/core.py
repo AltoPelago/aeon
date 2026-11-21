@@ -155,6 +155,7 @@ RESERVED_KIND_MAP = {
     "radix6": ("RadixLiteral",),
     "radix8": ("RadixLiteral",),
     "radix12": ("RadixLiteral",),
+    "radix16": ("RadixLiteral",),
     "sep": ("SeparatorLiteral",),
     "kadot": ("SeparatorLiteral",),
     "symbol": ("SymbolicLiteral",),

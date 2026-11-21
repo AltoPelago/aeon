@@ -8,6 +8,11 @@ repositories.
 
 ## Unreleased
 
+- Reserve `radix16` as a fixed base-16 radix datatype. The spelling
+  `r:radix16 = %BEEF` preserves the authored datatype in AES and canonical
+  source. Base-aware consumers resolve it to the same base as `radix[16]`.
+  The coordinated SANSA dependency supports the alias in SDK mutation plans.
+
 - Bound pending newline metadata after a structured comment exceeds its configured
   size limit, retaining one layout marker to preserve diagnostic precedence.
   Unterminated comments and token-retention aborts release pending metadata.
