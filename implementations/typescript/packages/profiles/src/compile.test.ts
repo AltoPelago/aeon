@@ -259,6 +259,11 @@ test('aeon.gp.profile.v1 exposes GP collection, container, datatype, and capabil
             clarifiers: 'none',
             equivalentTo: 'radix[10]',
         },
+        radix16: {
+            literalFamily: 'RadixLiteral',
+            clarifiers: 'none',
+            equivalentTo: 'radix[16]',
+        },
         sep: {
             literalFamily: 'SeparatorLiteral',
             clarifiers: 'separator_chars',
