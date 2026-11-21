@@ -111,6 +111,24 @@ class ExactRadixTests(unittest.TestCase):
                             diagnostics = [(d["code"], d["path"]) for d in result.get("meta", {}).get(key, [])]
                             self.assertEqual(expected, diagnostics)
 
+    def test_clones_honor_the_receiving_radix(self):
+        cases = json.loads((ROOT.parents[1] / "test-fixtures/radix-clones.json").read_text())
+        for case in cases:
+            compiled = compile_source(case["source"])
+            self.assertEqual([], compiled.errors, case["name"])
+            records = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]
+            for mode in ("strict", "loose"):
+                with self.subTest(case=case["name"], mode=mode):
+                    legacy = finalize_json(compiled.events, FinalizeOptions(mode=mode))
+                    portable = finalize_portable_json(records, PortableFinalizeOptions(mode=mode))
+                    self.assertEqual(legacy["document"], portable["document"])
+                    key = "errors" if mode == "strict" else "warnings"
+                    invalid_path = case["invalidPath"]
+                    expected = [("FINALIZE_INVALID_RADIX_BASE", invalid_path)] if invalid_path else []
+                    for result in (legacy, portable):
+                        diagnostics = [(d["code"], d["path"]) for d in result.get("meta", {}).get(key, [])]
+                        self.assertEqual(expected, diagnostics)
+
     def test_aeos_radix_digit_alphabet(self):
         cases = json.loads((ROOT.parents[1] / "test-fixtures/radix-digits.json").read_text())
         for case in cases:

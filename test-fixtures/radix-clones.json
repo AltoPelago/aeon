@@ -1,0 +1,37 @@
+[
+  {
+    "name": "object-valued attribute",
+    "source": "raw:radix[64]=%f\nx@{r:object={s:radix16=~raw}}:int=0",
+    "invalidPath": "$.x.@.r.s"
+  },
+  {
+    "name": "valid receiving digit",
+    "source": "raw:radix[64]=%F\nx@{r:object={s:radix16=~raw}}:int=0",
+    "invalidPath": null
+  },
+  {
+    "name": "clarified fixed alias",
+    "source": "raw:radix[64]=%G\nx@{r:object={s:radix16[2]=~raw}}:int=0",
+    "invalidPath": "$.x.@.r.s"
+  },
+  {
+    "name": "explicit base",
+    "source": "raw:radix[64]=%f\nx@{r:object={s:radix[16]=~raw}}:int=0",
+    "invalidPath": "$.x.@.r.s"
+  },
+  {
+    "name": "clone chain",
+    "source": "raw:radix[64]=%f\nrelay:radix[64]=~raw\ncopy:radix16=~relay",
+    "invalidPath": "$.copy"
+  },
+  {
+    "name": "wider receiving base",
+    "source": "raw:radix16=%f\ncopy:radix[64]=~raw",
+    "invalidPath": "$.raw"
+  },
+  {
+    "name": "undeclared receiving base",
+    "source": "raw:radix16=%f\ncopy=~raw",
+    "invalidPath": "$.raw"
+  }
+]

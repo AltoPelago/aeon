@@ -173,7 +173,9 @@ def _materialize_root(header: bool, ctx: _Context) -> dict[str, object]:
     return result
 
 
-def _materialize_record(indexed: _IndexedRecord, ctx: _Context) -> object:
+def _materialize_record(indexed: _IndexedRecord, ctx: _Context, receiver: _IndexedRecord | None = None) -> object:
+    if receiver is None:
+        receiver = indexed
     record = ctx.records[indexed.record]
     kind = str(record.get("kind", ""))
     value = str(record.get("value", ""))
@@ -204,7 +206,7 @@ def _materialize_record(indexed: _IndexedRecord, ctx: _Context) -> object:
     }:
         return value
     if kind == "RadixLiteral":
-        return _radix_value(record, value, indexed.address, ctx)
+        return _radix_value(ctx.records[receiver.record], value, receiver.address, ctx)
     if kind == "ObjectNode":
         return _materialize_object(indexed, ctx)
     if kind in {"ListNode", "TupleLiteral"}:
@@ -212,7 +214,7 @@ def _materialize_record(indexed: _IndexedRecord, ctx: _Context) -> object:
     if kind == "NodeLiteral":
         return _materialize_node(indexed, ctx)
     if kind == "CloneReference":
-        return _materialize_clone(indexed, ctx)
+        return _materialize_clone(indexed, ctx, receiver)
     if kind == "PointerReference":
         token = _reference_token("~>", value)
         ctx.report("FINALIZE_UNRESOLVED_REFERENCE", f"Pointer reference remains symbolic during JSON materialization: {token}", indexed.address)
@@ -270,7 +272,7 @@ def _materialize_node(indexed: _IndexedRecord, ctx: _Context) -> object:
     return result
 
 
-def _materialize_clone(indexed: _IndexedRecord, ctx: _Context) -> object:
+def _materialize_clone(indexed: _IndexedRecord, ctx: _Context, receiver: _IndexedRecord) -> object:
     target_path = str(ctx.records[indexed.record].get("value", ""))
     target = ctx.body.by_address.get(target_path)
     if target is None:
@@ -293,7 +295,7 @@ def _materialize_clone(indexed: _IndexedRecord, ctx: _Context) -> object:
         ctx.materialized_weight = observed
     ctx.active_clone_paths.append(target_path)
     try:
-        return _materialize_record(target, ctx)
+        return _materialize_record(target, ctx, receiver)
     finally:
         ctx.active_clone_paths.pop()
 

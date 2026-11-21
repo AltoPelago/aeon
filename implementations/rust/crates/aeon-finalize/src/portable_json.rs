@@ -233,6 +233,14 @@ fn materialize_root(header: bool, ctx: &mut Context<'_>) -> JsonValue {
 }
 
 fn materialize_record(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue {
+    materialize_record_with_receiver(indexed, ctx, indexed)
+}
+
+fn materialize_record_with_receiver(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    receiver: &IndexedRecord,
+) -> JsonValue {
     let record = &ctx.records[indexed.record];
     let kind = record.get("kind").unwrap_or("");
     let value = record.get("value").unwrap_or("");
@@ -277,11 +285,11 @@ fn materialize_record(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonVal
         | "TimeLiteral"
         | "DateTimeLiteral"
         | "WTCDateTimeLiteral" => JsonValue::String(value.to_owned()),
-        "RadixLiteral" => radix_value(record, value, &indexed.address, ctx),
+        "RadixLiteral" => radix_value(&ctx.records[receiver.record], value, &receiver.address, ctx),
         "ObjectNode" => materialize_object(indexed, ctx),
         "ListNode" | "TupleLiteral" => materialize_indexed(indexed, ctx),
         "NodeLiteral" => materialize_node(indexed, ctx),
-        "CloneReference" => materialize_clone(indexed, ctx),
+        "CloneReference" => materialize_clone(indexed, ctx, receiver),
         "PointerReference" => {
             report(
                 ctx,
@@ -403,7 +411,11 @@ fn materialize_node(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue
     JsonValue::Object(object)
 }
 
-fn materialize_clone(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValue {
+fn materialize_clone(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    receiver: &IndexedRecord,
+) -> JsonValue {
     let target_path = ctx.records[indexed.record]
         .get("value")
         .unwrap_or("")
@@ -466,7 +478,7 @@ fn materialize_clone(indexed: &IndexedRecord, ctx: &mut Context<'_>) -> JsonValu
         ctx.materialized_weight = observed;
     }
     ctx.active_clone_paths.push(target_path);
-    let value = materialize_record(&target, ctx);
+    let value = materialize_record_with_receiver(&target, ctx, receiver);
     ctx.active_clone_paths.pop();
     value
 }
@@ -852,6 +864,64 @@ mod tests {
             })
         );
         assert!(result.meta.errors.is_empty());
+    }
+
+    #[test]
+    fn portable_clone_chain_honors_the_receiving_radix_inside_an_attribute() {
+        for (digit, invalid) in [("f", true), ("F", false)] {
+            let telex = format!(
+                "telex.aes=1
+
+path=$.raw
+kind=RadixLiteral
+datatype=radix[64]
+value={digit}
+
+path=$.relay
+kind=CloneReference
+datatype=radix[64]
+value=$.raw
+
+path=$.x
+kind=NumberLiteral
+datatype=int
+value=0
+
+path=$.x.@.r
+kind=ObjectNode
+datatype=object
+
+path=$.x.@.r.s
+kind=CloneReference
+datatype=radix16
+value=$.relay
+"
+            );
+            let parsed = aes_telex::parse_telex(&telex).expect("valid Telex");
+            for mode in [FinalizeMode::Strict, FinalizeMode::Loose] {
+                let result = finalize_portable_json(
+                    &parsed.records,
+                    FinalizePortableJsonOptions {
+                        mode,
+                        ..FinalizePortableJsonOptions::default()
+                    },
+                );
+                assert_eq!(result.document["x"], 0);
+                assert_eq!(result.document["@"]["x"]["r"]["s"], digit);
+                let diagnostics = if mode == FinalizeMode::Strict {
+                    assert!(result.meta.warnings.is_empty());
+                    &result.meta.errors
+                } else {
+                    assert!(result.meta.errors.is_empty());
+                    &result.meta.warnings
+                };
+                assert_eq!(diagnostics.len(), usize::from(invalid));
+                if let Some(diagnostic) = diagnostics.first() {
+                    assert_eq!(diagnostic.code, "FINALIZE_INVALID_RADIX_BASE");
+                    assert_eq!(diagnostic.path.as_deref(), Some("$.x.@.r.s"));
+                }
+            }
+        }
     }
 
     #[test]

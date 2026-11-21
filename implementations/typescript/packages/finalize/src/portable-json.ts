@@ -179,7 +179,7 @@ function materializeRoot(index: PlaneIndex, ctx: MaterializeContext, header: boo
     return object;
 }
 
-function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext): JsonValue {
+function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext, receiver = indexed): JsonValue {
     const { record, address } = indexed;
     switch (record.kind) {
         case 'StringLiteral':
@@ -209,7 +209,7 @@ function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext): Jso
         case 'WTCDateTimeLiteral':
             return record.value ?? '';
         case 'RadixLiteral':
-            return radixValue(record, address, ctx);
+            return radixValue(record.value ?? '', receiver, ctx);
         case 'ObjectNode':
             return materializeObject(indexed, ctx);
         case 'ListNode':
@@ -218,7 +218,7 @@ function materializeRecord(indexed: IndexedRecord, ctx: MaterializeContext): Jso
         case 'NodeLiteral':
             return materializeNode(indexed, ctx);
         case 'CloneReference':
-            return materializeClone(indexed, ctx);
+            return materializeClone(indexed, ctx, receiver);
         case 'PointerReference':
             report(ctx, `Pointer reference remains symbolic during JSON materialization: ${referenceToken('~>', record.value ?? '')}`, 'FINALIZE_UNRESOLVED_REFERENCE', address);
             return referenceToken('~>', record.value ?? '');
@@ -291,7 +291,7 @@ function materializeNode(indexed: IndexedRecord, ctx: MaterializeContext): JsonV
     };
 }
 
-function materializeClone(indexed: IndexedRecord, ctx: MaterializeContext): JsonValue {
+function materializeClone(indexed: IndexedRecord, ctx: MaterializeContext, receiver: IndexedRecord): JsonValue {
     const targetPath = indexed.record.value ?? '';
     const target = ctx.body.byAddress.get(targetPath);
     if (target === undefined) {
@@ -321,7 +321,7 @@ function materializeClone(indexed: IndexedRecord, ctx: MaterializeContext): Json
 
     ctx.activeClonePaths.push(targetPath);
     try {
-        return materializeRecord(target, ctx);
+        return materializeRecord(target, ctx, receiver);
     } finally {
         ctx.activeClonePaths.pop();
     }
@@ -430,14 +430,15 @@ function nullValue(value: string, path: string, ctx: MaterializeContext): JsonVa
     return RESERVED_NULL_SENTINELS.has(value) ? `!${value}` : `!${JSON.stringify(value)}`;
 }
 
-function radixValue(record: PortableRecord, path: string, ctx: MaterializeContext): string {
-    const value = (record.value ?? '').replaceAll('_', '');
+function radixValue(raw: string, receiver: IndexedRecord, ctx: MaterializeContext): string {
+    const { record, address } = receiver;
+    const value = raw.replaceAll('_', '');
     const resolved = resolveAeonRadixBaseFromComponents(record.datatype, record.clarifiers);
     const base = resolved.kind === 'base' ? resolved.base : undefined;
     if (resolved.kind === 'invalid' || base !== undefined && exceedsDeclaredRadix(value, base)) {
         report(ctx, resolved.kind === 'invalid'
             ? 'Invalid declared radix base: expected one integral number from 2 to 64'
-            : `Radix literal exceeds declared radix ${base}: %${value}`, 'FINALIZE_INVALID_RADIX_BASE', path);
+            : `Radix literal exceeds declared radix ${base}: %${value}`, 'FINALIZE_INVALID_RADIX_BASE', address);
     }
     return value;
 }

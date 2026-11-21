@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fixtures from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
+import radixClones from '../../../../../test-fixtures/radix-clones.json' with { type: 'json' };
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { emitEvents, projectPortableEvents, resolvePaths } from '@altopelago/aeon-aes';
@@ -82,6 +83,27 @@ test('typed attributes retain their radix base during source and portable finali
         }
     }
 });
+
+for (const { name, source, invalidPath } of radixClones) {
+    test(`source and portable clones honor the receiving radix: ${name}`, () => {
+        const parsed = parse(tokenize(source).tokens);
+        assert.deepEqual(parsed.errors, []);
+        assert.ok(parsed.document);
+        const { events, errors } = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepEqual(errors, []);
+        const records = projectPortableEvents(events);
+        for (const mode of ['strict', 'loose'] as const) {
+            const legacy = finalizeJson(events, { mode });
+            const portable = finalizePortableJson(records, { mode });
+            assert.deepEqual(portable.document, legacy.document);
+            const key = mode === 'strict' ? 'errors' : 'warnings';
+            const expected = invalidPath ? [{ code: 'FINALIZE_INVALID_RADIX_BASE', path: invalidPath }] : [];
+            for (const result of [legacy, portable]) {
+                assert.deepEqual(result.meta?.[key]?.map(({ code, path }) => ({ code, path })) ?? [], expected);
+            }
+        }
+    });
+}
 
 for (const { literal, base } of fixtures.filter(f => f.testSource)) {
     test(`source/portable radix finalization agrees for ${literal}`, () => {
