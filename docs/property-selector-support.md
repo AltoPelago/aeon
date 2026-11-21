@@ -34,8 +34,9 @@ See the [TypeScript SDK](../implementations/typescript/packages/sdk/README.md),
 
 | Host/export | Current boundary |
 | --- | --- |
-| Local source playground / coordinated SANSA source playground | Use the real compiler/SDK/SANSA engines with the explicitly selected built or installed graph. Highlighting and Composer parsing do not authorize another API |
-| Legacy SANSA query CLI/workbench | Their own namespace adapters expose no property facet. A valid property expression can parse but evaluation returns `SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE`; use a capable SDK or source playground instead |
+| [AEON local playground](../tools/playground/README.md) | Compiles and displays inert property literals in its representation views; it has no Resolve or Query action. Composer parsing and highlighting do not evaluate selectors |
+| [SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground) | Runs property Resolve and Query using the real SDK namespace and SANSA engines with an explicitly selected built or installed AEON graph |
+| Legacy SANSA query CLI/workbench | Their own namespace adapters expose no property facet. A valid property expression can parse but evaluation returns `SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE`; use a capable SDK or the separate [SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground) for evaluation |
 | AEON LSP | The compiler accepts inert property literals. Trusted schema validation currently uses native events and rejects property rules with `invalid_schema_policy`, rather than silently converting to portable AEOS |
 | Pure Python detailed compiled-AST JSON (`inspect --json`) | Property literals remain explicitly rejected before output. `--json --portable-aes`, `--telex` and annotation-only output remain available; this does not reject standalone parser/Resolve APIs |
 | IDE grammars, native editor/Quick Look hosts, website/Tonics bundles | Source parsing or a shared highlighter does not prove full presentation or final installed/vendor support. Editor property-literal coverage and exact selected graph/platform/registry qualification remain separate work |
