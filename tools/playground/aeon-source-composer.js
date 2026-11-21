@@ -111,7 +111,7 @@ function datatypeForSourceType(type) {
 }
 
 function datatypeBase(datatype) {
-  const text = String(datatype ?? "").trim().toLowerCase();
+  const text = String(datatype ?? "").trim();
   const genericIndex = text.indexOf("<");
   const bracketIndex = text.indexOf("[");
   const endIndex = [genericIndex, bracketIndex]

@@ -1,12 +1,12 @@
 {
-  "sourceCommit": "8ffe39439d38043f3a518b7e5ef8348be8d04074",
-  "sourceTree": "ecbafe94f36c36597b636b270b006d0bcb4a55dd",
-  "sourceBase": "921f251cd8f67a65ec293e6073bd50976f11d974",
+  "sourceCommit": "8175c7b7ea8c765ebc3c6e5da35a949df9ae0783",
+  "sourceTree": "eac6114db056705b59e19ce36ea97865ad3fcc60",
+  "sourceBase": "80f48ce7c676f5a0097df63bd647e5a92eaeaf74",
   "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "1ad50e9d20d70b104138f4d806bb87778ece204e5892eb9de1bc4fce92a145b7",
-  "archiveFile": "altopelago-sansa-0.15.0-rc.1-radix16-1ad50e9d.tgz",
+  "archiveSha256": "936d29298e1fb56157e3f0cfaa70b8b7133c3c19790777ff3985017a90d7ae32",
+  "archiveFile": "altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz",
   "matchedSourceFiles": 180,
-  "contents": "SANSA main plus radix16 AEON target validation and numeric comparison support",
+  "contents": "Case-sensitive reserved radix handling in SANSA Query and Composer, and development Instruction/Mutate CTS defaults",
   "publication": false,
   "registryArtifact": false
 }

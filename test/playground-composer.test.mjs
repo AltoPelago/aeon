@@ -164,6 +164,22 @@ test('quoted wildcard/header-like keys survive as sole, root and nested body mem
   }
   await roundTrip('aeon:header={version="1.0",mode="transport"}\na=1\n"aeon:foo"=2');
 });
+test('untouched Composer preserves custom Radix16 strings and reserved radix literals', async () => {
+  const input = 'aeon:mode="custom"\ncustom:Radix16="BEEF"\nvalue@{text:RADIX16="F"}:radix16=%F\nbracket:radix[16]=%F';
+  const fixture = await mounted(input, {
+    getMode: () => 'custom',
+    runtimeConfig: text => ({
+      text,
+      options: { mode: 'loose', datatypePolicy: 'allow_custom', includeAnnotations: true, output: 'map' },
+    }),
+  });
+  const before = canonicalize(input);
+  const after = canonicalize(await fixture.apply());
+  assert.deepEqual(before.errors, []);
+  assert.deepEqual(after.errors, []);
+  assert.equal(after.text, before.text);
+});
+
 test('typed WTC and ordinary temporal controls survive Composer without edits', async()=>{
   for (const binding of ['x:wtc=2026-01-01T09:10:10&TAI','x=2026-01-01T09:10:10&TAI',
     'x:date=2026-01-01','x:time=09:10:10','x:datetime=2026-01-01T09:10:10Z']) {
