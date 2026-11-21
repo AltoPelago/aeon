@@ -1657,6 +1657,7 @@ fn is_reserved_datatype(datatype: &str) -> bool {
             | "radix6"
             | "radix8"
             | "radix12"
+            | "radix16"
             | "encoding"
             | "base64"
             | "embed"
@@ -1695,7 +1696,7 @@ fn expected_kinds_for_reserved_datatype(datatype: &str) -> Option<Vec<&'static s
         "boolean" | "bool" => Some(vec!["BooleanLiteral"]),
         "toggle" => Some(vec!["ToggleLiteral"]),
         "hex" => Some(vec!["HexLiteral"]),
-        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
+        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" | "radix16" => {
             Some(vec!["RadixLiteral"])
         }
         "encoding" | "base64" | "embed" | "inline" => Some(vec!["EncodingLiteral"]),
@@ -1839,7 +1840,7 @@ fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) 
         "boolean" | "bool" => matches!(value, CompactDatatypeValue::Boolean),
         "toggle" => matches!(value, CompactDatatypeValue::Toggle),
         "hex" => matches!(value, CompactDatatypeValue::Hex(true)),
-        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" => {
+        "radix" | "decimal" | "radix2" | "radix6" | "radix8" | "radix12" | "radix16" => {
             matches!(value, CompactDatatypeValue::Radix(true))
         }
         "base64" => matches!(

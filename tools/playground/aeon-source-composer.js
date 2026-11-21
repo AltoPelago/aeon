@@ -111,7 +111,7 @@ function datatypeForSourceType(type) {
 }
 
 function datatypeBase(datatype) {
-  const text = String(datatype ?? "").trim().toLowerCase();
+  const text = String(datatype ?? "").trim();
   const genericIndex = text.indexOf("<");
   const bracketIndex = text.indexOf("[");
   const endIndex = [genericIndex, bracketIndex]
@@ -134,7 +134,7 @@ function sourceTypeForDatatype(datatype) {
   if (base === "infinity") return "InfinityLiteral";
   if (base === "nan") return "NaNLiteral";
   if (base === "hex") return "HexLiteral";
-  if (["radix", "decimal", "radix2", "radix6", "radix8", "radix12"].includes(base)) return "RadixLiteral";
+  if (["radix", "decimal", "radix2", "radix6", "radix8", "radix12", "radix16"].includes(base)) return "RadixLiteral";
   if (["encoding", "base64", "embed", "inline"].includes(base)) return "EncodingLiteral";
   if (base === "date") return "DateLiteral";
   if (base === "time") return "TimeLiteral";

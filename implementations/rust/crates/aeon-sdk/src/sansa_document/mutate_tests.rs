@@ -66,6 +66,38 @@ fn plans_retain_document_bindings_without_mutating_the_snapshot() {
 }
 
 #[test]
+fn sdk_aeon_mutation_target_accepts_radix16() {
+    let namespace = namespace("value:radix16 = %10\n");
+    let radix = Value::Radix {
+        payload: "BEEF".into(),
+        semantic_type: "radix16".into(),
+    };
+    let request = MutationRequest {
+        operations: vec![RequestedMutationOperation::Replace(
+            RequestedReplaceOperation {
+                target: "$.value".into(),
+                value: MutationValueIntent {
+                    value: MutationValue::try_scalar(radix).expect("radix scalar"),
+                    datatype: Some("radix16".into()),
+                    kind: Some("radix".into()),
+                },
+                provenance: None,
+            },
+        )],
+        ..Default::default()
+    };
+    let AeonMutationPlanResult::Planned(plan) =
+        namespace.plan_mutation(&request, &PlanMutationOptions::default())
+    else {
+        panic!("plan radix16 replacement");
+    };
+    assert!(matches!(
+        plan.validate_target("aeon"),
+        ValidateMutationPlanTargetResult::Validated { .. }
+    ));
+}
+
+#[test]
 fn shared_query_and_targets_accept_core_calendar_clock_payloads() {
     use runtime::evaluate::{EvaluateOptions, EvaluatedValue};
 

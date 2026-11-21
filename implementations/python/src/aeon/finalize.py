@@ -7,7 +7,7 @@ from typing import Iterable
 
 from ._compat import dataclass
 from ._numbers import format_clarifier
-from ._radix import resolve_radix_base_from_datatype
+from ._radix import radix_digit_value, resolve_radix_base_from_datatype
 MAX_SAFE_INTEGER = 9007199254740991
 RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children", "__proto__", "constructor", "prototype"}
 
@@ -447,7 +447,7 @@ def annotation_entries_to_json(annotations: object, ctx: JsonContext, path: str)
         if key in RESERVED_OBJECT_KEYS:
             ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, entry.get("span"))
             continue
-        result[key] = value_to_json(entry.get("value"), ctx, entry_path)
+        result[key] = value_to_json(entry.get("value"), ctx, entry_path, entry.get("datatype"))
     return result or None
 
 
@@ -470,7 +470,7 @@ def attributes_to_json(attributes: object, ctx: JsonContext, path: str) -> dict[
             if key in RESERVED_OBJECT_KEYS:
                 ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, entry.get("span"))
                 continue
-            result[key] = value_to_json(entry.get("value"), ctx, entry_path)
+            result[key] = value_to_json(entry.get("value"), ctx, entry_path, entry.get("datatype"))
     return result or None
 
 
@@ -822,17 +822,3 @@ def exceeds_declared_radix(value: str, base: int) -> bool:
         if digit is None or digit >= base:
             return True
     return False
-
-
-def radix_digit_value(char: str) -> int | None:
-    if "0" <= char <= "9":
-        return ord(char) - ord("0")
-    if "A" <= char <= "Z":
-        return ord(char) - ord("A") + 10
-    if "a" <= char <= "z":
-        return ord(char) - ord("a") + 36
-    if char == "&":
-        return 62
-    if char == "!":
-        return 63
-    return None

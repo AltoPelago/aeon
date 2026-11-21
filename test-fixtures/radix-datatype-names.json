@@ -9,6 +9,10 @@
   { "datatype": "radix6", "base": 6, "invalid": false },
   { "datatype": "radix8", "base": 8, "invalid": false },
   { "datatype": "radix12", "base": 12, "invalid": false },
+  { "datatype": "radix16", "base": 16, "invalid": false },
+  { "datatype": "radix16[2]", "base": 16, "invalid": false, "gpClarifiersDisallowed": true },
+  { "datatype": "radix2[16]", "base": 2, "invalid": false },
+  { "datatype": "radix[16]", "base": 16, "invalid": false },
   { "datatype": "Radix", "base": null, "invalid": false },
   { "datatype": "Radix[65]", "base": null, "invalid": false },
   { "datatype": "Radix[2.00]", "base": null, "invalid": false },
@@ -29,6 +33,9 @@
   { "datatype": "RADIX8", "base": null, "invalid": false },
   { "datatype": "Radix12", "base": null, "invalid": false },
   { "datatype": "RADIX12", "base": null, "invalid": false },
+  { "datatype": "Radix16", "base": null, "invalid": false },
+  { "datatype": "Radix16[2]", "base": null, "invalid": false },
+  { "datatype": "RADIX16", "base": null, "invalid": false },
   { "datatype": "radixCustom[2]", "base": null, "invalid": false },
   { "datatype": "customradix[2]", "base": null, "invalid": false }
 ]

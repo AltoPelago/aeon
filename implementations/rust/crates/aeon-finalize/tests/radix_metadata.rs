@@ -11,7 +11,7 @@ fn source_and_portable_finalization_respect_datatype_case() {
     ))
     .expect("fixtures");
     for fixture in fixtures.as_array().expect("array") {
-        for (payload, digit) in [("1", 1), ("A", 10)] {
+        for (payload, digit) in [("1", 1), ("A", 10), ("G", 16), ("f", 41)] {
             let source = format!(
                 "mask:{}=%{payload}",
                 fixture["datatype"].as_str().expect("datatype")

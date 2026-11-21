@@ -1,0 +1,12 @@
+[
+  { "datatype": "radix16", "base": 16, "digit": "F", "valid": true },
+  { "datatype": "radix16", "base": 16, "digit": "G", "valid": false },
+  { "datatype": "radix16", "base": 16, "digit": "f", "valid": false },
+  { "datatype": "radix16[2]", "base": 16, "digit": "F", "valid": true },
+  { "datatype": "radix16[2]", "base": 16, "digit": "f", "valid": false },
+  { "datatype": "radix[41]", "base": 41, "digit": "f", "valid": false },
+  { "datatype": "radix[42]", "base": 42, "digit": "f", "valid": true },
+  { "datatype": "radix[62]", "base": 62, "digit": "&", "valid": false },
+  { "datatype": "radix[63]", "base": 63, "digit": "!", "valid": false },
+  { "datatype": "radix[64]", "base": 64, "digit": "!", "valid": true }
+]

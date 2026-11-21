@@ -98,7 +98,7 @@ class CompileTests(unittest.TestCase):
     def test_reserved_radix_names_are_case_sensitive(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/radix-datatype-names.json").read_text())
         for fixture in fixtures:
-            for payload, digit in (("1", 1), ("A", 10)):
+            for payload, digit in (("1", 1), ("A", 10), ("G", 16), ("f", 41)):
                 source = f"mask:{fixture['datatype']}=%{payload}"
                 with self.subTest(source=source):
                     self.assertTrue(aeon.compile(source).ok)

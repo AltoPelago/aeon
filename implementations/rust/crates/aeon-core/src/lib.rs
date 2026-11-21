@@ -43,8 +43,8 @@ pub use portable::{
     project_aes_event_records_taken, project_portable_events, project_telex_records,
 };
 pub use radix::{
-    RadixBaseResolution, radix_base_from_number, resolve_radix_base_from_components,
-    resolve_radix_base_from_datatype,
+    RadixBaseResolution, radix_base_from_number, radix_digit_value,
+    resolve_radix_base_from_components, resolve_radix_base_from_datatype,
 };
 pub use sansa::{
     QualifierArgument, QualifierExpression, QualifierTerm, SANSA_MAX_POSITION_INDEX, SansaAddress,
@@ -1537,7 +1537,7 @@ fn gp_custom_clarifier_literal(value: &Value) -> bool {
 
 fn gp_datatype_clarifier_rule(name: &str) -> Option<GpDatatypeClarifierRule> {
     match name {
-        "decimal" | "kadot" | "symbol" => Some(GpDatatypeClarifierRule::None),
+        "decimal" | "radix16" | "kadot" | "symbol" => Some(GpDatatypeClarifierRule::None),
         "radix" => Some(GpDatatypeClarifierRule::RadixBase),
         "sep" | "separator" => Some(GpDatatypeClarifierRule::SeparatorChars),
         "encoding" | "inline" | "embed" => Some(GpDatatypeClarifierRule::EncodingName),

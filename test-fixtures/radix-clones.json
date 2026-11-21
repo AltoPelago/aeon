@@ -1,0 +1,79 @@
+[
+  {
+    "name": "object-valued attribute",
+    "source": "raw:radix[64]=%f\nx@{r:object={s:radix16=~raw}}:int=0",
+    "invalidPaths": [
+      "$.x.@.r.s"
+    ]
+  },
+  {
+    "name": "valid receiving digit",
+    "source": "raw:radix[64]=%F\nx@{r:object={s:radix16=~raw}}:int=0",
+    "invalidPaths": []
+  },
+  {
+    "name": "clarified fixed alias",
+    "source": "raw:radix[64]=%G\nx@{r:object={s:radix16[2]=~raw}}:int=0",
+    "invalidPaths": [
+      "$.x.@.r.s"
+    ]
+  },
+  {
+    "name": "explicit base",
+    "source": "raw:radix[64]=%f\nx@{r:object={s:radix[16]=~raw}}:int=0",
+    "invalidPaths": [
+      "$.x.@.r.s"
+    ]
+  },
+  {
+    "name": "clone chain",
+    "source": "raw:radix[64]=%f\nrelay:radix[64]=~raw\ncopy:radix16=~relay",
+    "invalidPaths": [
+      "$.copy"
+    ]
+  },
+  {
+    "name": "wider receiving base",
+    "source": "raw:radix16=%f\ncopy:radix[64]=~raw",
+    "invalidPaths": [
+      "$.raw"
+    ]
+  },
+  {
+    "name": "undeclared receiving base",
+    "source": "raw:radix16=%f\ncopy=~raw",
+    "invalidPaths": [
+      "$.raw"
+    ]
+  },
+  {
+    "name": "copied object with a receiving radix",
+    "source": "digit:radix[64]=%f\nraw:object={digit:radix[16]=~$.digit}\ncopy:object=~raw",
+    "invalidPaths": [
+      "$.raw.digit",
+      "$.copy.digit"
+    ]
+  },
+  {
+    "name": "valid radix inside a copied object",
+    "source": "digit:radix[64]=%F\nraw:object={digit:radix[16]=~$.digit}\ncopy:object=~raw",
+    "invalidPaths": []
+  },
+  {
+    "name": "chained object copies with a list and quoted key",
+    "source": "digit:radix[64]=%f\nraw:object={items:list=[{\"a.b\":radix16=~$.digit}]}\ncopy:object=~raw\nagain:object=~copy",
+    "invalidPaths": [
+      "$.raw.items[0].[\"a.b\"]",
+      "$.copy.items[0].[\"a.b\"]",
+      "$.again.items[0].[\"a.b\"]"
+    ]
+  },
+  {
+    "name": "copied object member with a typed attribute clone",
+    "source": "digit:radix[64]=%f\nraw:object={x@{r:radix16=~$.digit}:int=0}\ncopy:object=~raw",
+    "invalidPaths": [
+      "$.raw.x.@.r",
+      "$.copy.x.@.r"
+    ]
+  }
+]

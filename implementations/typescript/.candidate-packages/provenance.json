@@ -1,12 +1,12 @@
 {
-  "sourceCommit": "edcb32cc41a5bfc12efe3f667031329273ed1f9b",
-  "sourceTree": "349bdd370b67cfc5b54af5a52653d068af1a80dd",
-  "sourceBase": "798532aa7f0f5ad9485e74d7b950355a291f119a",
+  "sourceCommit": "8175c7b7ea8c765ebc3c6e5da35a949df9ae0783",
+  "sourceTree": "eac6114db056705b59e19ce36ea97865ad3fcc60",
+  "sourceBase": "80f48ce7c676f5a0097df63bd647e5a92eaeaf74",
   "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "fbbf754ad6e5c15523ccf51961d962c490796b97aa7ae82147a7913cc277833a",
-  "archiveFile": "altopelago-sansa-0.15.0-rc.1-query-qa-fbbf754a.tgz",
-  "matchedSourceFiles": 155,
-  "contents": "Property Query QA fixes: preserve qualifier DAG snapshots, bound semantic rendering, assert each repeated/reentrant result; same portable budgets and consumer boundaries",
+  "archiveSha256": "936d29298e1fb56157e3f0cfaa70b8b7133c3c19790777ff3985017a90d7ae32",
+  "archiveFile": "altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz",
+  "matchedSourceFiles": 180,
+  "contents": "Case-sensitive reserved radix handling in SANSA Query and Composer, and development Instruction/Mutate CTS defaults",
   "publication": false,
   "registryArtifact": false
 }

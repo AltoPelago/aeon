@@ -103,8 +103,6 @@ function finalizeJsonInternal(
 ): FinalizeJsonResult {
     const strict = (options.mode ?? 'strict') === 'strict';
     const scope = options.scope ?? 'payload';
-    const errors: Diagnostic[] = [];
-    const warnings: Diagnostic[] = [];
     const pathToIndex = new Map<string, number>();
 
     for (let i = 0; i < aes.length; i++) {
@@ -112,8 +110,8 @@ function finalizeJsonInternal(
     }
 
     const mapResult = finalizeMap(aes, options);
-    if (mapResult.meta?.errors) errors.push(...mapResult.meta.errors);
-    if (mapResult.meta?.warnings) warnings.push(...mapResult.meta.warnings);
+    const errors = mapResult.meta?.errors?.slice() ?? [];
+    const warnings = mapResult.meta?.warnings?.slice() ?? [];
 
     const ctx: JsonContext = {
         strict,
@@ -454,7 +452,13 @@ function objectToJson(bindings: readonly Binding[], ctx: JsonContext, basePath: 
             else ctx.warnings.push(diag);
             if (ctx.strict) continue;
         }
-        obj[key] = valueToJson(binding.value, ctx, entryPath, projection);
+        obj[key] = valueToJson(
+            binding.value,
+            ctx,
+            entryPath,
+            projection,
+            binding.datatype ? formatDatatypeAnnotation(binding.datatype) : undefined
+        );
         const attrJson = mergeAttributeJsonObjects(
             attributesToJson(binding.attributes, ctx, entryPath, projection),
             indexedChildAnnotationsToJson(binding.value, ctx, entryPath, projection),
@@ -864,7 +868,7 @@ function annotationsToJson(
             ctx.errors.push(reservedKeyDiagnostic(key, entryPath, entry.value.span));
             continue;
         }
-        obj[key] = valueToJson(entry.value, ctx, entryPath, projection);
+        obj[key] = valueToJson(entry.value, ctx, entryPath, projection, entry.datatype);
         const nested = annotationsToJson(entry.annotations, ctx, entryPath, projection);
         if (nested) {
             nestedAttrEntries[key] = nested;

@@ -184,6 +184,31 @@ test('infers WTC metadata for an untyped temporal context claim', () => {
   assert.equal(world.scalarKind, 'wtc');
 });
 
+test('numeric Query requires a base for a custom Radix16 binding', () => {
+  for (const datatype of ['radix16', 'Radix16']) {
+    const { namespace } = readAeonNamespace('mask:' + datatype + ' = %F');
+    const result = evaluateQuery('from $.mask where . == %F select .', namespace, {
+      valueSemantics: 'radix-numeric',
+    });
+    if (datatype === 'radix16') {
+      if (!result.ok) assert.fail(JSON.stringify(result.errors));
+      assert.equal(result.results.length, 1);
+    } else {
+      assert.equal(result.ok, false);
+      assert.match(result.errors[0]?.message ?? '', /requires a resolved base/u);
+    }
+  }
+});
+
+test('the SDK dependency accepts radix16 on an AEON mutation target', () => {
+  const { namespace } = readAeonNamespace('value:radix16 = %10\n');
+  const planned = planMutation({
+    op: 'replace', target: '$.value', datatype: 'radix16', kind: 'radix', value: 'BEEF',
+  }, namespace);
+  if (!planned.ok) assert.fail(JSON.stringify(planned.errors));
+  assert.equal(validateMutationPlanTarget(planned.plan, 'aeon').ok, true);
+});
+
 test('shared Query and target validation accept Core calendar/clock payloads', () => {
   for (const [family, payload] of [
     ['wtc', '2024-T10:&Europe'],

@@ -368,8 +368,13 @@ test('generated wasm GP checks exact numeric radix values across binding, generi
 
 test('generated wasm keeps custom mixed-case radix names unspecified in both finalizers', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
-  for (const { datatype, base, invalid } of datatypeNames) {
-    for (const [payload, digit] of [['1', 1], ['A', 10]] as const) {
+  for (const { datatype, base, invalid, gpClarifiersDisallowed } of datatypeNames) {
+    if (gpClarifiersDisallowed) {
+      const profile = runtime.processAeon('aeon:profile="aeon.gp.profile.v1"\nmask:' + datatype + '=%1',
+        { validationMode: 'strict', finalize: false });
+      assert.deepEqual(profile.errors.map(d => d.code), ['PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED'], datatype);
+    }
+    for (const [payload, digit] of [['1', 1], ['A', 10], ['G', 16], ['f', 41]] as const) {
       const source = `mask:${datatype}=%${payload}`;
       assert.deepEqual(runtime.processAeon(source, { validationMode: 'strict', datatypePolicy: 'allow_custom', finalize: false }).errors, [], source);
       const legacy = runtime.processAeon(source, { validationMode: 'strict', datatypePolicy: 'allow_custom' });

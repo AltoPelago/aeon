@@ -12,6 +12,20 @@ class RadixBaseResolution:
     invalid: bool = False
 
 
+def radix_digit_value(char: str) -> int | None:
+    if "0" <= char <= "9":
+        return ord(char) - ord("0")
+    if "A" <= char <= "Z":
+        return ord(char) - ord("A") + 10
+    if "a" <= char <= "z":
+        return ord(char) - ord("a") + 36
+    if char == "&":
+        return 62
+    if char == "!":
+        return 63
+    return None
+
+
 def radix_base_from_number(value: str) -> int | None:
     """Resolve an integral base without floating point or exponent expansion."""
     cursor = 1 if value.startswith("+") else 0
@@ -63,9 +77,18 @@ def resolve_radix_base_from_datatype(datatype: str | None) -> RadixBaseResolutio
         return RadixBaseResolution()
     # Datatype names are case-sensitive: Radix and Decimal are custom names.
     normalized = datatype.strip()
-    aliases = {"decimal": 10, "radix2": 2, "radix6": 6, "radix8": 8, "radix12": 12}
-    if normalized in aliases:
-        return RadixBaseResolution(base=aliases[normalized])
+    aliases = {
+        "decimal": 10,
+        "radix2": 2,
+        "radix6": 6,
+        "radix8": 8,
+        "radix12": 12,
+        "radix16": 16,
+    }
+    # Only the generic radix datatype uses its clarifier to choose a base.
+    name = normalized.partition("[")[0] if normalized.endswith("]") else normalized
+    if name in aliases:
+        return RadixBaseResolution(base=aliases[name])
     if not normalized.startswith("radix["):
         return RadixBaseResolution()
     base = radix_base_from_number(normalized[6:-1].strip()) if normalized.endswith("]") else None

@@ -21,10 +21,12 @@ for (const { literal, base } of fixtures.filter(f => f.testSource)) {
 }
 
 test('GP keeps radix name and clarifier-kind distinctions', () => {
-    for (const { datatype, invalid } of datatypeNames) {
+    for (const { datatype, invalid, gpClarifiersDisallowed } of datatypeNames) {
         const source = `mask:${datatype}=%1`;
         const result = compile(source, { profile: 'aeon.gp.profile.v1', mode: 'strict', datatypePolicy: 'allow_custom' });
-        assert.deepEqual(result.meta?.errors?.map(d => d.code) ?? [], invalid ? ['PROFILE_DATATYPE_CLARIFIER_INVALID'] : [], source);
+        const expected = gpClarifiersDisallowed ? ['PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED']
+            : invalid ? ['PROFILE_DATATYPE_CLARIFIER_INVALID'] : [];
+        assert.deepEqual(result.meta?.errors?.map(d => d.code) ?? [], expected, source);
     }
     for (const clarifiers of ['"2"', '2, 10', '"2", 2']) {
         const result = compile(`mask:radix[${clarifiers}]=%1`, { profile: 'aeon.gp.profile.v1', mode: 'strict', maxClarifierValues: 2 });

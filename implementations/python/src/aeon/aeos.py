@@ -4,7 +4,7 @@ import json
 import re
 
 from ._compat import dataclass
-from ._radix import resolve_radix_base_from_datatype
+from ._radix import radix_digit_value, resolve_radix_base_from_datatype
 from .sansa import parse_address as parse_sansa_address, resolve_consumer_address as resolve_sansa_address
 from .sansa import resolve_address as resolve_property_address
 from ._sansa_properties import valid_limit as valid_property_limit
@@ -2273,19 +2273,6 @@ def first_invalid_radix_digit(raw: str, radix: int) -> str | None:
         value = radix_digit_value(char)
         if value is not None and value >= radix:
             return char
-    return None
-
-
-def radix_digit_value(char: str) -> int | None:
-    if "0" <= char <= "9":
-        return ord(char) - ord("0")
-    lower = char.lower()
-    if "a" <= lower <= "z":
-        return ord(lower) - ord("a") + 10
-    if char == "&":
-        return 36
-    if char == "!":
-        return 37
     return None
 
 

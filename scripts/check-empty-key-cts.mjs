@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Development conformance for the amended empty-property contract. Historical
+// Development conformance for the amended empty-property and radix16 contracts. Historical
 // runners, fixtures and assertions remain unchanged and are audited separately.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -12,6 +12,7 @@ const workspace = path.join(root, 'implementations/typescript');
 const manager = process.env.npm_execpath;
 assert.ok(manager, 'Run through the pinned pnpm workspace script');
 const coreDelta = [
+  'core-baseline-015-strict-stale-radix-alias-reject',
   'core-addr-001b-empty-quoted-key-reject',
   'core-addr-001c-empty-quoted-path-segment-reject',
   'core-snippet-transport-003-empty-quoted-keys-reject',
@@ -48,7 +49,7 @@ function sourceLane(label, manifest, lane, delta = null, count = null) {
 
 sourceLane('Historical Core 0.5', 'core/v1/core-cts.v1.snapshot-0.5.json', 'core', coreDelta, 299);
 sourceLane('Historical AES projection 0.4', 'aes/v1/aes-cts.v1.snapshot-0.4.json', 'aes',
-  ['aes-emission-001b-empty-quoted-key-reject'], 83);
+  ['aes-baseline-009-stale-radix-alias-reject', 'aes-emission-001b-empty-quoted-key-reject'], 83);
 execute('Historical WASM Core 0.5', [path.join(root, 'scripts/run-wasm-core-cts.mjs'),
   '--cts', resolveCTSPath('cts/core/v1/core-cts.v1.snapshot-0.5.json')], coreDelta, 299);
 
@@ -70,4 +71,4 @@ if (!process.argv.includes('--legacy-only')) {
   // the same two established exclusions as immutable canonical API checks.
   sourceLane('Reference-ordering next', 'canonical/v1/canonical-reference-ordering-cts.v1.next.json', 'canonical');
 }
-console.log('Empty-key development conformance verified; historical claims remain separate.');
+console.log('Empty-key and radix16 development conformance verified; historical claims remain separate.');

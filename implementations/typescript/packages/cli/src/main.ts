@@ -476,11 +476,11 @@ function telex(args: string[]): void {
                 ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
             });
             console.log(JSON.stringify(finalized, null, 2));
-            if (!validation.valid || (finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            if (!validation.valid || (finalized.meta?.errors?.length ?? 0) > 0) process.exitCode = 1;
             return;
         }
         console.log(JSON.stringify({ ...parsed, validation }, null, 2));
-        if (!validation.valid) process.exit(1);
+        if (!validation.valid) process.exitCode = 1;
     } catch (error) {
         const failure = error as { code?: string; message?: string };
         console.error(`[${failure.code ?? 'TELEX_SYNTAX_ERROR'}] ${failure.message ?? String(error)}`);
@@ -546,7 +546,7 @@ function film(args: string[]): void {
                 ...(maxReferenceDepth !== undefined ? { maxReferenceDepth } : {}),
             });
             console.log(JSON.stringify(finalized, null, 2));
-            if ((finalized.meta?.errors?.length ?? 0) > 0) process.exit(1);
+            if ((finalized.meta?.errors?.length ?? 0) > 0) process.exitCode = 1;
             return;
         }
         console.log(JSON.stringify(decoded, null, 2));
@@ -856,7 +856,7 @@ function finalize(args: string[]): void {
 
     const hasErrors = (output.meta?.errors?.length ?? 0) > 0;
     if (hasErrors) {
-        process.exit(1);
+        process.exitCode = 1;
     }
 }
 
@@ -1769,11 +1769,8 @@ function resolveIntegrityMode(args: string[]): 'strict' | 'loose' | null {
 }
 
 function mergeDiagnostics(finalized: { meta?: FinalizeMeta }, errors: readonly AEONError[]): { errors?: Diagnostic[]; warnings?: Diagnostic[] } {
-    const mergedErrors: Diagnostic[] = [];
-    const mergedWarnings: Diagnostic[] = [];
-
-    if (finalized.meta?.errors) mergedErrors.push(...finalized.meta.errors.map(toOutputDiagnostic));
-    if (finalized.meta?.warnings) mergedWarnings.push(...finalized.meta.warnings.map(toOutputDiagnostic));
+    const mergedErrors = finalized.meta?.errors?.map(toOutputDiagnostic) ?? [];
+    const mergedWarnings = finalized.meta?.warnings?.map(toOutputDiagnostic) ?? [];
 
     for (const error of errors) {
         mergedErrors.push(toDiagnosticFromError(error));

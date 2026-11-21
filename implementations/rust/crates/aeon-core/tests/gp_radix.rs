@@ -92,7 +92,9 @@ fn gp_keeps_name_and_clarifier_kind_distinctions() {
                 .iter()
                 .map(|e| e.code.as_str())
                 .collect::<Vec<_>>(),
-            if fixture["invalid"] == true {
+            if fixture["gpClarifiersDisallowed"] == true {
+                vec!["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"]
+            } else if fixture["invalid"] == true {
                 vec!["PROFILE_DATATYPE_CLARIFIER_INVALID"]
             } else {
                 vec![]

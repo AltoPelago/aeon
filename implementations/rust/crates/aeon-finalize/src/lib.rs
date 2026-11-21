@@ -10,7 +10,7 @@ use std::fmt;
 use aeon_core::{
     AssignmentEvent, AttributeValue, CompileOptions, Diagnostic, HeaderFields, NullLiteralMode,
     RadixBaseResolution, ReferenceSegment, SourcePlane, Span, Value, compile, format_path,
-    normalize_number_literal, resolve_radix_base_from_datatype,
+    normalize_number_literal, radix_digit_value, resolve_radix_base_from_datatype,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value as JsonValue, json};
@@ -2011,17 +2011,6 @@ fn exceeds_declared_radix(value: &str, base: usize) -> bool {
         '+' | '-' | '.' => false,
         _ => radix_digit_value(ch).is_none_or(|digit| digit >= base),
     })
-}
-
-fn radix_digit_value(ch: char) -> Option<usize> {
-    match ch {
-        '0'..='9' => Some((ch as u8 - b'0') as usize),
-        'A'..='Z' => Some((ch as u8 - b'A') as usize + 10),
-        'a'..='z' => Some((ch as u8 - b'a') as usize + 36),
-        '&' => Some(62),
-        '!' => Some(63),
-        _ => None,
-    }
 }
 
 #[derive(Debug, Clone)]

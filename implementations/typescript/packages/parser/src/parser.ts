@@ -1622,7 +1622,7 @@ const RESERVED_V1_DATATYPES = new Set([
     'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
     'hex', 'date', 'time', 'datetime', 'wtc',
     'encoding', 'base64', 'embed', 'inline',
-    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12',
+    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12', 'radix16',
     'sep', 'kadot', 'symbol',
     'sansa',
     'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',

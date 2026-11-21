@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fixtures from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
+import radixClones from '../../../../../test-fixtures/radix-clones.json' with { type: 'json' };
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { emitEvents, projectPortableEvents, resolvePaths } from '@altopelago/aeon-aes';
@@ -25,6 +26,80 @@ for (const { datatype, base, invalid } of datatypeNames) {
                 assert.deepEqual(diagnostics(portable), diagnostics(legacy));
                 assert.equal(legacy.meta?.[key]?.some(d => d.code === 'FINALIZE_INVALID_RADIX_BASE') ?? false,
                     invalid || (base !== null && digit >= base));
+            }
+        }
+    });
+}
+
+test('radix16 retains its alphabet when clarified', () => {
+    for (const datatype of ['radix16', 'radix16[2]', 'radix[16]']) {
+        for (const [payload, invalid] of [['F', false], ['G', true], ['f', true]] as const) {
+            const parsed = parse(tokenize(`mask:${datatype}=%${payload}`).tokens);
+            assert.deepEqual(parsed.errors, []);
+            assert.ok(parsed.document);
+            const { events, errors } = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+            assert.deepEqual(errors, []);
+            for (const result of [finalizeJson(events), finalizePortableJson(projectPortableEvents(events))]) {
+                assert.deepEqual(result.meta?.errors?.map(error => error.code) ?? [],
+                    invalid ? ['FINALIZE_INVALID_RADIX_BASE'] : []);
+            }
+        }
+    }
+});
+
+test('typed attributes retain their radix base during source and portable finalization', () => {
+    const cases = [
+        { datatype: 'radix16', digit: 'f', invalid: true },
+        { datatype: 'radix16[2]', digit: 'G', invalid: true },
+        { datatype: 'radix[16]', digit: 'f', invalid: true },
+        { datatype: 'radix16', digit: 'F', invalid: false },
+    ];
+    for (const { datatype, digit, invalid } of cases) {
+        const binding = `x@{r:${datatype}=%${digit}}:int=0`;
+        const contexts = [
+            [binding, '$.x.@.r'],
+            [`outer:object={${binding}}`, '$.outer.x.@.r'],
+            [`x@{r:object={s:${datatype}=%${digit}}}:int=0`, '$.x.@.r.s'],
+            [`x@{r:object={inner:object={s:${datatype}=%${digit}}}}:int=0`, '$.x.@.r.inner.s'],
+            [`x@{r:list=[{s:${datatype}=%${digit}}]}:int=0`, '$.x.@.r[0].s'],
+        ] as const;
+        for (const [source, path] of contexts) {
+            const parsed = parse(tokenize(source).tokens);
+            assert.deepEqual(parsed.errors, [], source);
+            assert.ok(parsed.document);
+            const { events, errors } = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+            assert.deepEqual(errors, [], source);
+            const records = projectPortableEvents(events);
+            for (const mode of ['strict', 'loose'] as const) {
+                const legacy = finalizeJson(events, { mode });
+                const portable = finalizePortableJson(records, { mode });
+                assert.deepEqual(legacy.document, portable.document, source);
+                const key = mode === 'strict' ? 'errors' : 'warnings';
+                const expected = invalid ? [{ code: 'FINALIZE_INVALID_RADIX_BASE', path }] : [];
+                for (const result of [legacy, portable]) {
+                    assert.deepEqual(result.meta?.[key]?.map(({ code, path }) => ({ code, path })) ?? [], expected, source);
+                }
+            }
+        }
+    }
+});
+
+for (const { name, source, invalidPaths } of radixClones) {
+    test(`source and portable clones honor the receiving radix: ${name}`, () => {
+        const parsed = parse(tokenize(source).tokens);
+        assert.deepEqual(parsed.errors, []);
+        assert.ok(parsed.document);
+        const { events, errors } = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+        assert.deepEqual(errors, []);
+        const records = projectPortableEvents(events);
+        for (const mode of ['strict', 'loose'] as const) {
+            const legacy = finalizeJson(events, { mode });
+            const portable = finalizePortableJson(records, { mode });
+            assert.deepEqual(portable.document, legacy.document);
+            const key = mode === 'strict' ? 'errors' : 'warnings';
+            const expected = invalidPaths.map(path => ({ code: 'FINALIZE_INVALID_RADIX_BASE', path }));
+            for (const result of [legacy, portable]) {
+                assert.deepEqual(result.meta?.[key]?.map(({ code, path }) => ({ code, path })) ?? [], expected);
             }
         }
     });

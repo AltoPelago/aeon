@@ -12,6 +12,11 @@ const datatypeSemantics = {
         clarifiers: 'none',
         equivalentTo: 'radix[10]',
     },
+    radix16: {
+        literalFamily: 'RadixLiteral',
+        clarifiers: 'none',
+        equivalentTo: 'radix[16]',
+    },
     sep: {
         literalFamily: 'SeparatorLiteral',
         clarifiers: 'separator_chars',
