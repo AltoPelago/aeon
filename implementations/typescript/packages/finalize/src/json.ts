@@ -454,7 +454,13 @@ function objectToJson(bindings: readonly Binding[], ctx: JsonContext, basePath: 
             else ctx.warnings.push(diag);
             if (ctx.strict) continue;
         }
-        obj[key] = valueToJson(binding.value, ctx, entryPath, projection);
+        obj[key] = valueToJson(
+            binding.value,
+            ctx,
+            entryPath,
+            projection,
+            binding.datatype ? formatDatatypeAnnotation(binding.datatype) : undefined
+        );
         const attrJson = mergeAttributeJsonObjects(
             attributesToJson(binding.attributes, ctx, entryPath, projection),
             indexedChildAnnotationsToJson(binding.value, ctx, entryPath, projection),

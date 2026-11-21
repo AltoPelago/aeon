@@ -58,6 +58,9 @@ test('typed attributes retain their radix base during source and portable finali
         const contexts = [
             [binding, '$.x.@.r'],
             [`outer:object={${binding}}`, '$.outer.x.@.r'],
+            [`x@{r:object={s:${datatype}=%${digit}}}:int=0`, '$.x.@.r.s'],
+            [`x@{r:object={inner:object={s:${datatype}=%${digit}}}}:int=0`, '$.x.@.r.inner.s'],
+            [`x@{r:list=[{s:${datatype}=%${digit}}]}:int=0`, '$.x.@.r[0].s'],
         ] as const;
         for (const [source, path] of contexts) {
             const parsed = parse(tokenize(source).tokens);
