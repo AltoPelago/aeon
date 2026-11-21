@@ -4,6 +4,14 @@ The website's editor, AEON Composer, examples, mode controls and AES/Data/
 Annotation Stream/Canonical views, served locally against this checkout's
 TypeScript workspace. No PHP, website checkout, registry bundle or deployment is
 required. UI provenance and adaptations are recorded in `provenance.json`.
+This AEON page compiles and displays inert property literals; it has no Resolve
+or Query action. For property evaluation, open the separate
+[SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground)
+with a matching built AEON checkout. The
+[property-selector matrix](../../docs/property-selector-support.md) distinguishes
+these two pages and the intentional legacy CLI/LSP denials. Local source or
+Composer/highlighter behavior does not establish deployed website or installed
+editor support.
 
 From the AEON repository root, with Node 20+ and pnpm available:
 
@@ -115,9 +123,10 @@ colour; identities retain their separate gold hue.
 **Examples → Property address literals** exercises the selected implementation's
 `&key("...")` / `&tag("...")` / `&headTag("...")` literal parsing, highlighting, AES representation,
 JSON string projection and canonical output. These are inert SANSA values; this
-AEON page does not evaluate selectors. The SANSA repository's source playground
-uses this SDK build for actual standalone property Resolve, with an independent
-logical property-inspection control and scope-aware examples.
+AEON page does not evaluate selectors. The separate
+[SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground)
+uses this SDK build for actual property Resolve and direct read-only Query, with
+an independent logical property-inspection control and scope-aware examples.
 
 AEON Composer continues to refuse lossy SANSA-literal reconstruction and keeps
 source unchanged. Inspection views retain canonical scalar payloads rather than

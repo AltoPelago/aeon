@@ -1,6 +1,9 @@
 # Portable AEOS property selectors (development candidate)
 
-The selected `aeos-properties-0.1` profile admits SANSA `key`, `tag` and `headTag`
+The selected `aeos-properties-0.1` profile is implemented in the coordinated
+unreleased source. The [provider/host matrix](property-selector-support.md)
+distinguishes its APIs from legacy validation and tooling. It admits SANSA
+`key`, `tag` and `headTag`
 predicates in rule **selector** fields through explicit portable AES/Telex APIs:
 
 | Runtime | Decoded records | Telex |
@@ -83,6 +86,7 @@ transpiler exists in this slice, and it is not a0.17.0 prerequisite. Future
 conversion/conflict/freshness/resource semantics require their own work.
 
 All compatibility/target-preservation checks and1.15x latency/1.20x memory budgets
-remain unchanged. Broad performance/platform/profile/registry qualification,
-owning review/merges and combined-main retention remain separate gates.
+remain unchanged. Selected source/specification/fixture integrations are merged
+and main-verified. Broad performance/platform/profile/registry and final selected
+artifact qualification remain separate gates.
 Official releases, deployment and stable promotion remain held.
