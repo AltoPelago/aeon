@@ -856,7 +856,7 @@ function finalize(args: string[]): void {
 
     const hasErrors = (output.meta?.errors?.length ?? 0) > 0;
     if (hasErrors) {
-        process.exit(1);
+        process.exitCode = 1;
     }
 }
 
@@ -1769,11 +1769,8 @@ function resolveIntegrityMode(args: string[]): 'strict' | 'loose' | null {
 }
 
 function mergeDiagnostics(finalized: { meta?: FinalizeMeta }, errors: readonly AEONError[]): { errors?: Diagnostic[]; warnings?: Diagnostic[] } {
-    const mergedErrors: Diagnostic[] = [];
-    const mergedWarnings: Diagnostic[] = [];
-
-    if (finalized.meta?.errors) mergedErrors.push(...finalized.meta.errors.map(toOutputDiagnostic));
-    if (finalized.meta?.warnings) mergedWarnings.push(...finalized.meta.warnings.map(toOutputDiagnostic));
+    const mergedErrors = finalized.meta?.errors?.map(toOutputDiagnostic) ?? [];
+    const mergedWarnings = finalized.meta?.warnings?.map(toOutputDiagnostic) ?? [];
 
     for (const error of errors) {
         mergedErrors.push(toDiagnosticFromError(error));

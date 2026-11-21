@@ -103,8 +103,6 @@ function finalizeJsonInternal(
 ): FinalizeJsonResult {
     const strict = (options.mode ?? 'strict') === 'strict';
     const scope = options.scope ?? 'payload';
-    const errors: Diagnostic[] = [];
-    const warnings: Diagnostic[] = [];
     const pathToIndex = new Map<string, number>();
 
     for (let i = 0; i < aes.length; i++) {
@@ -112,8 +110,8 @@ function finalizeJsonInternal(
     }
 
     const mapResult = finalizeMap(aes, options);
-    if (mapResult.meta?.errors) errors.push(...mapResult.meta.errors);
-    if (mapResult.meta?.warnings) warnings.push(...mapResult.meta.warnings);
+    const errors = mapResult.meta?.errors?.slice() ?? [];
+    const warnings = mapResult.meta?.warnings?.slice() ?? [];
 
     const ctx: JsonContext = {
         strict,
