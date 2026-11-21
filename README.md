@@ -28,6 +28,11 @@ reload the browser while preserving input; runtime failures appear in Diagnostic
 See [playground setup and options](tools/playground/README.md). No release or
 website deployment is needed.
 
+The [property-selector support matrix](docs/property-selector-support.md) records
+the unreleased SDK, pure/native Python, portable AEOS and tooling boundaries.
+It distinguishes delivered APIs from deliberate host denials and remaining
+artifact qualification; it does not authorize a release or deployment.
+
 ## Implementations
 
 | Language / runtime | Package and entry point | Documentation |

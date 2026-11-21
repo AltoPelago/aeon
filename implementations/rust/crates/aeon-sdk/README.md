@@ -8,6 +8,13 @@ facade rollout is evaluated separately.
 
 ## SANSA document projection
 
+Unreleased property selectors are delivered through the authoritative document
+facet for read-only Resolve/direct Query. The
+[provider/host matrix](../../../../docs/property-selector-support.md) distinguishes
+this from inert Core/WASM literals, native Pytonic Query, the selected portable
+AEOS entrypoints and legacy host denials. Stable capability/CTS claims and
+release qualification remain separate.
+
 The `sansa_document` module projects an immutable `AeonDocument` as cheap,
 cloneable binding handles. It matches the TypeScript AEON namespace contract
 for payload, header, and full-document scopes, including attributes, node-head

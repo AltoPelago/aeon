@@ -394,7 +394,10 @@ this budget is separate from projection construction and other validation limits
 
 ## Unreleased property Addressing and standalone Resolve
 
-`aeon.sansa` parses/renders literal `&key("...")` and `&tag("...")` suffixes.
+`aeon.sansa` parses/renders literal `&key("...")`, `&tag("...")` and
+`&headTag("...")` suffixes. The [provider/host matrix](../../docs/property-selector-support.md)
+distinguishes this pure-Python resolver from native Pytonic Query, inert
+Core/WASM literal APIs and explicit portable AEOS validation.
 `namespace_from_assignment_events` and `namespace_from_portable_records` supply
 an explicit `properties` facet backed by validated snapshot topology and authored
 metadata, plus parent navigation from that same graph. Empty member names remain
@@ -439,8 +442,10 @@ Qualifier parsing/rendering is iterative for these addresses. References keep th
 structural-only cursor. Legacy native-event AEOS rules explicitly deny properties
 even on empty input. The separately selected portable AES/Telex validation profile
 admits properties through `validate_telex_records` / `validate_telex`; see
-[the consumer profile](../../docs/aeos-property-selectors.md). Pure Python Query
-and other consumer admission remain separate. Native/WASM compilation uses
+[the consumer profile](../../docs/aeos-property-selectors.md). Pure Python has no
+Query evaluator; the separate native distribution's existing Pytonic
+`Document.query()` does admit property Query through the Rust SDK. This is not
+a fallback between distributions. Native/WASM compilation uses
 its own Rust Core port, not this Python resolver. Official releases, deployment
 and stable profile claims remain on hold.
 

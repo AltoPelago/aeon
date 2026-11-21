@@ -4,6 +4,10 @@ The website's editor, AEON Composer, examples, mode controls and AES/Data/
 Annotation Stream/Canonical views, served locally against this checkout's
 TypeScript workspace. No PHP, website checkout, registry bundle or deployment is
 required. UI provenance and adaptations are recorded in `provenance.json`.
+The [property-selector matrix](../../docs/property-selector-support.md) identifies
+SDK-backed property support and intentional legacy CLI/LSP denials. Local source
+or Composer/highlighter behavior does not establish deployed website or installed
+editor support.
 
 From the AEON repository root, with Node 20+ and pnpm available:
 
