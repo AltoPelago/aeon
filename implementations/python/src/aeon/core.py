@@ -443,6 +443,7 @@ AEON_GP_PROFILE_ID = "aeon.gp.profile.v1"
 
 GP_DATATYPE_CLARIFIER_RULES = {
     "decimal": "none",
+    "radix16": "none",
     "kadot": "none",
     "symbol": "none",
     "radix": "radix_base",

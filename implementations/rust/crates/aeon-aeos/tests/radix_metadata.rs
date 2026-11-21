@@ -1,4 +1,4 @@
-use aeon_aeos::{Schema, ValidationOptions, validate_telex_records};
+use aeon_aeos::{Schema, ValidationEnvelope, ValidationOptions, validate, validate_telex_records};
 use aeon_core::{CompileToTelexOptions, compile_to_telex};
 use serde_json::json;
 
@@ -30,6 +30,55 @@ fn radix_constraints_respect_reserved_datatype_case() {
                 "{source}, allow={allow}: {:?}",
                 result.errors
             );
+        }
+    }
+}
+
+#[test]
+fn aeos_uses_the_case_sensitive_radix_alphabet() {
+    let cases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/radix-digits.json"
+    ))
+    .expect("digit cases");
+    for case in cases.as_array().expect("array") {
+        let datatype = case["datatype"].as_str().expect("datatype");
+        let digit = case["digit"].as_str().expect("digit");
+        let source = format!("mask:{datatype}=%{digit}");
+        let compiled = compile_to_telex(&source, CompileToTelexOptions::default());
+        assert!(compiled.compile.errors.is_empty(), "{source}");
+        assert!(compiled.encode_error.is_none(), "{source}");
+        let schema = json!({
+            "rules": [{"path": "$.mask", "constraints": {
+                "radix": case["base"], "allow_unspecified_radix": false
+            }}]
+        });
+        let envelope: ValidationEnvelope = serde_json::from_value(json!({
+            "aes": [{
+                "path": {"segments": [{"type": "root"}, {"type": "member", "key": "mask"}]},
+                "key": "mask",
+                "datatype": datatype,
+                "value": {"type": "RadixLiteral", "raw": format!("%{digit}"), "value": digit}
+            }],
+            "schema": schema,
+            "options": {}
+        }))
+        .expect("source event envelope");
+        let legacy = validate(&envelope);
+        let portable = validate_telex_records(
+            &compiled.records,
+            envelope.schema,
+            ValidationOptions::default(),
+        );
+        for result in [legacy, portable] {
+            assert_eq!(
+                result.ok,
+                case["valid"] == true,
+                "{source}: {:?}",
+                result.errors
+            );
+            if !result.ok {
+                assert_eq!(result.errors[0].code, "numeric_form_violation", "{source}");
+            }
         }
     }
 }

@@ -21,7 +21,8 @@ use aes_telex::{
 
 use aeon_core::{
     RadixBaseResolution, SansaResolveBinding, SansaResolveNamespace, SansaResolveOptions,
-    SansaSelector, parse_sansa_address, resolve_radix_base_from_datatype, resolve_sansa_address,
+    SansaSelector, parse_sansa_address, radix_digit_value, resolve_radix_base_from_datatype,
+    resolve_sansa_address,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -4723,17 +4724,6 @@ fn first_invalid_radix_digit(raw: &str, radix: usize) -> Option<char> {
         .replace('_', "");
     body.chars()
         .find(|ch| radix_digit_value(*ch).is_some_and(|digit| digit >= radix))
-}
-
-fn radix_digit_value(ch: char) -> Option<usize> {
-    match ch {
-        '0'..='9' => Some((ch as u8 - b'0') as usize),
-        'a'..='z' => Some((ch as u8 - b'a') as usize + 10),
-        'A'..='Z' => Some((ch as u8 - b'A') as usize + 10),
-        '&' => Some(36),
-        '!' => Some(37),
-        _ => None,
-    }
 }
 
 fn null_value_matches(value: &str, constraints: &JsonValue) -> bool {

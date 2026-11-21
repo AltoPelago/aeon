@@ -48,7 +48,12 @@ class ExactRadixTests(unittest.TestCase):
         for fixture in DATATYPE_NAMES:
             source = f"mask:{fixture['datatype']}=%1"
             result = compile_source(source, CompileOptions(profile="aeon.gp.profile.v1"))
-            self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_INVALID"] if fixture["invalid"] else [], [e.code for e in result.errors], source)
+            expected = []
+            if fixture.get("gpClarifiersDisallowed"):
+                expected = ["PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"]
+            elif fixture["invalid"]:
+                expected = ["PROFILE_DATATYPE_CLARIFIER_INVALID"]
+            self.assertEqual(expected, [e.code for e in result.errors], source)
         for clarifiers in ('"2"', '2, 10', '"2", 2'):
             result = compile_source(f"mask:radix[{clarifiers}]=%1", CompileOptions(profile="aeon.gp.profile.v1", max_clarifier_values=2))
             self.assertEqual(["PROFILE_DATATYPE_CLARIFIER_INVALID"], [e.code for e in result.errors])
@@ -64,7 +69,7 @@ class ExactRadixTests(unittest.TestCase):
                 resolved = resolve_radix_base_from_datatype(datatype)
                 self.assertEqual(base, resolved.base)
                 self.assertEqual(invalid, resolved.invalid)
-                for payload, digit in (("1", 1), ("A", 10)):
+                for payload, digit in (("1", 1), ("A", 10), ("G", 16), ("f", 41)):
                     compiled = compile_source(f"mask:{datatype}=%{payload}")
                     self.assertEqual([], compiled.errors)
                     records = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]
@@ -82,6 +87,22 @@ class ExactRadixTests(unittest.TestCase):
                             expected = not invalid and (base == 2 or (base is None and allow))
                             self.assertEqual(expected, validate_events(compiled.events, schema)["ok"])
                             self.assertEqual(expected, validate_telex_records(records, schema)["ok"])
+
+    def test_aeos_radix_digit_alphabet(self):
+        cases = json.loads((ROOT.parents[1] / "test-fixtures/radix-digits.json").read_text())
+        for case in cases:
+            source = f"mask:{case['datatype']}=%{case['digit']}"
+            with self.subTest(source=source):
+                compiled = compile_source(source)
+                self.assertEqual([], compiled.errors)
+                records = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]
+                schema = {"rules": [{"path": "$.mask", "constraints": {
+                    "radix": case["base"], "allow_unspecified_radix": False,
+                }}]}
+                for result in (validate_events(compiled.events, schema), validate_telex_records(records, schema)):
+                    self.assertEqual(case["valid"], result["ok"], result)
+                    if not case["valid"]:
+                        self.assertEqual("numeric_form_violation", result["errors"][0]["code"])
 
     def test_exact_numeric_resolution(self):
         for fixture in FIXTURES:

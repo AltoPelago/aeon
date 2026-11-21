@@ -82,6 +82,19 @@ pub fn radix_base_from_number(value: &str) -> Option<usize> {
     (2..=64).contains(&base).then_some(base)
 }
 
+/// Return a digit's value in AEON's case-sensitive radix alphabet.
+#[must_use]
+pub fn radix_digit_value(ch: char) -> Option<usize> {
+    match ch {
+        '0'..='9' => Some((ch as u8 - b'0') as usize),
+        'A'..='Z' => Some((ch as u8 - b'A') as usize + 10),
+        'a'..='z' => Some((ch as u8 - b'a') as usize + 36),
+        '&' => Some(62),
+        '!' => Some(63),
+        _ => None,
+    }
+}
+
 #[must_use]
 pub fn resolve_radix_base_from_datatype(datatype: Option<&str>) -> RadixBaseResolution {
     let Some(datatype) = datatype else {
@@ -89,7 +102,12 @@ pub fn resolve_radix_base_from_datatype(datatype: Option<&str>) -> RadixBaseReso
     };
     // Datatype names are case-sensitive: Radix and Decimal are custom names.
     let datatype = datatype.trim();
-    let alias = match datatype {
+    // Only the generic radix datatype uses its clarifier to choose a base.
+    let name = datatype
+        .split_once('[')
+        .filter(|(_, clarifiers)| clarifiers.ends_with(']'))
+        .map_or(datatype, |(name, _)| name);
+    let alias = match name {
         "decimal" => Some(10),
         "radix2" => Some(2),
         "radix6" => Some(6),

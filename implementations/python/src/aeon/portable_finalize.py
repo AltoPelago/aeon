@@ -7,7 +7,7 @@ from dataclasses import field
 from typing import Mapping
 
 from ._compat import dataclass
-from ._radix import resolve_radix_base_from_components
+from ._radix import radix_digit_value, resolve_radix_base_from_components
 from .telex import (
     AEON_DOCUMENT_PROJECTION,
     COMPLETE_AES_PROFILE,
@@ -414,21 +414,11 @@ def _radix_value(record: Mapping[str, object], value: str, path: str, ctx: _Cont
         ctx.report("FINALIZE_INVALID_RADIX_BASE", "Invalid declared radix base: expected one integral number from 2 to 64", path)
     elif base is not None:
         for char in normalized:
-            digit = _radix_digit_value(char)
+            digit = radix_digit_value(char)
             if char not in "+-." and (digit is None or digit >= base):
                 ctx.report("FINALIZE_INVALID_RADIX_BASE", f"Radix literal exceeds declared radix {base}: %{normalized}", path)
                 break
     return normalized
-
-
-def _radix_digit_value(char: str) -> int | None:
-    if "0" <= char <= "9":
-        return ord(char) - ord("0")
-    if "A" <= char <= "Z":
-        return ord(char) - ord("A") + 10
-    if "a" <= char <= "z":
-        return ord(char) - ord("a") + 36
-    return 62 if char == "&" else 63 if char == "!" else None
 
 
 def _safe_member(key: str, path: str, ctx: _Context) -> bool:

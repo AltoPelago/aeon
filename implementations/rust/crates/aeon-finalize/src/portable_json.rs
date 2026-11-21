@@ -2,7 +2,9 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
-use aeon_core::{Diagnostic, RadixBaseResolution, resolve_radix_base_from_components};
+use aeon_core::{
+    Diagnostic, RadixBaseResolution, radix_digit_value, resolve_radix_base_from_components,
+};
 use aes_telex::{
     AEON_DOCUMENT_PROJECTION, COMPLETE_AES_PROFILE, TelexLimits, TelexRecord,
     validate_telex_records_with_projection_and_limits,
@@ -682,7 +684,7 @@ fn radix_value(record: &TelexRecord, value: &str, path: &str, ctx: &mut Context<
         RadixBaseResolution::Base(base)
             if normalized.chars().any(|character| {
                 !matches!(character, '+' | '-' | '.')
-                    && radix_digit_value(character).is_none_or(|digit| digit as usize >= base)
+                    && radix_digit_value(character).is_none_or(|digit| digit >= base)
             }) =>
         {
             Some(format!(
@@ -695,17 +697,6 @@ fn radix_value(record: &TelexRecord, value: &str, path: &str, ctx: &mut Context<
         report(ctx, message, "FINALIZE_INVALID_RADIX_BASE", path, false);
     }
     JsonValue::String(normalized)
-}
-
-fn radix_digit_value(character: char) -> Option<u32> {
-    match character {
-        '0'..='9' => Some(character as u32 - '0' as u32),
-        'A'..='Z' => Some(character as u32 - 'A' as u32 + 10),
-        'a'..='z' => Some(character as u32 - 'a' as u32 + 36),
-        '&' => Some(62),
-        '!' => Some(63),
-        _ => None,
-    }
 }
 
 fn report(ctx: &mut Context<'_>, message: String, code: &str, path: &str, always_error: bool) {

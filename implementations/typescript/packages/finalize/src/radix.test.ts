@@ -30,8 +30,8 @@ for (const { datatype, base, invalid } of datatypeNames) {
     });
 }
 
-test('radix16 and radix[16] enforce the same digit alphabet', () => {
-    for (const datatype of ['radix16', 'radix[16]']) {
+test('radix16 retains its alphabet when clarified', () => {
+    for (const datatype of ['radix16', 'radix16[2]', 'radix[16]']) {
         for (const [payload, invalid] of [['F', false], ['G', true], ['f', true]] as const) {
             const parsed = parse(tokenize(`mask:${datatype}=%${payload}`).tokens);
             assert.deepEqual(parsed.errors, []);

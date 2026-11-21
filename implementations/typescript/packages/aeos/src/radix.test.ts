@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fixtures from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
+import radixDigits from '../../../../../test-fixtures/radix-digits.json' with { type: 'json' };
 import { validateTelex } from './telex.js';
 import { validate } from './validate.js';
 import type { AES } from './types/aes.js';
@@ -32,6 +33,21 @@ for (const { literal, base } of fixtures.filter(f => f.testSource)) {
         }
     });
 }
+
+test('AEOS uses the case-sensitive radix alphabet', () => {
+    for (const { datatype, base, digit, valid } of radixDigits) {
+        const schema = { rules: [{ path: '$.mask', constraints: { radix: base, allow_unspecified_radix: false } }] };
+        const legacy = [{
+            path: { segments: [{ type: 'root' }, { type: 'member', key: 'mask' }] },
+            key: 'mask', datatype, value: { type: 'RadixLiteral', raw: '%' + digit, value: digit }, span: [0, 1],
+        }] as unknown as AES;
+        const telex = 'telex.aes=1\n\npath=$.mask\nkind=RadixLiteral\ndatatype=' + datatype + '\nvalue=' + digit + '\n';
+        for (const result of [validate(legacy, schema), validateTelex(telex, schema)]) {
+            assert.equal(result.ok, valid, datatype + '=%' + digit);
+            if (!valid) assert.equal(result.errors[0]?.code, 'numeric_form_violation');
+        }
+    }
+});
 
 test('allow_unspecified_radix applies only to genuinely absent bases', () => {
     for (const datatype of ['radix', 'radix["2"]']) {
