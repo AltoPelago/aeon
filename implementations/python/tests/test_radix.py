@@ -88,6 +88,29 @@ class ExactRadixTests(unittest.TestCase):
                             self.assertEqual(expected, validate_events(compiled.events, schema)["ok"])
                             self.assertEqual(expected, validate_telex_records(records, schema)["ok"])
 
+    def test_typed_attributes_retain_their_radix_base(self):
+        for datatype, digit, invalid in (
+            ("radix16", "f", True),
+            ("radix16[2]", "G", True),
+            ("radix[16]", "f", True),
+            ("radix16", "F", False),
+        ):
+            binding = f"x@{{r:{datatype}=%{digit}}}:int=0"
+            for source, path in ((binding, "$.x.@.r"), (f"outer:object={{{binding}}}", "$.outer.x.@.r")):
+                compiled = compile_source(source)
+                self.assertEqual([], compiled.errors, source)
+                records = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]
+                for mode in ("strict", "loose"):
+                    with self.subTest(source=source, mode=mode):
+                        legacy = finalize_json(compiled.events, FinalizeOptions(mode=mode))
+                        portable = finalize_portable_json(records, PortableFinalizeOptions(mode=mode))
+                        self.assertEqual(legacy["document"], portable["document"])
+                        key = "errors" if mode == "strict" else "warnings"
+                        expected = [("FINALIZE_INVALID_RADIX_BASE", path)] if invalid else []
+                        for result in (legacy, portable):
+                            diagnostics = [(d["code"], d["path"]) for d in result.get("meta", {}).get(key, [])]
+                            self.assertEqual(expected, diagnostics)
+
     def test_aeos_radix_digit_alphabet(self):
         cases = json.loads((ROOT.parents[1] / "test-fixtures/radix-digits.json").read_text())
         for case in cases:

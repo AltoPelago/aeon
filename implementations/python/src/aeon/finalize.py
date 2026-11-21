@@ -447,7 +447,7 @@ def annotation_entries_to_json(annotations: object, ctx: JsonContext, path: str)
         if key in RESERVED_OBJECT_KEYS:
             ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, entry.get("span"))
             continue
-        result[key] = value_to_json(entry.get("value"), ctx, entry_path)
+        result[key] = value_to_json(entry.get("value"), ctx, entry_path, entry.get("datatype"))
     return result or None
 
 
@@ -470,7 +470,7 @@ def attributes_to_json(attributes: object, ctx: JsonContext, path: str) -> dict[
             if key in RESERVED_OBJECT_KEYS:
                 ctx.emit("error", "FINALIZE_RESERVED_KEY", f"Reserved key cannot be materialized in JSON output: {key}", entry_path, entry.get("span"))
                 continue
-            result[key] = value_to_json(entry.get("value"), ctx, entry_path)
+            result[key] = value_to_json(entry.get("value"), ctx, entry_path, entry.get("datatype"))
     return result or None
 
 

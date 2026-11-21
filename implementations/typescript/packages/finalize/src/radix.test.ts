@@ -46,6 +46,40 @@ test('radix16 retains its alphabet when clarified', () => {
     }
 });
 
+test('typed attributes retain their radix base during source and portable finalization', () => {
+    const cases = [
+        { datatype: 'radix16', digit: 'f', invalid: true },
+        { datatype: 'radix16[2]', digit: 'G', invalid: true },
+        { datatype: 'radix[16]', digit: 'f', invalid: true },
+        { datatype: 'radix16', digit: 'F', invalid: false },
+    ];
+    for (const { datatype, digit, invalid } of cases) {
+        const binding = `x@{r:${datatype}=%${digit}}:int=0`;
+        const contexts = [
+            [binding, '$.x.@.r'],
+            [`outer:object={${binding}}`, '$.outer.x.@.r'],
+        ] as const;
+        for (const [source, path] of contexts) {
+            const parsed = parse(tokenize(source).tokens);
+            assert.deepEqual(parsed.errors, [], source);
+            assert.ok(parsed.document);
+            const { events, errors } = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
+            assert.deepEqual(errors, [], source);
+            const records = projectPortableEvents(events);
+            for (const mode of ['strict', 'loose'] as const) {
+                const legacy = finalizeJson(events, { mode });
+                const portable = finalizePortableJson(records, { mode });
+                assert.deepEqual(legacy.document, portable.document, source);
+                const key = mode === 'strict' ? 'errors' : 'warnings';
+                const expected = invalid ? [{ code: 'FINALIZE_INVALID_RADIX_BASE', path }] : [];
+                for (const result of [legacy, portable]) {
+                    assert.deepEqual(result.meta?.[key]?.map(({ code, path }) => ({ code, path })) ?? [], expected, source);
+                }
+            }
+        }
+    }
+});
+
 for (const { literal, base } of fixtures.filter(f => f.testSource)) {
     test(`source/portable radix finalization agrees for ${literal}`, () => {
         for (const payload of ['1', '2']) {

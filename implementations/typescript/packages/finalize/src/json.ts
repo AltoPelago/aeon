@@ -864,7 +864,7 @@ function annotationsToJson(
             ctx.errors.push(reservedKeyDiagnostic(key, entryPath, entry.value.span));
             continue;
         }
-        obj[key] = valueToJson(entry.value, ctx, entryPath, projection);
+        obj[key] = valueToJson(entry.value, ctx, entryPath, projection, entry.datatype);
         const nested = annotationsToJson(entry.annotations, ctx, entryPath, projection);
         if (nested) {
             nestedAttrEntries[key] = nested;
