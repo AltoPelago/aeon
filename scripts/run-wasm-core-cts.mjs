@@ -6,6 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
+import { normalizeDatatype } from './cts-datatype.mjs';
 import { getRepoRoot, resolveCTSPath } from './repo-paths.mjs';
 
 const args = parseArgs(process.argv.slice(2));
@@ -240,10 +241,6 @@ function decodeKey(value) {
 
 function isIdentifier(value) {
   return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(value);
-}
-
-function normalizeDatatype(value) {
-  return String(value).replace(/\s+/gu, '');
 }
 
 function parseArgs(argv) {

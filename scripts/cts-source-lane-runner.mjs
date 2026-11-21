@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { normalizeDatatype } from './cts-datatype.mjs';
 import { resolveCTSPath } from './repo-paths.mjs';
 
 function parseArgs(argv) {
@@ -162,10 +163,6 @@ function normalizePath(value) {
   });
   normalized = normalized.replace(/\[(\d+)\]/g, (_m, digits) => `[${String(Number(digits))}]`);
   return normalized;
-}
-
-function normalizeDatatype(value) {
-  return String(value).replace(/\s+/g, '');
 }
 
 function isIdentifier(value) {
@@ -631,6 +628,7 @@ async function main() {
       let warnings = [];
       let ok = false;
       let result;
+      const failures = [];
 
       if (args.lane === 'aes-path-translation' && test.operation === 'materialize-telex') {
         const finalized = await runTelexMaterialize({
@@ -745,6 +743,10 @@ async function main() {
         errors = normalizeDiagnostics(inspect.parse.errors);
         warnings = [];
         ok = errors.length === 0;
+        if (!ok && (args.lane === 'aes' || args.lane === 'aes-path-translation')
+          && Array.isArray(inspect.parse.events) && inspect.parse.events.length > 0) {
+          failures.push(`expected no AES events on rejection, got ${inspect.parse.events.length}`);
+        }
         result =
           args.lane === 'core'
             ? {
@@ -761,7 +763,6 @@ async function main() {
               };
       }
 
-      const failures = [];
       if (ok !== Boolean(test.expected?.ok)) {
         failures.push(`ok mismatch: expected ${Boolean(test.expected?.ok)}, got ${ok}`);
       }

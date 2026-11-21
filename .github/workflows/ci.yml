@@ -54,6 +54,10 @@ jobs:
         working-directory: .
         run: npm run test:release-workflows
 
+      - name: CTS runner regression tests
+        working-directory: .
+        run: npm run test:cts-runner
+
       - name: Version consistency
         working-directory: .
         run: npm run version:check
