@@ -72,3 +72,21 @@ test('Core runner preserves whitespace after escaped quotes inside datatype clar
   assert.match(output, /single-quoted-spacing: FAIL\n   - bindings\[0\]\.datatype mismatch/u);
   assert.match(output, /repeated-spacing: FAIL\n   - bindings\[0\]\.datatype mismatch/u);
 });
+
+test('Core runner separates backtick clarifier payload from surrounding layout', (t) => {
+  const fixture = (id, datatype, actualDatatype) => ({
+    id,
+    expected: { ok: true, result: { bindings: [{ path: '$.a', datatype, kind: 'binding' }] } },
+    actual: { errors: [], events: [{ path: '$.a', datatype: actualDatatype }] },
+  });
+  const output = runFixtures(t, 'core', [
+    fixture('raw-embedded-quote', 'custom[`a"b` ]', 'custom[`a"b`]'),
+    fixture('raw-escaped-backtick', 'custom[`a\\` b` ]', 'custom[`a\\` b`]'),
+    fixture('raw-multiline-spacing', 'custom[`a  b\nc`]', 'custom[`a b\nc`]'),
+    fixture('raw-escaped-backtick-spacing', 'custom[`a\\` b`]', 'custom[`a\\`b`]'),
+  ]);
+  assert.match(output, /raw-embedded-quote: PASS/u);
+  assert.match(output, /raw-escaped-backtick: PASS/u);
+  assert.match(output, /raw-multiline-spacing: FAIL\n   - bindings\[0\]\.datatype mismatch/u);
+  assert.match(output, /raw-escaped-backtick-spacing: FAIL\n   - bindings\[0\]\.datatype mismatch/u);
+});

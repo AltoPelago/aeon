@@ -15,7 +15,7 @@ export function normalizeDatatype(value) {
       }
     } else if (!/\s/u.test(char)) {
       normalized += char;
-      if (char === '"' || char === "'") quote = char;
+      if (char === '"' || char === "'" || char === '`') quote = char;
     }
   }
   return normalized;
