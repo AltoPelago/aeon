@@ -35,11 +35,27 @@ See the [TypeScript SDK](../implementations/typescript/packages/sdk/README.md),
 | Host/export | Current boundary |
 | --- | --- |
 | [AEON local playground](../tools/playground/README.md) | Compiles and displays inert property literals in its representation views; it has no Resolve or Query action. Composer parsing and highlighting do not evaluate selectors |
-| [SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground) | Runs property Resolve and Query using the real SDK namespace and SANSA engines with an explicitly selected built or installed AEON graph |
+| [SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground) | Runs property Resolve and Query using the real SDK namespace and SANSA engines with a matching built AEON checkout |
 | Legacy SANSA query CLI/workbench | Their own namespace adapters expose no property facet. A valid property expression can parse but evaluation returns `SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE`; use a capable SDK or the separate [SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground) for evaluation |
 | AEON LSP | The compiler accepts inert property literals. Trusted schema validation currently uses native events and rejects property rules with `invalid_schema_policy`, rather than silently converting to portable AEOS |
 | Pure Python detailed compiled-AST JSON (`inspect --json`) | Property literals remain explicitly rejected before output. `--json --portable-aes`, `--telex` and annotation-only output remain available; this does not reject standalone parser/Resolve APIs |
 | IDE grammars, native editor/Quick Look hosts, website/Tonics bundles | Source parsing or a shared highlighter does not prove full presentation or final installed/vendor support. Editor property-literal coverage and exact selected graph/platform/registry qualification remain separate work |
+
+The SANSA browser launcher requires the built checkout layout under
+`implementations/typescript/packages/`. An installed consumer root with packages
+under `node_modules`, or the SDK package directory itself, is not accepted as
+`--aeon-root`. Installed packages
+can instead be checked with the separate
+[non-browser property verification workflow](https://github.com/AltoPelago/sansa/blob/main/tools/playground/README.md#property-selectors-development),
+run from the SANSA repository:
+
+```sh
+node tools/workflows/verify-property-playground.mjs /absolute/path/to/consumer --installed
+```
+
+`--installed` belongs to that verification script, not the browser launcher.
+Passing its 15 examples establishes the selected installed API behavior, not
+browser-launcher layout support.
 
 Activation (including trusted), Graph, Instruction/Mutate/SO, clone/pointer
 references and event/storage paths do not admit property predicates. Direct
