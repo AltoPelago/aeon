@@ -11,7 +11,7 @@ from altopelago.aeon import _native, pytonic
 
 class CompileTests(unittest.TestCase):
     def test_property_address_literals_keep_native_kind_payload_and_wire(self) -> None:
-        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text(encoding="utf-8"))
         for address, expected in zip(fixture["addresses"], fixture["canonical"]):
             with self.subTest(address=address):
                 source = f'p:sansa={address}// outside\nx=1'
@@ -34,7 +34,7 @@ class CompileTests(unittest.TestCase):
                 self.assertEqual(selected.results[0].value, (document["p"],))
 
     def test_property_literals_do_not_admit_native_reference_targets(self) -> None:
-        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text())
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text(encoding="utf-8"))
         sources = [f'p:sansa={address}' for address in fixture["invalid"]]
         sources += [f'copy={marker}{address}' for address in fixture["addresses"] for marker in ["~", "~>"]]
         for source in sources:
@@ -46,7 +46,7 @@ class CompileTests(unittest.TestCase):
                     aeon.canonicalize(source)
 
     def test_transport_generic_boundaries(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/transport-generic-arguments.json").read_text())
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/transport-generic-arguments.json").read_text(encoding="utf-8"))
         for datatype in fixtures["invalid_datatypes"]:
             source = f"telex.aes=1\n\npath=$.a\nkind=NumberLiteral\ndatatype={datatype}\nvalue=0\n"
             with self.subTest(datatype=datatype):
@@ -64,8 +64,8 @@ class CompileTests(unittest.TestCase):
         self.assertEqual({"a": 0}, loaded.document)
 
     def test_gp_validates_unprojected_claims(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
-        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-tag-head-clarifiers.json").read_text())
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text(encoding="utf-8"))
+        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-tag-head-clarifiers.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             with self.subTest(case=fixture["id"]):
                 source = 'aeon:profile="aeon.gp.profile.v1"\n' + fixture["source"]
@@ -84,8 +84,8 @@ class CompileTests(unittest.TestCase):
 
     def test_gp_uses_exact_numeric_radix_bases(self) -> None:
         root = Path(__file__).resolve().parents[5] / "test-fixtures"
-        fixtures = json.loads((root / "radix-bases.json").read_text())
-        contexts = json.loads((root / "gp-radix-contexts.json").read_text())
+        fixtures = json.loads((root / "radix-bases.json").read_text(encoding="utf-8"))
+        contexts = json.loads((root / "gp-radix-contexts.json").read_text(encoding="utf-8"))
         for fixture in (f for f in fixtures if f["testSource"]):
             for context in contexts:
                 source = context["before"] + fixture["literal"] + context["after"]
@@ -96,7 +96,7 @@ class CompileTests(unittest.TestCase):
                     self.assertEqual([] if result.ok else ["PROFILE_DATATYPE_CLARIFIER_INVALID"], [e.code for e in result.errors])
 
     def test_reserved_radix_names_are_case_sensitive(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/radix-datatype-names.json").read_text())
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/radix-datatype-names.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             for payload, digit in (("1", 1), ("A", 10), ("G", 16), ("f", 41)):
                 source = f"mask:{fixture['datatype']}=%{payload}"
@@ -122,8 +122,8 @@ class CompileTests(unittest.TestCase):
                     self.assertEqual(invalid or payload == "2", any(d.code == "FINALIZE_INVALID_RADIX_BASE" for d in result.finalization_errors))
 
     def test_generic_arguments_are_type_descriptors_not_numeric_literals(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text())
-        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/node-binding-generics.json").read_text())
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text(encoding="utf-8"))
+        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/node-binding-generics.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             source = fixture["source"]
             with self.subTest(source=source):
@@ -139,7 +139,7 @@ class CompileTests(unittest.TestCase):
                         aeon.canonicalize(source)
 
     def test_exact_numeric_clarifiers_through_canonical_and_telex_apis(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/numeric-clarifiers.json").read_text())
+        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/numeric-clarifiers.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             raw, normalized = fixture["raw"], fixture["normalized"]
             with self.subTest(raw=raw):

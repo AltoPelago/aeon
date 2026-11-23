@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 import altopelago.aeon as aeon
 from altopelago.aeon import pytonic
-VECTORS=json.loads((Path(__file__).resolve().parents[5]/"test-fixtures/unicode-hardening-v1.json").read_text())
+VECTORS=json.loads((Path(__file__).resolve().parents[5]/"test-fixtures/unicode-hardening-v1.json").read_text(encoding="utf-8"))
 class NativeUnicodeTests(unittest.TestCase):
     def test_unicode_length_matches_utf16_for_source_and_telex(self):
         for case in VECTORS["length_cases"]:

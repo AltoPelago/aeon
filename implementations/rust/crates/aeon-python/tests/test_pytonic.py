@@ -193,7 +193,7 @@ select { sku = .sku stage = .stage }
         )
 
     def test_property_query_shared_sdk_cases(self) -> None:
-        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-query-sdk.json").read_text())
+        fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-query-sdk.json").read_text(encoding="utf-8"))
         document = pytonic.loads(fixture["source"])
         for case in fixture["cases"]:
             with self.subTest(query=case["query"]):
