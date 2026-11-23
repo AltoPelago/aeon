@@ -1,0 +1,34 @@
+{
+  "source_head": "a5a7a0c112dfbece9f382283a13aa5f4f1e72e09",
+  "rust": "1.93.1",
+  "wasm_pack": "0.14.0",
+  "inputs": {
+    "implementations/rust/Cargo.lock": "f3cac4b48b001e0074e71913a0fda81d9d90b7c3731e8514d5cab8ff5d9aecb5",
+    "implementations/rust/Cargo.toml": "66b88f9ebac00d7f8bcb29f84cfcf2ea5b7c81629cf9c90982dae1a05213934d",
+    "implementations/typescript/packages/wasm/package.json": "8ab787001b1f0db9ac006f91bcda29b0d4af900e97729e7c8d5f424b825be5d8"
+  },
+  "before": {
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm.js": "c7aca08372433b45ba1cff2c113aae00c17851e32ad916b0a7f8bef2cbc408d5",
+    "implementations/typescript/packages/wasm/pkg/LICENSE": "ee079b39b4d13898c3e94c998825d4f8f65e33190d7a687a37a33b80e901e4a3",
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm.d.ts": "ac18e66087f4a1a94da96179aa885aef6e8f7ca1cc8bce610b3fa8fe4373bc65",
+    "implementations/typescript/packages/wasm/pkg/package.json": "bbbed13c7cf40e142aaa19da98ccc14e97c2a58574aee9edb5dc200d1b1c0643",
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm.d.ts": "2ad8ed101b2d1e929b9d68b79fa3fee09ec71ac0ba4d92e40be89994db1afa4a",
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm": "682f595280762167806b11c23d1d1d6b438c4def1e8f6683cc326fa360336ba9"
+  },
+  "after": {
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm.js": "c7aca08372433b45ba1cff2c113aae00c17851e32ad916b0a7f8bef2cbc408d5",
+    "implementations/typescript/packages/wasm/pkg/LICENSE": "ee079b39b4d13898c3e94c998825d4f8f65e33190d7a687a37a33b80e901e4a3",
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm.d.ts": "ac18e66087f4a1a94da96179aa885aef6e8f7ca1cc8bce610b3fa8fe4373bc65",
+    "implementations/typescript/packages/wasm/pkg/package.json": "bbbed13c7cf40e142aaa19da98ccc14e97c2a58574aee9edb5dc200d1b1c0643",
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm.d.ts": "2ad8ed101b2d1e929b9d68b79fa3fee09ec71ac0ba4d92e40be89994db1afa4a",
+    "implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm": "5316731ce974cd468582b559e253bb30e9d42ac7c9b8243a86bacfb0055c7a3a"
+  },
+  "exit": 0,
+  "exact_binary_reproducibility_established": false,
+  "independent_artifact_QA_pending": true,
+  "providers": {
+    "altopelago-aes-telex": "0.3.2-rc.1",
+    "altopelago-sansa-runtime": "0.15.0-rc.2"
+  },
+  "status": "generated; independent artifact and final platform qualification pending"
+}
