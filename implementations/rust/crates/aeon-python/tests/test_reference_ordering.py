@@ -87,7 +87,7 @@ class ReferenceOrderingTests(unittest.TestCase):
         self.assertEqual(output, self.canonical(output))
 
     def test_shared_rendering_regressions_and_fixed_points(self):
-        fixtures = json.loads((ROOT / "test-fixtures/canonical-rendering-boundaries.json").read_text())
+        fixtures = json.loads((ROOT / "test-fixtures/canonical-rendering-boundaries.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             with self.subTest(fixture=fixture["id"]):
                 output = self.canonical(fixture["source"], max_attribute_depth=2)
@@ -95,7 +95,7 @@ class ReferenceOrderingTests(unittest.TestCase):
                 self.assertEqual(output, self.canonical(output, max_attribute_depth=2))
 
     def test_exact_clarifiers_and_literal_families_remain_native(self):
-        fixtures = json.loads((ROOT / "test-fixtures/numeric-clarifiers.json").read_text())
+        fixtures = json.loads((ROOT / "test-fixtures/numeric-clarifiers.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             with self.subTest(raw=fixture["raw"]):
                 output = self.canonical(f"x:custom[{fixture['raw']}]={fixture['raw']}")

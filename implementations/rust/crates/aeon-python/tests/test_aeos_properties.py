@@ -18,7 +18,7 @@ class NativeAeosPropertyTests(unittest.TestCase):
 
     def test_qa_regressions_through_actual_telex_loader(self):
         fixtures = Path(__file__).resolve().parents[5] / 'test-fixtures/aeos-property-regressions.json'
-        cases = json.loads(fixtures.read_text())['tests'] + json.loads(fixtures.with_name('aeos-property-context-regressions.json').read_text())['tests'] + json.loads(fixtures.with_name('aeos-property-range-attribute-regressions.json').read_text())['tests']
+        cases = json.loads(fixtures.read_text(encoding="utf-8"))['tests'] + json.loads(fixtures.with_name('aeos-property-context-regressions.json').read_text(encoding="utf-8"))['tests'] + json.loads(fixtures.with_name('aeos-property-range-attribute-regressions.json').read_text(encoding="utf-8"))['tests']
         for case in cases:
             # Sparse positions exercise the low-level validators, not the JSON
             # materializer. Loader policy overrides remain outside its schema API.
