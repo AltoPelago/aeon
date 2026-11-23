@@ -70,7 +70,7 @@ def main() -> None:
     if strict and transport:
         fail("cannot use both --strict and --transport")
     limits_file = options.get("limits_file")
-    limits_source = Path(str(limits_file)).read_text() if limits_file is not None else None
+    limits_source = Path(str(limits_file)).read_text(encoding="utf-8") if limits_file is not None else None
     payload = _native.compile_cts_json(
         source_path.read_bytes().decode("utf-8"),
         mode="strict" if strict else "transport" if transport else None,

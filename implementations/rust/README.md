@@ -2,7 +2,7 @@
 
 Rust workspace for the AEON implementation effort.
 
-Current crate/workspace line: `0.16.0`.
+Current crate/workspace line: `0.17.0-rc.2`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -63,12 +63,13 @@ The current crates include:
 - `aeon-python`
 - `aeon-wasm`
 
-The `altopelago-aeon` facade offers an optional `sansa` feature backed by
-the coordinated `altopelago-sansa-runtime` 0.15.0-rc.1 source pinned by full Git
-revision in `Cargo.toml` and `Cargo.lock`. This keeps ordinary development and CI
-on the same reviewed source without a local Cargo patch or an unpublished registry
-dependency. Restore and qualify the final registry dependency before publication;
-official releases remain held. It adapts the immutable document graph to
+The `altopelago-aeon` facade offers an optional `sansa` feature backed by the exact
+registry dependency `altopelago-sansa-runtime =0.15.0-rc.2`. `Cargo.lock` records
+the verified published crate checksum; the [provider receipt](../../docs/releases/sansa-0.15.0-rc.2.json)
+pins its source and registry verification. This replaces the earlier development
+Git selection. Final AEON artifacts, platform checks and independent release QA
+remain pending; a verified provider alone does not accept the combined RC.
+The feature adapts the immutable document graph to
 stable SANSA Address, Resolve, and Query, plus experimental immutable mutation
 planning and AEON/JSON target validation. Local spaces remain under host
 control. See the facade and native Python READMEs for plan inspection and
@@ -235,8 +236,11 @@ cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
 
-The `core` and `aes` lanes select the development targets. Use `*-released`
-for the immutable compatibility snapshots and `*-legacy` for older targets.
+The core and aes lanes (including their *-released aliases) select immutable
+Core 0.6 and AES projection 0.6; canonical selects immutable 0.5. Use *-next
+for moving development targets and *-legacy for older baseline targets. The
+unchanged historical 0.5/0.4 rejection-delta audit remains a separate check.
+Authority adoption is tracked in the [release input record](../../docs/releases/cts-0.17.0-rc.2.json).
 
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
 checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before

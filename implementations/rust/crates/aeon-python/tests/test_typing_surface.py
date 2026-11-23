@@ -10,7 +10,7 @@ from altopelago.aeon import pytonic
 
 class TypingSurfaceTests(unittest.TestCase):
     def test_installed_stub_covers_public_native_exports_and_mutation_views(self) -> None:
-        stub = ast.parse(files("altopelago.aeon").joinpath("_native.pyi").read_text())
+        stub = ast.parse(files("altopelago.aeon").joinpath("_native.pyi").read_text(encoding="utf-8"))
         declarations = {
             node.name: node
             for node in stub.body

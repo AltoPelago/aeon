@@ -6,7 +6,50 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
-## Unreleased
+## 0.17.0-rc.2 - 2026-11-23
+
+Coordinated TypeScript/Rust/Python RC preparation. Publication, exact registry
+consumers, independent QA and final combination acceptance are pending. Each
+implementation retains its own signed tag and registry distribution; pure Python
+is not implicitly a second PyPI publication because its metadata is aligned.
+
+### Included scope
+
+- Constrained structural-path AEON references share SANSA parsing and enforce
+  SANSA-compliant index spellings while preserving actual targets, compatibility
+  checks and canonical/integrity contracts.
+- Read-only SANSA child identities and selected property Resolve/direct Query/
+  portable AEOS integration across admitted reference providers. Member keys,
+  node containers and direct heads are distinguished; result addresses remain
+  structural and missing adapter capabilities fail closed.
+- Empty ordinary keys with duplicate rejection, exact Unicode identity handling
+  and the delivered Unicode wildcard/validation/search corrections.
+- Source-linked AEON/SANSA playgrounds, shared browser highlighting, explicit
+  empty Binding Set display, editor property literals and reviewed VSIX verifier
+  fixes in their owning repositories. Artifact/host support is qualified separately.
+- Preserve decoded values, references and source freshness during local playground
+  edits; bounded structured-comment overflow metadata and regenerated WASM parity
+  remain required by their existing guards.
+
+### Migration and release gates
+
+- See [0.17 migration and supported entrypoints](docs/migration-0.17.0.md).
+  Pure Python remains Resolve-only; native Pytonic Query and portable AEOS are
+  distinct surfaces. Inert literals do not acquire evaluation or reference rights.
+- Newline clarification/warnings and local positional selectors are deferred to
+  tentative0.17.1. Existing newline/index contracts are retained by this scope cut.
+- The final provider version, registry integrity/locks and generated artifacts
+  must be selected and independently reviewed before release. Existing private
+  SANSA archives/Git pins are development evidence, not registry provenance.
+- Compatibility/target-preservation controls and1.15x latency/1.20x memory budgets
+  are unchanged. No new blanket V8 exception or exact WASM reproducibility claim.
+
+## Earlier development checkpoints (historical)
+
+The entries below retain original candidate status and intermediate source pins.
+Current release scope/gates and the migration guide supersede their pending-
+provider/Query/consumer or unconditional-publication-hold wording.
+
 
 - Reserve `radix16` as a fixed base-16 radix datatype. The spelling
   `r:radix16 = %BEEF` preserves the authored datatype in AES and canonical

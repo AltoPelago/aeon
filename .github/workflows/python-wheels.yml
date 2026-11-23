@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -90,7 +90,7 @@ jobs:
           --no-index
           --only-binary=:all:
           --find-links implementations/rust/crates/aeon-python/wheelhouse
-          altopelago-aeon==0.16.0
+          altopelago-aeon==0.17.0-rc.2
 
       - name: Installed-wheel smoke suite
         run: python -m unittest discover -s implementations/rust/crates/aeon-python/tests -p "test_*.py"
@@ -117,7 +117,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 4bc227f0e042c9c4514a0f2d75492cb6634cab60
+          ref: 3918c78b6650446da59550c2da43c87510625831
           path: aeonite-cts
 
       - name: Setup Python
@@ -151,4 +151,4 @@ jobs:
       - name: Installed-wheel Core CTS and pure-Python differential
         run: >-
           python scripts/check-installed-python-differential.py
-          --cts aeonite-cts/cts/core/v1/core-cts.v1.next.json
+          --cts aeonite-cts/cts/core/v1/core-cts.v1.snapshot-0.6.json

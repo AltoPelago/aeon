@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
+          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
           path: aes
 
       - name: Link AES for the Rust workspace
@@ -97,7 +97,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 4bc227f0e042c9c4514a0f2d75492cb6634cab60
+          ref: 3918c78b6650446da59550c2da43c87510625831
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -159,6 +159,11 @@ jobs:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: pnpm test:cts:all
 
+      - name: Immutable release Core, AES projection and WASM CTS
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+        run: pnpm test:cts:release
+
       - name: Core escaped-path public CLI parity
         run: node ../../scripts/test-core-path-escaping.mjs
 
@@ -191,7 +196,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
+          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -228,14 +233,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: e2493a85c28fa4b75917bd2dc43badbeae343cba
+          ref: 3918c78b6650446da59550c2da43c87510625831
           path: aeonite-cts
 
       - name: Checkout AES
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 35f347e7cb579e342ad6c322835abe563d0c17c5
+          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
           path: aes
 
       - name: Link AES for the Rust workspace

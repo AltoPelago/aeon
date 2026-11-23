@@ -1,17 +1,16 @@
-# Combined SANSA development candidate
+# Historical SANSA development archives
 
-The selected archive is packed from the development SANSA candidate `8175c7b7ea8c765ebc3c6e5da35a949df9ae0783`.
-It includes container-only `tag`, head-only `headTag`, Unicode hardening,
-ordinary empty keys, direct read-only property Query and `radix16` mutation target validation.
+The active0.17.0 preparation now consumes the exact verified SANSA0.15.0-rc.2
+registry provider. See[the registry artifact record](../../../docs/releases/sansa-0.15.0-rc.2.json).
+The private pnpm override is removed; source archives are not registry provenance.
 
-Archive: `altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz`.
-SHA-256: `936d29298e1fb56157e3f0cfaa70b8b7133c3c19790777ff3985017a90d7ae32`.
-All 180 packaged files match the pinned source. `provenance.json`, the staging
-helper, workspace override and lockfile agree; Rust selects the same source.
-Prior archives remain available for provenance.
+Earlier development tarballs are removed from the current tracked tree and remain
+in Git at`26467ad880837db7adec419f1dcb544e0b30009f`. Their hashes and the previous
+selection are retained in[provenance.json](provenance.json). Existing local ignored
+copies may remain as cache/evidence; they are not runtime/release inputs. No
+historical bytes or Git history are rewritten by this cleanup.
 
-Standalone authoritative property Resolve, direct Query and literal ports are implemented.
-AEOS admission, local positions and full profile/platform/cost/
-registry qualification retain their separate gates. This is not a registry
-artifact or a release/capability promotion. Package versions are unchanged.
-Official releases, stable promotion and deployment remain held.
+Use normal exact registry pins and frozen consumers for release acceptance.
+Independent provider/adoption QA and the final combination's artifact/platform
+checks remain required. This archive history grants no reference, mutation or
+other capability admission and changes no compatibility or resource budgets.

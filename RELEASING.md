@@ -16,6 +16,7 @@ The public npm implementation surface is:
 - `@altopelago/aeon-cli`
 - `@altopelago/aeon-core`
 - `@altopelago/aeon-finalize`
+- `@altopelago/aeon-highlight`
 - `@altopelago/aeon-integrity`
 - `@altopelago/aeon-lexer`
 - `@altopelago/aeon-parser`
@@ -55,6 +56,22 @@ Stable publication uses a new stable version and repeats artifact verification.
 Earlier local `0.17.0-rc.1` preparation is retained evidence, not proof that the
 expanded 0.17.0 scope is complete. Before the next version change, reconcile the
 selected source and registry state using the checklist's transition gate.
+
+### Coordinated0.17 RC preparation
+
+The current0.17.0-rc.2 preparation retains the delivered selector/empty-key/Unicode/
+highlighter scope and defers newline warnings/local positions to tentative0.17.1.
+See[the migration guide](docs/migration-0.17.0.md) and[publication task graph](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-publication.md).
+Each preparation/adoption task requests fresh independent QA and must pass owning
+checks on exact main before publication. Provider registry qualification precedes
+dependents; prior candidate archives/source pins are historical evidence.
+
+The user authorized sequential publication only once readiness passes, updating
+all affected consumers. This does not bypass signed tags, protected environments,
+trusted publishing, exact registry consumers, supported-platform/wheel matrix or
+compatibility/target/resource gates. Source metadata alone establishes no accepted
+RC. Deployment is separately gated. The0.16 section below is historical guidance,
+not authority to retain its versions or provider pins for0.17.
 
 ### Coordinated 0.16.0 cut
 
