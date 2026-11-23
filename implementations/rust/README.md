@@ -63,12 +63,13 @@ The current crates include:
 - `aeon-python`
 - `aeon-wasm`
 
-The `altopelago-aeon` facade offers an optional `sansa` feature backed by
-the coordinated `altopelago-sansa-runtime` 0.15.0-rc.1 source pinned by full Git
-revision in `Cargo.toml` and `Cargo.lock`. This keeps ordinary development and CI
-on the same reviewed source without a local Cargo patch or an unpublished registry
-dependency. Restore and qualify the final registry dependency before publication;
-official releases remain held. It adapts the immutable document graph to
+The `altopelago-aeon` facade offers an optional `sansa` feature backed by the exact
+registry dependency `altopelago-sansa-runtime =0.15.0-rc.2`. `Cargo.lock` records
+the verified published crate checksum; the [provider receipt](../../docs/releases/sansa-0.15.0-rc.2.json)
+pins its source and registry verification. This replaces the earlier development
+Git selection. Final AEON artifacts, platform checks and independent release QA
+remain pending; a verified provider alone does not accept the combined RC.
+The feature adapts the immutable document graph to
 stable SANSA Address, Resolve, and Query, plus experimental immutable mutation
 planning and AEON/JSON target validation. Local spaces remain under host
 control. See the facade and native Python READMEs for plan inspection and

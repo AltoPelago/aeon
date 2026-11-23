@@ -344,8 +344,11 @@ AEOS `path` fields, clone/pointer references and event paths remain structural.
 Query, activation and mutation are outside this standalone candidate. Scoped
 document projection is described below; the AEOS contract and consumer boundaries
 are documented in [AEOS child identity selectors](../../docs/aeos-child-identity-selectors.md).
-Bridge artifacts and combined release checks remain separate work. Package
-version `0.16.0` is unchanged for local evaluation and is not a publication claim.
+Bridge artifacts and combined release checks remain separate work. This checkout
+prepares source metadata `0.17.0-rc.2`; it does not establish publication or final
+installed/platform acceptance. The native `altopelago-aeon` distribution has a
+separate release pipeline; aligned pure-Python metadata does not publish a new
+PyPI distribution.
 
 ### Explicit document namespaces
 
@@ -444,8 +447,9 @@ admits properties through `validate_telex_records` / `validate_telex`; see
 Query evaluator; the separate native distribution's existing Pytonic
 `Document.query()` does admit property Query through the Rust SDK. This is not
 a fallback between distributions. Native/WASM compilation uses
-its own Rust Core port, not this Python resolver. Official releases, deployment
-and stable profile claims remain on hold.
+its own Rust Core port, not this Python resolver. Publication requires independent
+release QA and the final artifact/platform gates. Deployment remains separately
+held, and this preparation does not promote experimental profile claims.
 
 Detailed CLI compiled-AST JSON (`inspect --json`) remains closed for property
 address literals. The qualifier AST's shared `parameters` convenience aliases

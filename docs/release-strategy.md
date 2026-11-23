@@ -66,7 +66,37 @@ This keeps the release history honest about what was actually shipped.
 
 ## Release flow
 
-### Property Resolve SDK development candidate
+### Current 0.17.0 preparation
+
+This checkout prepares `0.17.0-rc.2` for the three coordinated implementation
+tracks. Newline clarification/warnings and local positional selectors are deferred
+to tentative 0.17.1; delivered property selectors remain in this cut. The
+[migration guide](migration-0.17.0.md) records the admitted and prohibited consumers.
+
+The TypeScript workspace and Rust workspace select the verified SANSA registry
+RC `0.15.0-rc.2`, with registry integrity in the locks and exact source/artifact
+verification in the [provider receipt](releases/sansa-0.15.0-rc.2.json). The active
+private archive override is removed. Historical archive hashes and source commits
+remain retained in Git history and the candidate provenance record.
+
+The AES empty-key-compatible provider is being prepared separately. Before AEON
+publication, select its verified registry artifact, update affected locks and
+workflow pins, regenerate affected WASM outputs with the pinned toolchain and
+complete Rust/native Python/TS packaging and platform qualification. Aligned
+source versions and a passing TS source suite do not establish those gates.
+
+Publication is authorized only after each task's independent QA and readiness
+checks pass, in provider-first order. Protected environments, trusted publishing,
+signed checked-main tags, exact registry consumers, compatibility/target checks
+and existing resource budgets remain required. Production deployment stays
+separately held. The [publication plan](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-publication.md)
+tracks the remaining gates.
+
+### Historical property Resolve SDK development candidate
+
+The following records an earlier source-only selection and its then-open gates.
+Its archive selections and unconditional publication hold are superseded by the
+current preparation above; it remains provenance, not a current install recipe.
 
 The combined-main preparation also rebuilds committed WASM from the merged Rust
 block-comment newline fix. Compile/process, canonical and byte-stream parity must
@@ -321,7 +351,11 @@ Release notes should not imply that:
 - conformance truth: sibling CTS repo
 - implementation packaging and release operations: this repo
 
-## Held SANSA development candidate
+## Historical SANSA development candidates
+
+These paragraphs record prior source-only checkpoints. Their archive selections
+and publication holds are superseded by the current preparation above. Historical
+checks do not qualify the final registry/artifact combination.
 
 The private TypeScript workspace override uses the source-verified SANSA
 `0.15.0-rc.1` archive from reviewed development commit
@@ -353,7 +387,7 @@ held until owning reviews merge and the separate release gates are completed.
 
 ## Optional browser highlighting package in TypeScript 0.17.0
 
-The reviewed 0.17.0 TypeScript package set may add
+The selected 18-package 0.17.0 TypeScript roster includes
 `@altopelago/aeon-highlight` alongside the existing published libraries. This is
 an explicit publish-surface preparation change, independently reviewed in the
 browser-package branch; it does not authorize publication. The package uses the
@@ -371,7 +405,10 @@ the new package through the existing release workflow.
 Package review, fresh frozen installation, full package preflight, CI and
 consumer migrations must finish before selecting a release combination. The
 [consumer checklist](browser-highlighting-0.17.0.md) records the local packaging
-proof and remaining gates. Official releases and deployment remain on hold.
+proof and remaining gates. Publication requires the final independent-QA and
+artifact gates; deployment remains separately held. First publication and trusted
+publisher setup for this previously unpublished package must be established
+before relying on the normal npm workflow for it.
 
 The optional `./renderer` entry exports a provider-bound renderer for hosts that
 select their own implementation lexer. It loads no lexer or DOM itself. Existing
@@ -379,9 +416,9 @@ root/element entries retain the exact matching 0.17 lexer dependency. Website
 legacy 0.16 and candidate 0.17 providers require explicit consumer compatibility
 checks; this does not upgrade or relax their runtime graphs.
 
-The unpublished 0.2 property revision separates container-only `&tag` from
-head-only `&headTag`. The container/head split is merged; direct property Query is a coordinated candidate
-under owning review. Shared
+The 0.2 property candidate separates container-only `&tag` from head-only
+`&headTag`. The container/head split and direct property Query are merged source;
+final combined release qualification remains pending. Shared
 callbacks, parser/inspection ceilings and prohibited consumer admission are
 unchanged. Old head-target predicates must migrate explicitly to `&headTag`;
 no published selector contract or immutable reference/target fixture is revised.
