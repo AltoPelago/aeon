@@ -176,6 +176,7 @@ function compareDiagnostics(expected, actual) {
         return false;
       }
       if (wanted.phase != null && candidate.phase !== wanted.phase) return false;
+      if (wanted.phaseLabel != null && candidate.phase !== wanted.phaseLabel) return false;
       return true;
     });
     if (index < 0) {
