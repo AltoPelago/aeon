@@ -1,12 +1,64 @@
 {
-  "sourceCommit": "8175c7b7ea8c765ebc3c6e5da35a949df9ae0783",
-  "sourceTree": "eac6114db056705b59e19ce36ea97865ad3fcc60",
-  "sourceBase": "80f48ce7c676f5a0097df63bd647e5a92eaeaf74",
-  "packageVersion": "0.15.0-rc.1",
-  "archiveSha256": "936d29298e1fb56157e3f0cfaa70b8b7133c3c19790777ff3985017a90d7ae32",
-  "archiveFile": "altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz",
-  "matchedSourceFiles": 180,
-  "contents": "Case-sensitive reserved radix handling in SANSA Query and Composer, and development Instruction/Mutate CTS defaults",
-  "publication": false,
-  "registryArtifact": false
+  "status": "historical-development-selection; no active override",
+  "last_main_with_archives": "26467ad880837db7adec419f1dcb544e0b30009f",
+  "replacement_provider_record": "../../../docs/releases/sansa-0.15.0-rc.2.json",
+  "previous_selection": {
+    "sourceCommit": "8175c7b7ea8c765ebc3c6e5da35a949df9ae0783",
+    "sourceTree": "eac6114db056705b59e19ce36ea97865ad3fcc60",
+    "sourceBase": "80f48ce7c676f5a0097df63bd647e5a92eaeaf74",
+    "packageVersion": "0.15.0-rc.1",
+    "archiveSha256": "936d29298e1fb56157e3f0cfaa70b8b7133c3c19790777ff3985017a90d7ae32",
+    "archiveFile": "altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz",
+    "matchedSourceFiles": 180,
+    "contents": "Case-sensitive reserved radix handling in SANSA Query and Composer, and development Instruction/Mutate CTS defaults",
+    "publication": false,
+    "registryArtifact": false
+  },
+  "removed_from_active_tree": [
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-0436666.tgz",
+      "sha256": "bb3243188ca46198301d778fb92ea6c174842372671084b481330b965c1be759",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-head-tag-fad5824f.tgz",
+      "sha256": "fad5824fec43ff29187824d73a01c47a04d32eb363258aa0f30d23d809433aba",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-main-28e040f1.tgz",
+      "sha256": "28e040f12f8000cf40d14e466fa85108c13fb34237c1d3791d4d9ac4e7bf9da6",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-properties-7026ec5c.tgz",
+      "sha256": "7026ec5ccb9077062ee2995a4d8d64204dd14bd832c119580d579bc179b8e1d7",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-query-8f997d2a.tgz",
+      "sha256": "8f997d2a5478de49bbd4b0703f117f2bc50ec3b720e4f7fd3d8e5ecf1f127bd5",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-query-qa-fbbf754a.tgz",
+      "sha256": "fbbf754ad6e5c15523ccf51961d962c490796b97aa7ae82147a7913cc277833a",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-radix16-1ad50e9d.tgz",
+      "sha256": "1ad50e9d20d70b104138f4d806bb87778ece204e5892eb9de1bc4fce92a145b7",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz",
+      "sha256": "936d29298e1fb56157e3f0cfaa70b8b7133c3c19790777ff3985017a90d7ae32",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    },
+    {
+      "path": "implementations/typescript/.candidate-packages/altopelago-sansa-0.15.0-rc.1-unicode-empty-keys-c0471ad5.tgz",
+      "sha256": "c0471ad59f6f0594e0ca6183ad6a292d02c208bd9cc30709bb5b27ac9e7d222b",
+      "retained_at": "26467ad880837db7adec419f1dcb544e0b30009f"
+    }
+  ]
 }

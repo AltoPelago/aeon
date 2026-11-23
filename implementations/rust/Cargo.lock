@@ -140,8 +140,9 @@ dependencies = [
 
 [[package]]
 name = "altopelago-sansa-runtime"
-version = "0.15.0-rc.1"
-source = "git+https://github.com/AltoPelago/sansa?rev=8175c7b7ea8c765ebc3c6e5da35a949df9ae0783#8175c7b7ea8c765ebc3c6e5da35a949df9ae0783"
+version = "0.15.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d91953577c6880de02db20106107b63543ea924d5d4f5fc47ca447c4ff5f878b"
 
 [[package]]
 name = "base64ct"

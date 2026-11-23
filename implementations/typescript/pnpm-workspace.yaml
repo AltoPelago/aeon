@@ -1,7 +1,3 @@
 packages:
   - packages/*
   - tools/*
-
-# Reviewed local candidate; see .candidate-packages/README.md before release.
-overrides:
-  '@altopelago/sansa': file:.candidate-packages/altopelago-sansa-0.15.0-rc.1-radix16-qa-936d2929.tgz

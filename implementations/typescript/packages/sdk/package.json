@@ -56,6 +56,6 @@
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
     "@altopelago/aeon-canonical": "workspace:*",
-    "@altopelago/sansa": "0.15.0-rc.1"
+    "@altopelago/sansa": "0.15.0-rc.2"
   }
 }

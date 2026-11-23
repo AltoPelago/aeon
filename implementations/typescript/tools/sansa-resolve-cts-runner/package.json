@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@altopelago/sansa": "0.15.0-rc.1"
+    "@altopelago/sansa": "0.15.0-rc.2"
   },
   "devDependencies": {
     "@types/node": "^26.6.6"
