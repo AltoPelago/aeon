@@ -261,8 +261,11 @@ cd implementations/python
 python3 tools/run_cts.py core aes sansa-resolve
 ```
 
-The `core` and `aes` lanes select the development targets. Use `*-released`
-for the immutable compatibility snapshots and `*-legacy` for older targets.
+The core and aes lanes (including their *-released aliases) select immutable
+Core 0.6 and AES projection 0.6; canonical selects immutable 0.5. Use *-next
+for moving development targets and *-legacy for older baseline targets. The
+unchanged historical 0.5/0.4 rejection-delta audit remains a separate check.
+Authority adoption is tracked in the [release input record](../../docs/releases/cts-0.17.0-rc.2.json).
 
 ## Cross-Implementation Diff
 

@@ -236,8 +236,11 @@ cd implementations/rust
 python3 tools/run_cts.py core aes aeos
 ```
 
-The `core` and `aes` lanes select the development targets. Use `*-released`
-for the immutable compatibility snapshots and `*-legacy` for older targets.
+The core and aes lanes (including their *-released aliases) select immutable
+Core 0.6 and AES projection 0.6; canonical selects immutable 0.5. Use *-next
+for moving development targets and *-legacy for older baseline targets. The
+unchanged historical 0.5/0.4 rejection-delta audit remains a separate check.
+Authority adoption is tracked in the [release input record](../../docs/releases/cts-0.17.0-rc.2.json).
 
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
 checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before

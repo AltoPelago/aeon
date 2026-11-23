@@ -1,0 +1,41 @@
+{
+  "prepared_on": "2026-11-23",
+  "authority_pr": "https://github.com/aeonite-org/aeonite-cts/pull/86",
+  "cts_revision": "a615699753b2ecc82332d9008753411ce1ec60b6",
+  "authority_state": "independently reviewed; owning merge/main retention pending",
+  "specification_revision": "a6948968e4e2741f2342249024b266ca6adbfeb7",
+  "frozen_selection_source": "4bc227f0e042c9c4514a0f2d75492cb6634cab60",
+  "targets": [
+    {
+      "lane": "core",
+      "snapshot_id": "core-cts-v1-snapshot-0.6",
+      "manifest": "cts/core/v1/core-cts.v1.snapshot-0.6.json",
+      "manifest_sha256": "d8125efa769565400e530f4c5576bc1f21827babb0251f85aa44c65ef0848d2c",
+      "cases": 657
+    },
+    {
+      "lane": "aes",
+      "snapshot_id": "aes-cts-v1-snapshot-0.6",
+      "manifest": "cts/aes/v1/aes-cts.v1.snapshot-0.6.json",
+      "manifest_sha256": "ff60ec48f8997388f47cd48c7ff16b76a2eda5da03d46a364d86180b588930bb",
+      "cases": 87
+    },
+    {
+      "lane": "canonical",
+      "snapshot_id": "canonical-cts-v1-snapshot-0.5",
+      "manifest": "cts/canonical/v1/canonical-cts.v1.snapshot-0.5.json",
+      "manifest_sha256": "7d5edb06276c9a85b37a11b7fe48e12446821cd735e4a587ca852f1a1c9c8402",
+      "cases": 209
+    }
+  ],
+  "source_runtime_checks": {
+    "typescript": "657/87/209 passed",
+    "rust": "657/87/209 passed",
+    "pure_python": "657/87/209 passed",
+    "wasm": "657 Core passed; phaseLabel assertion strengthened and rechecked"
+  },
+  "historical_fixture_and_target_checks_unchanged": true,
+  "experimental_selector_profiles_promoted": false,
+  "installed_platform_and_final_QA_pending": true,
+  "publication_or_deployment": false
+}

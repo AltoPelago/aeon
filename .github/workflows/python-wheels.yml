@@ -117,7 +117,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 4bc227f0e042c9c4514a0f2d75492cb6634cab60
+          ref: a615699753b2ecc82332d9008753411ce1ec60b6
           path: aeonite-cts
 
       - name: Setup Python
@@ -151,4 +151,4 @@ jobs:
       - name: Installed-wheel Core CTS and pure-Python differential
         run: >-
           python scripts/check-installed-python-differential.py
-          --cts aeonite-cts/cts/core/v1/core-cts.v1.next.json
+          --cts aeonite-cts/cts/core/v1/core-cts.v1.snapshot-0.6.json
