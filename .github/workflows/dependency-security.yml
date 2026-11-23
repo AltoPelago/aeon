@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 84efced0d5a6e5fee50ebc69e04a861e2f567641
+          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
           path: aes
 
       - name: Link AES beside the AEON checkout

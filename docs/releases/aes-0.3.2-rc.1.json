@@ -1,0 +1,32 @@
+{
+  "version": "0.3.2-rc.1",
+  "checksum": "f5f60ab5f7553260610c52ffc2497aa67a65bab6743c9982d89a9b1a33295237",
+  "main": "1b260dc263ba626b9297364d66d511dbed7c8f0a",
+  "vcs_sha_verified": true,
+  "crate_files": 11,
+  "source_files_matched_main": 7,
+  "matched_paths": [
+    "LICENSE",
+    "README.md",
+    "src/film.rs",
+    "src/film_candidate_b.rs",
+    "src/film_candidate_c.rs",
+    "src/lib.rs",
+    "src/telex_incremental.rs"
+  ],
+  "generated_packaging_files_separate": [
+    ".cargo_vcs_info.json",
+    "Cargo.lock",
+    "Cargo.toml",
+    "Cargo.toml.orig"
+  ],
+  "workflow": 45172211237,
+  "hosted_publish": "success",
+  "hosted_clean_consumer": "success",
+  "registry_archive_verified": true,
+  "additional_empty_key_consumer_pending": false,
+  "stable_adoption": false,
+  "additional_empty_key_consumer": "passed",
+  "fresh_cargo_home": true,
+  "exact_registry_lock_verified": true
+}

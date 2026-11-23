@@ -133,7 +133,9 @@ dependencies = [
 
 [[package]]
 name = "altopelago-aes-telex"
-version = "0.3.1"
+version = "0.3.2-rc.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5f60ab5f7553260610c52ffc2497aa67a65bab6743c9982d89a9b1a33295237"
 dependencies = [
  "sha2",
 ]
