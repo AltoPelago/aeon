@@ -47,10 +47,10 @@ Recommended branch shapes:
 
 Examples:
 
-- `release/typescript/0.17.0-rc.1`
-- `release/rust/0.16.0`
-- `release/python/0.16.0`
-- `hotfix/typescript/0.17.0-rc.1`
+- `release/typescript/0.17.0-rc.2`
+- `release/rust/0.17.0-rc.2`
+- `release/python/0.17.0-rc.2`
+- `hotfix/typescript/0.17.0-rc.2`
 
 ## Tagging strategy
 
@@ -58,9 +58,9 @@ Use implementation-specific tags instead of a single repo-wide version tag.
 
 Examples:
 
-- `typescript/v0.17.0-rc.1`
-- `rust/v0.16.0`
-- `python/v0.16.0`
+- `typescript/v0.17.0-rc.2`
+- `rust/v0.17.0-rc.2`
+- `python/v0.17.0-rc.2`
 
 This keeps the release history honest about what was actually shipped.
 
