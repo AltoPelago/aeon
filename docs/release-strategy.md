@@ -47,10 +47,10 @@ Recommended branch shapes:
 
 Examples:
 
-- `release/typescript/0.17.0-rc.3`
-- `release/rust/0.17.0-rc.3`
-- `release/python/0.17.0-rc.3`
-- `hotfix/typescript/0.17.0-rc.3`
+- `release/typescript/0.17.0`
+- `release/rust/0.17.0`
+- `release/python/0.17.0`
+- `hotfix/typescript/0.17.0`
 
 ## Tagging strategy
 
@@ -58,41 +58,51 @@ Use implementation-specific tags instead of a single repo-wide version tag.
 
 Examples:
 
-- `typescript/v0.17.0-rc.3`
-- `rust/v0.17.0-rc.3`
-- `python/v0.17.0-rc.3`
+- `typescript/v0.17.0`
+- `rust/v0.17.0`
+- `python/v0.17.0`
 
 This keeps the release history honest about what was actually shipped.
 
 ## Release flow
 
-### Current 0.17.0 preparation
+This document records the source contract and release-preparation snapshot,
+not live registry availability. Completed publication is tracked by the signed
+implementation tags, [GitHub releases](https://github.com/AltoPelago/aeon/releases)
+and exact registry/consumer receipts; frozen preparation notes are historical
+after those gates pass. Experimental profile/CTS statuses remain independent.
 
-This checkout prepares `0.17.0-rc.2` for the three coordinated implementation
-tracks. Newline clarification/warnings and local positional selectors are deferred
-to tentative 0.17.1; delivered property selectors remain in this cut. The
-[migration guide](migration-0.17.0.md) records the admitted and prohibited consumers.
+### Current 0.17.0 stable preparation
 
-The TypeScript workspace and Rust workspace select the verified SANSA registry
-RC `0.15.0-rc.3`, with registry integrity in the locks and exact source/artifact
-verification in the [provider receipt](releases/sansa-0.15.0-rc.3.json). The active
-private archive override is removed. Historical archive hashes and source commits
-remain retained in Git history and the candidate provenance record.
+The exact RC3 registry and selected downstream/combined configuration is accepted.
+The three coordinated implementation tracks now prepare stable 0.17.0 metadata.
+Newline clarification/warnings and local positional selectors stay deferred to
+0.17.1. Existing runtime, reference, consumer-admission and resource contracts
+remain unchanged; the [migration guide](migration-0.17.0.md) identifies them.
 
-The verified AES empty-key-compatible registry provider remains `0.3.2-rc.1`;
-its [receipt](releases/aes-0.3.2-rc.1.json), checksum and workflow pins are unchanged.
-This candidate includes the merged bounded wildcard expansion fixes in SANSA and
-pure Python. Before AEON publication, regenerate affected WASM outputs with the
-pinned toolchain and complete Rust/native Python/TS packaging, independent QA
-and platform qualification. Aligned source versions and a passing TS source
-suite do not establish those gates.
+The stable cut selects exact verified SANSA 0.15.0 and AES Telex 0.3.2 registry
+providers. Actual archive/source/hash/provenance and clean-consumer checks pass;
+see [SANSA](releases/sansa-0.15.0.json) and [AES](releases/aes-0.3.2.json) receipts.
+The separate SANSA current-guide correction remains tracked without changing
+immutable packages or experimental profile status. AEON's stable locks/generated
+outputs, independent QA and required checks are still preparation gates. Earlier
+RC receipts remain historical; no local overlay is treated as registry proof.
 
-Publication is authorized only after each task's independent QA and readiness
-checks pass, in provider-first order. Protected environments, trusted publishing,
-signed checked-main tags, exact registry consumers, compatibility/target checks
-and existing resource budgets remain required. Production deployment stays
-separately held. The [publication plan](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-publication.md)
-tracks the remaining gates.
+Regenerate affected native/WASM outputs with the pinned toolchains after selecting
+verified stable providers. Complete independent stable metadata/artifact review,
+required Rust/native Python/TypeScript checks and the configured wheel matrix.
+Review binary/source continuity and physical target checks without claiming exact
+binary reproducibility. Preserve existing1.15x latency/1.20x memory budgets,
+stop/no-benchmark-retry rules and the narrow identity V8 qualification limitation.
+No new property-cost or whole-workflow performance waiver is implied.
+
+Publication proceeds provider-first only after independent QA/readiness. Normal
+owning source approval/main checks, signed checked-main tags, trusted publishers,
+protected environments and actual exact registry consumers remain required.
+Stable versions are new immutable versions, not repointed RC dist-tags. Subsequent
+stable downstream adoption is separate; production deployment remains held.
+The [publication plan](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-publication.md)
+tracks these gates. Source metadata alone establishes no upload or adoption.
 
 ### Historical property Resolve SDK development candidate
 

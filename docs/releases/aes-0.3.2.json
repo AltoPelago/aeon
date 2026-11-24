@@ -1,0 +1,21 @@
+{
+  "observed_on": "2026-11-25",
+  "stable_artifact_verification": "actual public archives/source/metadata, exact registry locks and fresh installed consumers verified",
+  "deployment": false,
+  "performance": "No new benchmark or qualification; existing compatibility/target checks and budgets unchanged",
+  "version": "0.3.2",
+  "main": "f90ee2dea2d06b99ccadd96df716c2c27b203c21",
+  "reviewed_head": "97443dc190aef6f24ae987243dd078cbf524f5bc",
+  "whole_reviewed_tree_retained": true,
+  "checksum": "92dc30084fa184c00afabbfb17838dd1b869fb9f2f8e870b6aa98c4f05a77aa1",
+  "crate_files": 11,
+  "vcs_sha_verified": true,
+  "complete_normalized_manifest_and_lock_verified": true,
+  "workflow": 45409332771,
+  "hosted_publish": "success",
+  "hosted_clean_consumer": "success",
+  "fresh_combined_registry_consumer": "passed including empty ordinary member/attribute paths and Film depth guards",
+  "root_npm_private": true,
+  "film_durable_writer_enabled": false,
+  "aeon_stable_adoption": "candidate preparation only; independent AEON QA/main/artifact/publication gates pending"
+}

@@ -29,7 +29,7 @@ See [playground setup and options](tools/playground/README.md). No release or
 website deployment is needed.
 
 The [property-selector support matrix](docs/property-selector-support.md) records
-the unreleased SDK, pure/native Python, portable AEOS and tooling boundaries.
+the 0.17 source SDK, pure/native Python, portable AEOS and tooling boundaries.
 It distinguishes delivered APIs from deliberate host denials and remaining
 artifact qualification; it does not authorize a release or deployment.
 

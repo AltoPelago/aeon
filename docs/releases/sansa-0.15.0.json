@@ -1,0 +1,46 @@
+{
+  "observed_on": "2026-11-25",
+  "stable_artifact_verification": "actual public archives/source/metadata, exact registry locks and fresh installed consumers verified",
+  "deployment": false,
+  "performance": "No new benchmark or qualification; existing compatibility/target checks and budgets unchanged",
+  "version": "0.15.0",
+  "published_source": "56381b7cfe57c188b43dcabbf74bcfec0144fa9e",
+  "reviewed_head": "94790518a1229635ddc1d0081d2a1871b5e9e9c9",
+  "whole_reviewed_tree_retained": true,
+  "npm": {
+    "version": "0.15.0",
+    "sha256": "12da2d63d7c691dbeefbd993d062c8169b1213a9d20482dc83f44c12608981cf",
+    "integrity": "sha512-+dWvxYYPfG1d9th6mhZbXhLsZvoboe4UHISz2jQcB+hlE3u+pOQw2p2OHiVGYp8pnkYf8ZFdZ1mlxzQoLdPIdw==",
+    "files": 224,
+    "source_and_installed_bytes_verified": true,
+    "workflow": 45409410967,
+    "official_signature_attestation_verified": true,
+    "exact_source_tag_workflow_run_subject_digest_verified": true,
+    "claim_checker_contradictions_rejected": [
+      "source",
+      "workflow",
+      "digest"
+    ],
+    "fresh_unchanged_compatibility_target_controls": 17,
+    "dist_tags": {
+      "latest": "0.15.0",
+      "next": "0.15.0-rc.3"
+    }
+  },
+  "rust": {
+    "version": "0.15.0",
+    "checksum": "9198dbb6a0a4700512408e6483279324dca4106f8aa3dd7c02d0e1064f7fbefa",
+    "files": 39,
+    "vcs_source_verified": true,
+    "complete_normalized_manifest_and_lock_verified": true,
+    "workflow": 45409307527,
+    "hosted_clean_consumer": "success",
+    "fresh_combined_registry_consumer": "passed"
+  },
+  "documentation_followup_at_provider_selection": {
+    "pr": "https://github.com/AltoPelago/sansa/pull/66",
+    "status_at_preparation": "current published-status wording correction under independent review; immutable embedded preparation docs retained",
+    "runtime_artifact_or_target_defect": false
+  },
+  "aeon_stable_adoption": "candidate preparation only; independent AEON QA/main/artifact/publication gates pending"
+}

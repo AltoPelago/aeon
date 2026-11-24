@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
+          ref: f90ee2dea2d06b99ccadd96df716c2c27b203c21
           path: aes
 
       - name: Link AES for the Rust workspace
@@ -196,7 +196,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
+          ref: f90ee2dea2d06b99ccadd96df716c2c27b203c21
           path: aes
 
       - name: Link AES beside AEON checkout
@@ -240,7 +240,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: AltoPelago/aes
-          ref: 1b260dc263ba626b9297364d66d511dbed7c8f0a
+          ref: f90ee2dea2d06b99ccadd96df716c2c27b203c21
           path: aes
 
       - name: Link AES for the Rust workspace

@@ -1,9 +1,12 @@
 # Property selector support by API and host
 
-Unreleased development support, updated 22 November 2026. The table records
-existing entry points; it changes no capability manifest, selector policy, package
-version or dependency selection. Parsing and transport preserve inert address
-values; evaluation needs an explicitly authorized namespace and admitted consumer.
+Source support for the 0.17 release line, updated 25 November 2026 from the
+22 November provider audit. This table records entry points and capability
+boundaries, not live package availability. See the [release strategy](release-strategy.md)
+and [implementation releases](https://github.com/AltoPelago/aeon/releases) for
+publication evidence. A package version does not promote experimental profiles
+or stable CTS claims. Parsing/transport preserve inert values; evaluation requires
+an explicitly authorized namespace and admitted consumer.
 
 ## Owning APIs
 
@@ -74,10 +77,11 @@ Candidates and yielded direct heads are charged as documented, including misses
 and repeated occurrences. Logical allowances do not bound construction, ancestry,
 old navigation, all host work, wall time or heap.
 
-These delivered APIs are development support, not an exhaustive/stable CTS or
-whole-platform claim. Published packages, installed extensions, registry/vendor
-assets and every runtime/platform combination require their own exact artifact
-evidence. Prior native/WASM evidence is not a new rebuild or proof of exact WASM
-binary reproducibility. Compatibility/target checks, default limits and the
-existing 1.15x latency / 1.20x memory budgets are unchanged. Official releases,
-deployment and stable promotion remain on hold.
+These delivered APIs do not establish exhaustive/stable CTS, experimental-profile
+promotion or whole-platform support. Package publication, installed extensions and
+registry/vendor graphs require their own exact artifact/consumer evidence. Prior
+native/WASM checks are not a new rebuild or exact binary reproducibility proof.
+Compatibility/target checks, defaults and existing 1.15x latency / 1.20x memory
+budgets remain unchanged, including the narrow identity qualification limitation.
+Publication follows the reviewed provider-first release gates; deployment remains
+held. Newline/local positions are deferred to tentative 0.17.1.

@@ -8,6 +8,31 @@ repositories.
 
 ## Unreleased
 
+## 0.17.0 - 2026-11-25
+
+### Stable release preparation
+
+- Advance the accepted TypeScript/Rust/native Python RC3 scope to stable
+  metadata. Exact stable SANSA 0.15.0 and AES Telex 0.3.2 registry artifacts,
+  locks, generated outputs, independent delta QA and required package/platform
+  checks must be verified before publication. Existing RC artifacts stay immutable.
+- Retain constrained structural-path references with SANSA-compliant indexes,
+  read-only child identities, capable-provider property Resolve/direct Query and
+  selected portable AEOS integration. Physical targets, replay/canonical contracts,
+  consumer capability denials and scope boundaries remain unchanged from RC3.
+- Include ordinary empty keys with duplicate checks, Unicode hardening,
+  tag-container/headTag distinctions, bounded wildcard expansion and the delivered
+  source-linked playground/highlighter/editor support. Experimental APIs retain
+  their own statuses; literal parsing does not admit selectors as references.
+- TypeScript keeps its selected 18-package roster. Rust and native Python retain
+  separate signed implementation tags and exact registry-consumer gates. Aligned
+  pure-Python source metadata is not a separate PyPI distribution.
+- Newline clarification/local positional selectors remain deferred to 0.17.1.
+  Existing compatibility/target assertions, 1.15x latency/1.20x memory budgets,
+  stop/no-benchmark-retry and narrow identity V8 qualification limitation remain.
+  No new blanket performance or exact binary reproducibility claim. Deployment
+  remains separate and held. Stable publication is not established by this entry.
+
 ## 0.17.0-rc.3 - 2026-11-24
 
 Fresh coordinated candidate using verified SANSA `0.15.0-rc.3` registry artifacts.

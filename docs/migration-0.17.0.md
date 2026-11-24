@@ -1,8 +1,16 @@
 # Migrating to AEON0.17
 
-Status:0.17.0-rc.2 preparation,23November2026. Source features are retained from
-merged main. Independent QA, provider registry transition, generated artifacts,
-required hosted checks and final installed/platform acceptance are pending.
+Status: 0.17.0 stable preparation, 25 November 2026. The exact RC3 registry and
+selected downstream/combined configuration is accepted. Stable provider artifacts,
+locks/generated outputs, independent stable-delta QA, required hosted checks and
+actual stable installed consumers remain required. Existing runtime, target,
+capability and resource contracts are retained; metadata alone proves no upload.
+
+This document records the source contract and release-preparation snapshot,
+not live registry availability. Completed publication is tracked by the signed
+implementation tags, [GitHub releases](https://github.com/AltoPelago/aeon/releases)
+and exact registry/consumer receipts; frozen preparation notes are historical
+after those gates pass. Experimental profile/CTS statuses remain independent.
 
 ## Addressing and references
 
