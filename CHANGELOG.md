@@ -6,6 +6,16 @@ This changelog covers the implementation/package line. The AEON language,
 specification, and CTS lines are versioned separately in their authority
 repositories.
 
+## Unreleased
+
+### Fixed
+
+- Pure Python SANSA direct and recursive Resolve expansion now observes
+  `maxBindings` while iterating, rather than materializing the complete child
+  population before rejection. Preserve binding identity, repeated occurrences,
+  depth-first order and existing diagnostics, and close active iterators on early
+  termination. Namespace construction and arbitrary adapter work remain separate.
+
 ## 0.17.0-rc.2 - 2026-11-23
 
 Coordinated TypeScript/Rust/Python RC preparation. Publication, exact registry
