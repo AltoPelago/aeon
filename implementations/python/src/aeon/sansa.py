@@ -142,6 +142,7 @@ def _resolve_address(input, namespace, options=None, *, deny_properties=False):
         "effectiveRoot": None if opts.get("allowParentFromEffectiveRoot") is True else root_result["binding"],
         "parentTraversal": opts.get("parentTraversal"),
         "failOnParentFromEffectiveRoot": opts.get("failOnParentFromEffectiveRoot") is True,
+        "maxBindings": max_bindings,
     }
     if has_identity:
         policy.update(identityBudget=identity_budget, maxBindings=max_bindings)
@@ -313,9 +314,9 @@ def apply_resolve_selector(
     if selector_type == "parent":
         return select_parents(namespace, bindings, selector_index, policy)
     if selector_type == "directExpansion":
-        return {"ok": True, "bindings": [child for binding in bindings for child in get_children(namespace, binding)]}
+        return {"ok": True, "bindings": collect_expanded_bindings(bindings, namespace, False, policy.get("maxBindings"))}
     if selector_type == "descendantExpansion":
-        return {"ok": True, "bindings": [child for binding in bindings for child in get_descendants(namespace, binding)]}
+        return {"ok": True, "bindings": collect_expanded_bindings(bindings, namespace, True, policy.get("maxBindings"))}
     if selector_type == "namePattern":
         pattern = glob_pattern_to_regex(str(selector.get("pattern", "")))
         return {
@@ -608,10 +609,54 @@ def get_children(namespace: dict[str, object], binding: object) -> list[object]:
 
 
 def get_descendants(namespace: dict[str, object], binding: object) -> list[object]:
-    output: list[object] = []
-    for child in get_children(namespace, binding):
-        output.append(child)
-        output.extend(get_descendants(namespace, child))
+    return list(iter_descendants(namespace, binding))
+
+
+def iter_children(namespace, binding):
+    children = namespace.get("children")
+    if callable(children):
+        result = children(binding)
+        if result is not None:
+            yield from result
+    elif isinstance(binding, dict) and isinstance(binding.get("children"), list):
+        yield from binding["children"]
+
+
+def iter_descendants(namespace, binding):
+    stack = [iter_children(namespace, binding)]
+    try:
+        while stack:
+            try:
+                child = next(stack[-1])
+            except StopIteration:
+                stack.pop()
+                continue
+            yield child
+            stack.append(iter_children(namespace, child))
+    finally:
+        failure = None
+        while stack:
+            try:
+                stack.pop().close()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+        if failure is not None:
+            raise failure
+
+
+def collect_expanded_bindings(bindings, namespace, recursive, maximum):
+    output = []
+    stop_at = maximum + 1 if isinstance(maximum, int) else None
+    for binding in bindings:
+        selected = iter_descendants(namespace, binding) if recursive else iter_children(namespace, binding)
+        try:
+            for child in selected:
+                output.append(child)
+                if stop_at is not None and len(output) >= stop_at:
+                    return output
+        finally:
+            selected.close()
     return output
 
 
