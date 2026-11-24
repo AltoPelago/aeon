@@ -1,0 +1,38 @@
+{
+  "observed_on": "2026-11-24",
+  "sansa_main": "0b9316f6e31814377220ab3e5821d8457857d16c",
+  "reviewed_head": "d4d8c678497f749adfcd9ca2edee2e26ce2e77bb",
+  "whole_tree_equivalent": true,
+  "npm": {
+    "version": "0.15.0-rc.3",
+    "sha256": "60aa675da4bb1ad76f542849332c7bad4d8f533477b30b4e0fbaa0f6582f873d",
+    "integrity": "sha512-8LOj7ZbIkxUJSzfLs+q/MYBWbu1k0gDYkX3jfpGMH6v/JXV80J63O+lknuI+PaM1VUcoxRaY+o4U0FlgPgheyQ==",
+    "source_files_matched_main": 210,
+    "gitHead": "0b9316f6e31814377220ab3e5821d8457857d16c",
+    "dist_tags": {
+      "latest": "0.14.2",
+      "next": "0.15.0-rc.3"
+    },
+    "published_workflow": 45344372065,
+    "clean_registry_install_verified": true,
+    "installed_files_matched_archive": 210,
+    "source_and_registry_invariant_checks": 17,
+    "fresh_lock_integrity_verified": true,
+    "registry_signature_verified": true,
+    "provenance_attestation_verified": true,
+    "signature_audit_packages": 1,
+    "provenance_workflow_and_source_verified": true
+  },
+  "rust": {
+    "version": "0.15.0-rc.3",
+    "checksum": "e41bf0fd220efacbabb07721372a4236bd2523e93221622997aa4ceac767916b",
+    "crate_files": 39,
+    "source_files_matched_main": 36,
+    "vcs_sha": "0b9316f6e31814377220ab3e5821d8457857d16c",
+    "registry_upload_verified": true,
+    "hosted_clean_consumer": "success",
+    "workflow": 45343722159
+  },
+  "status": "verified RC provider; AEON final lock/artifact/consumer/QA acceptance pending",
+  "stable_adoption": false
+}

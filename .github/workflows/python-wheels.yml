@@ -90,7 +90,7 @@ jobs:
           --no-index
           --only-binary=:all:
           --find-links implementations/rust/crates/aeon-python/wheelhouse
-          altopelago-aeon==0.17.0-rc.2
+          altopelago-aeon==0.17.0-rc.3
 
       - name: Installed-wheel smoke suite
         run: python -m unittest discover -s implementations/rust/crates/aeon-python/tests -p "test_*.py"
