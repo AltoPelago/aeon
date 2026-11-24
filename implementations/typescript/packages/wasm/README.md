@@ -231,7 +231,7 @@ wrapper and Rust crate can therefore remain separate release units. A Rust
 toolchain or generator-version change is a reviewed build-input change and must
 regenerate the committed `pkg/` artifacts.
 
-## Unreleased property address literals
+## Property address literals (0.17 source line)
 
 The generated Rust Core binary accepts inert SANSA `&key("...")` / `&tag("...")`
 values through existing process, canonicalization and Telex operations. Quoted
@@ -242,4 +242,6 @@ canonical address representation are retained. References remain structural.
 This does not add a WASM standalone Resolve/Query API or property callback bridge.
 Use the separately capable TypeScript SDK for standalone Resolve. New profile or
 platform support, browser/playground workflows and affected resource/performance
-qualification remain separate. Releases and deployment stay on hold.
+qualification remain separate. Package publication follows normal reviewed
+source/artifact gates; deployment remains held. This API guide does not establish
+live registry availability, new profile/CTS claims or exact binary reproducibility.

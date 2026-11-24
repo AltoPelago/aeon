@@ -237,7 +237,7 @@ still checks and lints this crate and sets `PYO3_BUILD_EXTENSION_MODULE=1` when
 Cargo is explicitly asked to build every test target. Behavioral tests run
 against an installed wheel.
 
-## Unreleased property address literals
+## Property address literals (0.17 source line)
 
 The Core port accepts `&key("...")` / `&tag("...")` in inert SANSA values through
 the existing native compile, canonicalization and Telex entry points. It reuses
@@ -251,7 +251,8 @@ to properties. No Python callback facet or public mutable counter/session is
 marshalled into Rust. The separate pure Python
 `aeon.sansa` resolver supplies its own explicitly capable namespaces. Profile,
 platform and affected cost qualification, official release and deployment remain
-separate gates. Existing package versions and capability manifests are unchanged.
+separate gates. The literal integration does not promote capability/profile or
+CTS statuses; package versions/delivery follow the independent release flow.
 
 
 ### Experimental property Query
@@ -272,5 +273,6 @@ conversion hooks. The allowance is shared across all clauses;
 separate public calls receive fresh state. Checked Query failures return no
 partial records. `SansaDiagnostic.property`, selector index, budget, limit and
 observed fields retain property failure accounting. Literal activation, mutation,
-Instruction/SO and references remain closed to properties. Releases and deployment
-remain held; no new full-profile/platform/performance qualification is claimed.
+Instruction/SO and references remain closed to properties. Publication follows
+normal QA/source/artifact gates; deployment remains held. No new full-profile,
+platform or performance qualification follows from this API guide.

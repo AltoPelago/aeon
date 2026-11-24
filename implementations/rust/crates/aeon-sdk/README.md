@@ -8,7 +8,7 @@ facade rollout is evaluated separately.
 
 ## SANSA document projection
 
-Unreleased property selectors are delivered through the authoritative document
+Property selectors are delivered through the authoritative document
 facet for read-only Resolve/direct Query. The
 [provider/host matrix](../../../../docs/property-selector-support.md) distinguishes
 this from inert Core/WASM literals, native Pytonic Query, the selected portable
@@ -27,7 +27,7 @@ Query inside AEON:
 
 ```toml
 [dependencies]
-altopelago-aeon = { version = "0.15", features = ["sansa"] }
+altopelago-aeon = { version = "0.17", features = ["sansa"] }
 ```
 
 ```rust
@@ -52,7 +52,7 @@ assert!(result.is_ok());
 
 Local spaces remain host-mounted and are not invented by the document adapter.
 
-With the coordinated unreleased SANSA source, the same feature supplies an
+With the coordinated SANSA 0.15 provider, the same feature supplies an
 authoritative property facet for standalone `namespace.resolve_address(...)` and
 direct read-only `namespace.evaluate_query(...)`:
 `$.*&key("item")&tag("widget")` selects the original named container for

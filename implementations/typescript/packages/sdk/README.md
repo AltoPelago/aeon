@@ -83,7 +83,7 @@ paths.
 
 #### Experimental standalone property Resolve
 
-The coordinated unreleased SANSA candidate supports literal `&key("...")`,
+The coordinated SANSA 0.15 integration supports literal `&key("...")`,
 `&tag("...")` and `&headTag("...")` filters through this namespace's explicit
 `properties` facet. See the [provider/host matrix](../../../../docs/property-selector-support.md):
 

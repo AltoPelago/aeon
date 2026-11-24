@@ -2,7 +2,7 @@
 
 Dependency-free Python implementation of the AEON Core v1 parser surface.
 
-Current package line: `0.17.0-rc.3`.
+Current package line: `0.17.0`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -396,7 +396,7 @@ default 10,000 logical identity inspections across selector rules in one call.
 Schema resource policies and consumer options can set `max_identity_inspections`;
 this budget is separate from projection construction and other validation limits.
 
-## Unreleased property Addressing and standalone Resolve
+## Property Addressing and standalone Resolve (0.17 source line)
 
 `aeon.sansa` parses/renders literal `&key("...")`, `&tag("...")` and
 `&headTag("...")` suffixes. The [provider/host matrix](../../docs/property-selector-support.md)
@@ -462,6 +462,6 @@ output remain available. Direct parser/Resolve APIs retain their plain-data AST;
 use canonical addresses or portable records for interchange rather than blindly
 JSON-serializing deep convenience graphs.
 
-In the unreleased 0.2 revision, `&tag("book")` matches NodeLiteral containers
+In the implemented 0.2 kind-split contract, `&tag("book")` matches NodeLiteral containers
 only; `&headTag("book")` matches NodeHead bindings only. Both use the existing
 authoritative node facet and allowance. Add `.*` explicitly to visit head children.
