@@ -47,10 +47,10 @@ Recommended branch shapes:
 
 Examples:
 
-- `release/typescript/0.17.0-rc.2`
-- `release/rust/0.17.0-rc.2`
-- `release/python/0.17.0-rc.2`
-- `hotfix/typescript/0.17.0-rc.2`
+- `release/typescript/0.17.0-rc.3`
+- `release/rust/0.17.0-rc.3`
+- `release/python/0.17.0-rc.3`
+- `hotfix/typescript/0.17.0-rc.3`
 
 ## Tagging strategy
 
@@ -58,9 +58,9 @@ Use implementation-specific tags instead of a single repo-wide version tag.
 
 Examples:
 
-- `typescript/v0.17.0-rc.2`
-- `rust/v0.17.0-rc.2`
-- `python/v0.17.0-rc.2`
+- `typescript/v0.17.0-rc.3`
+- `rust/v0.17.0-rc.3`
+- `python/v0.17.0-rc.3`
 
 This keeps the release history honest about what was actually shipped.
 
@@ -74,16 +74,18 @@ to tentative 0.17.1; delivered property selectors remain in this cut. The
 [migration guide](migration-0.17.0.md) records the admitted and prohibited consumers.
 
 The TypeScript workspace and Rust workspace select the verified SANSA registry
-RC `0.15.0-rc.2`, with registry integrity in the locks and exact source/artifact
-verification in the [provider receipt](releases/sansa-0.15.0-rc.2.json). The active
+RC `0.15.0-rc.3`, with registry integrity in the locks and exact source/artifact
+verification in the [provider receipt](releases/sansa-0.15.0-rc.3.json). The active
 private archive override is removed. Historical archive hashes and source commits
 remain retained in Git history and the candidate provenance record.
 
-The AES empty-key-compatible provider is being prepared separately. Before AEON
-publication, select its verified registry artifact, update affected locks and
-workflow pins, regenerate affected WASM outputs with the pinned toolchain and
-complete Rust/native Python/TS packaging and platform qualification. Aligned
-source versions and a passing TS source suite do not establish those gates.
+The verified AES empty-key-compatible registry provider remains `0.3.2-rc.1`;
+its [receipt](releases/aes-0.3.2-rc.1.json), checksum and workflow pins are unchanged.
+This candidate includes the merged bounded wildcard expansion fixes in SANSA and
+pure Python. Before AEON publication, regenerate affected WASM outputs with the
+pinned toolchain and complete Rust/native Python/TS packaging, independent QA
+and platform qualification. Aligned source versions and a passing TS source
+suite do not establish those gates.
 
 Publication is authorized only after each task's independent QA and readiness
 checks pass, in provider-first order. Protected environments, trusted publishing,

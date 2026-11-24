@@ -2,7 +2,7 @@
 
 Rust workspace for the AEON implementation effort.
 
-Current crate/workspace line: `0.17.0-rc.2`.
+Current crate/workspace line: `0.17.0-rc.3`.
 This is the implementation/package version, not the AEON language version.
 See [`VERSIONING.md`](../../VERSIONING.md).
 
@@ -64,8 +64,8 @@ The current crates include:
 - `aeon-wasm`
 
 The `altopelago-aeon` facade offers an optional `sansa` feature backed by the exact
-registry dependency `altopelago-sansa-runtime =0.15.0-rc.2`. `Cargo.lock` records
-the verified published crate checksum; the [provider receipt](../../docs/releases/sansa-0.15.0-rc.2.json)
+registry dependency `altopelago-sansa-runtime =0.15.0-rc.3`. `Cargo.lock` records
+the verified published crate checksum; the [provider receipt](../../docs/releases/sansa-0.15.0-rc.3.json)
 pins its source and registry verification. This replaces the earlier development
 Git selection. Final AEON artifacts, platform checks and independent release QA
 remain pending; a verified provider alone does not accept the combined RC.

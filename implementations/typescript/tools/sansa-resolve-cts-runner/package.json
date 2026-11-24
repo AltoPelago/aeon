@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/sansa-resolve-cts-runner",
-  "version": "0.17.0-rc.2",
+  "version": "0.17.0-rc.3",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@altopelago/sansa": "0.15.0-rc.2"
+    "@altopelago/sansa": "0.15.0-rc.3"
   },
   "devDependencies": {
     "@types/node": "^26.6.6"

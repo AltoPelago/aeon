@@ -27,8 +27,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: 0.15.0-rc.2
-        version: 0.15.0-rc.2
+        specifier: 0.15.0-rc.3
+        version: 0.15.0-rc.3
     devDependencies:
       '@altopelago/aeon-lexer':
         specifier: workspace:*
@@ -155,8 +155,8 @@ importers:
         specifier: workspace:*
         version: link:../lexer
       '@altopelago/sansa':
-        specifier: 0.15.0-rc.2
-        version: 0.15.0-rc.2
+        specifier: 0.15.0-rc.3
+        version: 0.15.0-rc.3
 
   packages/profiles:
     dependencies:
@@ -203,8 +203,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: 0.15.0-rc.2
-        version: 0.15.0-rc.2
+        specifier: 0.15.0-rc.3
+        version: 0.15.0-rc.3
 
   packages/sdk-internal:
     dependencies:
@@ -221,8 +221,8 @@ importers:
         specifier: workspace:*
         version: link:../annotation-stream
       '@altopelago/sansa':
-        specifier: 0.15.0-rc.2
-        version: 0.15.0-rc.2
+        specifier: 0.15.0-rc.3
+        version: 0.15.0-rc.3
 
   packages/transport: {}
 
@@ -302,8 +302,8 @@ importers:
   tools/sansa-resolve-cts-runner:
     dependencies:
       '@altopelago/sansa':
-        specifier: 0.15.0-rc.2
-        version: 0.15.0-rc.2
+        specifier: 0.15.0-rc.3
+        version: 0.15.0-rc.3
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -311,8 +311,8 @@ importers:
 
 packages:
 
-  '@altopelago/sansa@0.15.0-rc.2':
-    resolution: {integrity: sha512-l4VHtzj3IYA5Iajng68/XDfJkDdmPXpntQaLsNPcucU4lo09d+K3KEOHQwFCn//lKFeP11qzKlmKNlUmTnR0cw==}
+  '@altopelago/sansa@0.15.0-rc.3':
+    resolution: {integrity: sha512-8LOj7ZbIkxUJSzfLs+q/MYBWbu1k0gDYkX3jfpGMH6v/JXV80J63O+lknuI+PaM1VUcoxRaY+o4U0FlgPgheyQ==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -466,7 +466,7 @@ packages:
 
 snapshots:
 
-  '@altopelago/sansa@0.15.0-rc.2': {}
+  '@altopelago/sansa@0.15.0-rc.3': {}
 
   '@types/node@26.6.6':
     dependencies:

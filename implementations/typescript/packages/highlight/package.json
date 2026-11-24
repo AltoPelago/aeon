@@ -1,6 +1,6 @@
 {
   "name": "@altopelago/aeon-highlight",
-  "version": "0.17.0-rc.2",
+  "version": "0.17.0-rc.3",
   "description": "Lexer-backed AEON highlighting, optional browser code block and themes.",
   "license": "MIT",
   "type": "module",

@@ -8,6 +8,12 @@ repositories.
 
 ## Unreleased
 
+## 0.17.0-rc.3 - 2026-11-24
+
+Fresh coordinated candidate using verified SANSA `0.15.0-rc.3` registry artifacts.
+The previously published RC2 remains immutable. Candidate packaging, independent
+QA and final affected consumer qualification remain required before publication.
+
 ### Fixed
 
 - Pure Python SANSA direct and recursive Resolve expansion now observes
