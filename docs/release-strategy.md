@@ -74,9 +74,9 @@ published status. Experimental profile/CTS statuses remain independent.
 
 ### Published 0.17.0 status — 25 November 2026
 
-AEON 0.17.0 is published for [TypeScript](https://github.com/AltoPelago/aeon/releases/tag/typescript/v0.17.0),
-[Rust](https://github.com/AltoPelago/aeon/releases/tag/rust/v0.17.0) and
-[native Python](https://github.com/AltoPelago/aeon/releases/tag/python/v0.17.0).
+AEON 0.17.0 is published for [TypeScript](https://github.com/AltoPelago/aeon/releases/tag/typescript%2Fv0.17.0),
+[Rust](https://github.com/AltoPelago/aeon/releases/tag/rust%2Fv0.17.0) and
+[native Python](https://github.com/AltoPelago/aeon/releases/tag/python%2Fv0.17.0).
 SANSA 0.15.0 and AES Telex 0.3.2 are the independently versioned providers.
 Published artifacts and selected clean consumers were verified. Stable downstream
 adoption and selected [live website deployment](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-live-deployment-2026-11-25.md)
