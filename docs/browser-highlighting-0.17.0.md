@@ -1,5 +1,12 @@
 # Browser highlighting for AEON 0.17.0
 
+> Historical development/prepublication checkpoint. AEON 0.17.0 and its selected
+> public packages/downstreams are now published, with selected live websites
+> deployed and staging owner-deferred. See [current migration/release status](migration-0.17.0.md).
+> The retained source pins, candidate versions and holds below describe their
+> original checkpoint; they are not current installation instructions or gates.
+
+
 16 November 2026. Package preparation on `feat/browser-highlight-package`, based
 on AEON main `accf679291a7851ec434f41168a4778d82703b0d`, independently of ongoing
 PR #197. No changes to that branch, runtime source, CTS claims, reference/target

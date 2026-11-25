@@ -13,6 +13,22 @@ Specification website: [aeonite.org](https://aeonite.org).
 AltoPelago owns this implementation workspace. Aeonite publishes the
 specification and CTS surfaces this implementation follows.
 
+## Published 0.17.0 status — 25 November 2026
+
+AEON 0.17.0 is published for [TypeScript](https://github.com/AltoPelago/aeon/releases/tag/typescript/v0.17.0),
+[Rust](https://github.com/AltoPelago/aeon/releases/tag/rust/v0.17.0) and
+[native Python](https://github.com/AltoPelago/aeon/releases/tag/python/v0.17.0).
+SANSA 0.15.0 and AES Telex 0.3.2 are the independently versioned providers.
+Published artifacts and selected clean consumers were verified. Stable downstream
+adoption and selected [live website deployment](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-live-deployment-2026-11-25.md)
+are complete; staging hosting/setup is owner-deferred. The language remains AEON v1.
+This status does not promote experimental profiles, extend platform/performance
+qualification or change compatibility/physical-target checks. No new package
+publication is required for these documentation updates.
+
+See the [0.17.0 migration guide](docs/migration-0.17.0.md) for reader/API changes
+and the [support matrix](docs/property-selector-support.md) for admitted consumers.
+
 ## Local playground
 
 Use the website-style editor and AEON Composer against this checkout's TypeScript
@@ -29,9 +45,9 @@ See [playground setup and options](tools/playground/README.md). No release or
 website deployment is needed.
 
 The [property-selector support matrix](docs/property-selector-support.md) records
-the 0.17 source SDK, pure/native Python, portable AEOS and tooling boundaries.
-It distinguishes delivered APIs from deliberate host denials and remaining
-artifact qualification; it does not authorize a release or deployment.
+the published 0.17.0 SDK, pure/native Python, portable AEOS and tooling boundaries.
+It distinguishes delivered APIs, deliberate host denials and the scope of recorded
+artifact qualification; it does not independently authorize a release or deployment.
 
 ## Implementations
 

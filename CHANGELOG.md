@@ -10,7 +10,18 @@ repositories.
 
 ## 0.17.0 - 2026-11-25
 
-### Stable release preparation
+### Published release
+
+TypeScript, Rust and native Python 0.17.0 are published with verified SANSA
+0.15.0 and AES Telex 0.3.2 providers and selected clean registry consumers.
+Stable downstream adoption and selected website deployment are complete;
+staging is owner-deferred. See [migration and supported entrypoints](docs/migration-0.17.0.md).
+Existing compatibility, physical-target, profile and resource limits remain.
+
+### Historical stable release preparation
+
+The following records the prepublication gate checklist at the signed release
+source. The published status above supersedes its then-open gates and hold.
 
 - Advance the accepted TypeScript/Rust/native Python RC3 scope to stable
   metadata. Exact stable SANSA 0.15.0 and AES Telex 0.3.2 registry artifacts,

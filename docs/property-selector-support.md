@@ -1,8 +1,8 @@
 # Property selector support by API and host
 
-Source support for the 0.17 release line, updated 25 November 2026 from the
-22 November provider audit. This table records entry points and capability
-boundaries, not live package availability. See the [release strategy](release-strategy.md)
+Published 0.17.0 entrypoint boundaries, updated 25 November 2026 from the
+22 November provider audit. This table records supported APIs and capability
+boundaries; package and selected host acceptance retain their own evidence. See the [release strategy](release-strategy.md)
 and [implementation releases](https://github.com/AltoPelago/aeon/releases) for
 publication evidence. A package version does not promote experimental profiles
 or stable CTS claims. Parsing/transport preserve inert values; evaluation requires
@@ -42,7 +42,7 @@ See the [TypeScript SDK](../implementations/typescript/packages/sdk/README.md),
 | Legacy SANSA query CLI/workbench | Their own namespace adapters expose no property facet. A valid property expression can parse but evaluation returns `SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE`; use a capable SDK or the separate [SANSA source playground](https://github.com/AltoPelago/sansa/blob/main/README.md#source-playground) for evaluation |
 | AEON LSP | The compiler accepts inert property literals. Trusted schema validation currently uses native events and rejects property rules with `invalid_schema_policy`, rather than silently converting to portable AEOS |
 | Pure Python detailed compiled-AST JSON (`inspect --json`) | Property literals remain explicitly rejected before output. `--json --portable-aes`, `--telex` and annotation-only output remain available; this does not reject standalone parser/Resolve APIs |
-| IDE grammars, native editor/Quick Look hosts, website/Tonics bundles | Source parsing or a shared highlighter does not prove full presentation or final installed/vendor support. Editor property-literal coverage and exact selected graph/platform/registry qualification remain separate work |
+| IDE grammars, native editor/Quick Look hosts, website/Tonics bundles | Source parsing or a shared highlighter does not prove full presentation or final installed/vendor support. Selected editor, installed VSIX, browser and vendor checks are recorded in the owning release evidence; they do not establish blanket native-host/platform support |
 
 The SANSA browser launcher requires the built checkout layout under
 `implementations/typescript/packages/`. An installed consumer root with packages
@@ -83,5 +83,7 @@ registry/vendor graphs require their own exact artifact/consumer evidence. Prior
 native/WASM checks are not a new rebuild or exact binary reproducibility proof.
 Compatibility/target checks, defaults and existing 1.15x latency / 1.20x memory
 budgets remain unchanged, including the narrow identity qualification limitation.
-Publication follows the reviewed provider-first release gates; deployment remains
-held. Newline/local positions are deferred to tentative 0.17.1.
+The reviewed provider-first publication and stable downstream adoption are complete.
+Selected live website deployment is accepted; staging is owner-deferred. See the
+[deployment checkpoint](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-live-deployment-2026-11-25.md)
+for exact scope. Newline/local positions remain deferred to tentative 0.17.1.
