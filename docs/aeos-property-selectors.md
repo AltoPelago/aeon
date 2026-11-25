@@ -1,8 +1,8 @@
-# Portable AEOS property selectors (development candidate)
+# Portable AEOS property selectors (experimental profile)
 
 The selected experimental `aeos-properties-0.1` profile is implemented in the
-coordinated 0.17 source line. Package release and normative profile/CTS promotion
-are distinct; this guide does not establish live registry availability. The [provider/host matrix](property-selector-support.md)
+published 0.17.0 implementation line. Package release and normative profile/CTS
+promotion remain distinct; publication does not promote this experimental profile. The [provider/host matrix](property-selector-support.md)
 distinguishes its APIs from legacy validation and tooling. It admits SANSA
 `key`, `tag` and `headTag`
 predicates in rule **selector** fields through explicit portable AES/Telex APIs:
@@ -90,6 +90,7 @@ All compatibility/target-preservation checks and1.15x latency/1.20x memory budge
 remain unchanged. Selected source/specification/fixture integrations are merged
 and main-verified. Broad performance/platform/profile/registry and final selected
 artifact qualification remain separate gates.
-Package publication follows independent QA and the normal exact-source/artifact
-release gates. Experimental profile/CTS promotion remains separate; production
-deployment stays held. Newline/local positions remain deferred to 0.17.1.
+Package publication, stable downstream adoption and selected live website deployment
+are complete within their recorded qualification limits. Experimental profile/CTS
+promotion remains separate; staging is owner-deferred. See [release status](release-strategy.md).
+Newline/local positions remain deferred to 0.17.1.

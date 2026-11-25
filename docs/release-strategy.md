@@ -66,13 +66,26 @@ This keeps the release history honest about what was actually shipped.
 
 ## Release flow
 
-This document records the source contract and release-preparation snapshot,
-not live registry availability. Completed publication is tracked by the signed
-implementation tags, [GitHub releases](https://github.com/AltoPelago/aeon/releases)
-and exact registry/consumer receipts; frozen preparation notes are historical
-after those gates pass. Experimental profile/CTS statuses remain independent.
+The current publication status below links signed implementation tags,
+[GitHub releases](https://github.com/AltoPelago/aeon/releases) and exact registry/consumer
+receipts. Source metadata alone does not establish an upload. Retained preparation
+sections describe their original, then-open gates; they do not override the current
+published status. Experimental profile/CTS statuses remain independent.
 
-### Current 0.17.0 stable preparation
+### Published 0.17.0 status — 25 November 2026
+
+AEON 0.17.0 is published for [TypeScript](https://github.com/AltoPelago/aeon/releases/tag/typescript%2Fv0.17.0),
+[Rust](https://github.com/AltoPelago/aeon/releases/tag/rust%2Fv0.17.0) and
+[native Python](https://github.com/AltoPelago/aeon/releases/tag/python%2Fv0.17.0).
+SANSA 0.15.0 and AES Telex 0.3.2 are the independently versioned providers.
+Published artifacts and selected clean consumers were verified. Stable downstream
+adoption and selected [live website deployment](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-live-deployment-2026-11-25.md)
+are complete; staging hosting/setup is owner-deferred. The language remains AEON v1.
+This status does not promote experimental profiles, extend platform/performance
+qualification or change compatibility/physical-target checks. No new package
+publication is required for these documentation updates.
+
+### Historical 0.17.0 stable preparation
 
 The exact RC3 registry and selected downstream/combined configuration is accepted.
 The three coordinated implementation tracks now prepare stable 0.17.0 metadata.
@@ -108,7 +121,7 @@ tracks these gates. Source metadata alone establishes no upload or adoption.
 
 The following records an earlier source-only selection and its then-open gates.
 Its archive selections and unconditional publication hold are superseded by the
-current preparation above; it remains provenance, not a current install recipe.
+historical preparation above; it remains provenance, not a current install recipe.
 
 The combined-main preparation also rebuilds committed WASM from the merged Rust
 block-comment newline fix. Compile/process, canonical and byte-stream parity must

@@ -1,5 +1,12 @@
 # Empty property keys and Unicode — development integration
 
+> Historical development/prepublication checkpoint. AEON 0.17.0 and its selected
+> public packages/downstreams are now published, with selected live websites
+> deployed and staging owner-deferred. See [current migration/release status](migration-0.17.0.md).
+> The retained source pins, candidate versions and holds below describe their
+> original checkpoint; they are not current installation instructions or gates.
+
+
 Ordinary property and attribute names may be empty strings. Root, an empty
 property, a whitespace property and a missing property remain distinct. Exact
 names and references are not normalized or case folded; duplicate decoded names

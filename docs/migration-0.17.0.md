@@ -1,16 +1,17 @@
-# Migrating to AEON0.17
+# Migrating to AEON 0.17.0
 
-Status: 0.17.0 stable preparation, 25 November 2026. The exact RC3 registry and
-selected downstream/combined configuration is accepted. Stable provider artifacts,
-locks/generated outputs, independent stable-delta QA, required hosted checks and
-actual stable installed consumers remain required. Existing runtime, target,
-capability and resource contracts are retained; metadata alone proves no upload.
+## Published 0.17.0 status — 25 November 2026
 
-This document records the source contract and release-preparation snapshot,
-not live registry availability. Completed publication is tracked by the signed
-implementation tags, [GitHub releases](https://github.com/AltoPelago/aeon/releases)
-and exact registry/consumer receipts; frozen preparation notes are historical
-after those gates pass. Experimental profile/CTS statuses remain independent.
+AEON 0.17.0 is published for [TypeScript](https://github.com/AltoPelago/aeon/releases/tag/typescript/v0.17.0),
+[Rust](https://github.com/AltoPelago/aeon/releases/tag/rust/v0.17.0) and
+[native Python](https://github.com/AltoPelago/aeon/releases/tag/python/v0.17.0).
+SANSA 0.15.0 and AES Telex 0.3.2 are the independently versioned providers.
+Published artifacts and selected clean consumers were verified. Stable downstream
+adoption and selected [live website deployment](https://github.com/AltoPelago/roadmap/blob/main/aeon/work-in-progress/release-0.17.0-live-deployment-2026-11-25.md)
+are complete; staging hosting/setup is owner-deferred. The language remains AEON v1.
+This status does not promote experimental profiles, extend platform/performance
+qualification or change compatibility/physical-target checks. No new package
+publication is required for these documentation updates.
 
 ## Addressing and references
 
@@ -78,3 +79,21 @@ Newline clarification/warnings and local first/last/fromFirst/fromLast selectors
 are deferred to tentative0.17.1. Arithmetic, Type Transpiler, Go/PHP, new comparison
 policies and new identity mutation/SO/recursive/reference admission remain outside
 this release task. No source feature is silently added by advancing versions.
+
+## Historical stable-preparation snapshot
+
+The following was recorded before publication; its then-open publication gates
+are superseded by the published status above. It is provenance, not a current
+installation or deployment hold.
+
+Status: 0.17.0 stable preparation, 25 November 2026. The exact RC3 registry and
+selected downstream/combined configuration is accepted. Stable provider artifacts,
+locks/generated outputs, independent stable-delta QA, required hosted checks and
+actual stable installed consumers remain required. Existing runtime, target,
+capability and resource contracts are retained; metadata alone proves no upload.
+
+This document records the source contract and release-preparation snapshot,
+not live registry availability. Completed publication is tracked by the signed
+implementation tags, [GitHub releases](https://github.com/AltoPelago/aeon/releases)
+and exact registry/consumer receipts; frozen preparation notes are historical
+after those gates pass. Experimental profile/CTS statuses remain independent.
