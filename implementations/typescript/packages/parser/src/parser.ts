@@ -68,10 +68,8 @@ export interface ParserOptions {
     readonly maxGenericArguments?: number;
     /** Maximum aggregate components in one recursive datatype (default: 64). */
     readonly maxDatatypeComponents?: number;
-    /** Maximum nesting depth for value structures like lists and objects (default: 256) */
+    /** Maximum nesting depth for header field and body values (default: 256). */
     readonly maxValueNestingDepth?: number;
-    /** Do not count the generated structured header envelope when validating normalized output. */
-    readonly ignoreStructuredHeaderEnvelopeDepth?: boolean;
     /** @deprecated Use maxValueNestingDepth. */
     readonly maxNestingDepth?: number;
 }
@@ -97,7 +95,6 @@ class Parser {
     private readonly maxGenericArguments: number;
     private readonly maxDatatypeComponents: number;
     private readonly maxValueNestingDepth: number;
-    private readonly ignoreStructuredHeaderEnvelopeDepth: boolean;
     private currentNestingDepth: number = 0;
     private current: number = 0;
     private readonly errors: ParserError[] = [];
@@ -111,7 +108,6 @@ class Parser {
         this.maxGenericArguments = options.maxGenericArguments ?? 32;
         this.maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
         this.maxValueNestingDepth = options.maxValueNestingDepth ?? options.maxNestingDepth ?? 256;
-        this.ignoreStructuredHeaderEnvelopeDepth = options.ignoreStructuredHeaderEnvelopeDepth ?? false;
     }
 
     /**
@@ -262,8 +258,9 @@ class Parser {
 
             if (fieldName === 'header') {
                 hasStructured = true;
-                const value = this.ignoreStructuredHeaderEnvelopeDepth && this.check(TokenType.LeftBrace)
-                    ? this.parseObject() : this.parseValue();
+                // The structured header groups fields. Depth starts at each field value,
+                // as in the shorthand header, and counts any containers inside that value.
+                const value = this.check(TokenType.LeftBrace) ? this.parseObject() : this.parseValue();
                 // Extract fields from structured header
                 if (value.type === 'ObjectNode') {
                     for (const binding of value.bindings) {

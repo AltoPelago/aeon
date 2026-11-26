@@ -40,15 +40,22 @@ test('canonicalizes default header', () => {
     assert.ok(lines.includes('  version = "1.0"'));
 });
 
-test('applies value nesting to authored values without counting a generated header envelope', () => {
-    for (const input of ['', 'x = 0', 'aeon:mode = "strict"\nx:number = 1']) {
-        const result = canonicalize(input, { maxValueNestingDepth: 0 });
+test('preserves canonical fixed points at the header-field and body value nesting limit', () => {
+    for (const [input, maxValueNestingDepth] of [
+        ['', 0],
+        ['x = 0', 0],
+        ['aeon:mode = "strict"\nx:number = 1', 0],
+        ['aeon:header = { mode = "transport" }\nx = 0', 0],
+        ['aeon:meta = [1]\nx = [2]', 1],
+        ['aeon:meta = { list = [1] }\nx = [[2]]', 2],
+    ] as const) {
+        const options = { maxValueNestingDepth };
+        const result = canonicalize(input, options);
+        assert.deepEqual(result, canonicalize(input), input);
         assert.deepEqual(result.errors, [], input);
-        assert.equal(result.text, canonicalize(input).text);
+        assert.deepEqual(canonicalize(result.text, options), result, input);
     }
-    const shorthand = 'aeon:meta = [1]\nx = [2]';
-    assert.deepEqual(canonicalize(shorthand, { maxValueNestingDepth: 1 }), canonicalize(shorthand));
-    for (const input of ['x = [0]', 'aeon:header = { mode = "transport" }\nx = 0', shorthand]) {
+    for (const input of ['x = [0]', 'aeon:meta = [1]\nx = 0', 'aeon:header = { meta = [1] }\nx = 0']) {
         const result = canonicalize(input, { maxValueNestingDepth: 0 });
         assert.equal(result.errors[0]?.code, 'NESTING_DEPTH_EXCEEDED', input);
         assert.equal(result.text, '');

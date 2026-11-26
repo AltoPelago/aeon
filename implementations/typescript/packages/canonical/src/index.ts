@@ -151,11 +151,7 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
     }
     // Fail closed if rendering introduces any invalid reference or syntax.
     const emittedLex = tokenize(text);
-    // A default or shorthand header gains a structured wrapper during rendering.
-    const emitted = parse(emittedLex.tokens, {
-        ...parserOptions,
-        ignoreStructuredHeaderEnvelopeDepth: parsed.document.header?.form !== 'structured',
-    });
+    const emitted = parse(emittedLex.tokens, parserOptions);
     if (emittedLex.errors.length > 0 || emitted.errors.length > 0 || !emitted.document
         || referenceState(emitted.document, parserOptions.maxAttributeDepth).errors.length > 0) {
         return { text: '', errors: [new CanonicalOrderingError('CANONICAL_ORDERING_CONFLICT', 'Canonical output failed Core reference validation', parsed.document.span)] };

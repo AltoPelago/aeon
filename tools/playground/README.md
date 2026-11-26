@@ -115,7 +115,8 @@ Open **Settings → Parser limits** to change generic nesting depth, generic
 arguments, clarifier values, datatype components, attribute depth, or value
 nesting depth. Changes apply across profiles and views, including Canonical and
 AEON Composer, and stay in the current browser tab. **Reset limits** restores
-the parser defaults.
+the parser defaults. Value nesting counts containers in each header field and
+body value. The braces around a structured header group its fields.
 
 For example, with **set.to.eleven.v1** and **Custom** selected, set **Generic
 nesting depth** to `2` to validate `a:a<b<c<d[3]>[3]>[3]>[3] = |yes|`
