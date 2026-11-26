@@ -230,7 +230,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const reason = composerUnsupportedReason(text, tokenize);
       if (reason) throw new Error(reason);
     },
-    getMode: () => state.mode === "profile" ? profiles.selectedProfile().coreDefaults?.mode ?? "transport" : state.mode,
+    getMode: () => state.mode === "profile" ? profiles.selectedProfile().coreDefaults?.mode : state.mode,
     runtimeConfig: (text, _mode, relaxed = false) => ({
       text,
       options: runtimeOptions(relaxed ? "transport" : state.mode, "map")
@@ -513,6 +513,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     try {
       const { runRuntime } = await runtimeReady;
+      if (requestId !== state.requestId) return;
       const limits = parserLimits.options;
       const runtimeResult = runRuntime(text, runtimeOptions(state.mode, "json"));
       const payload = formatRuntimeResult(runtimeResult, state.view);
@@ -520,6 +521,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       let relevantErrors = sourceErrors;
       if (state.view === "canonical") {
         const { canonicalize } = await canonicalReady;
+        if (requestId !== state.requestId) return;
         const canonical = canonicalize(text, limits);
         payload.canonical = canonical.text;
         payload.errors = formatDiagnostics(runtimeResult.meta, state.view, canonical.errors);

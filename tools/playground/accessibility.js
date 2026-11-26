@@ -6,6 +6,7 @@ const modalFocusableSelector = [
   'input:not([disabled]):not([type="hidden"])',
   'select:not([disabled])',
   'textarea:not([disabled])',
+  'details > summary:first-of-type',
   '[tabindex]:not([tabindex="-1"])'
 ].join(",");
 
@@ -18,8 +19,16 @@ function modalFocusableElements(modal) {
   if (!dialog) {
     return [];
   }
-  return Array.from(dialog.querySelectorAll(modalFocusableSelector))
-    .filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true" && element.offsetParent !== null);
+  return Array.from(dialog.querySelectorAll(modalFocusableSelector)).filter((element) => {
+    if (element.offsetParent === null || element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+    if (element.hasAttribute("tabindex") && element.tabIndex < 0) return false;
+    for (let parent = element.parentElement; parent && parent !== dialog; parent = parent.parentElement) {
+      if (parent.matches("details:not([open])") && !parent.querySelector(":scope > summary")?.contains(element)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 function openAccessibleModal(modal, trigger = document.activeElement, preferredFocus = null) {
@@ -81,7 +90,10 @@ document.addEventListener("keydown", (event) => {
   }
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
+  if (!modalDialog(modal)?.contains(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && document.activeElement === first) {
     event.preventDefault();
     last.focus();
   } else if (!event.shiftKey && document.activeElement === last) {
