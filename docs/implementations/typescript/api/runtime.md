@@ -52,7 +52,7 @@ interface RuntimeResult {
 ## Behavior
 
 - `mode` controls diagnostic recovery. `effectiveMode` overrides the selected profile's AEON behavior mode.
-- The runtime uses the loaded profile's datatype policy default when neither `datatypePolicy` nor `preset: 'rich'` is supplied. The rich preset selects `allow_custom`.
+- The runtime uses the loaded profile's datatype policy default when neither `datatypePolicy` nor `preset: 'rich'` is supplied. The rich preset selects `allow_custom`. If the loaded profile omits its datatype policy default, Core infers it from the effective mode.
 - `schema` enables AEOS validation in the runtime flow.
 - `output` selects JSON, linked JSON, map, or node finalization output.
 - `includeAnnotations` adds structured annotations to the result.

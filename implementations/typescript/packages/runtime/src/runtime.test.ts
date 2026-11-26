@@ -114,6 +114,9 @@ capabilities = { references = true, clones = true }
     assert.deepEqual(runRuntime(custom, { profile, includeAnnotations: true }).document, { a: [1] });
     assert.equal(runRuntime(custom, { profile: reservedOnly }).meta.errors[0]?.code, 'CUSTOM_DATATYPE_NOT_ALLOWED');
     assert.deepEqual(runRuntime(custom, { profile: reservedOnly, preset: 'rich' }).document, { a: [1] });
+    const inferred = createProfile(loadProfileContract(contract.replace('datatype_policy_default = "allow_custom"\n', '')));
+    assert.deepEqual(runRuntime(custom, { profile: inferred, effectiveMode: 'custom' }).document, { a: [1] });
+    assert.equal(runRuntime(custom, { profile: inferred }).meta.errors[0]?.code, 'CUSTOM_DATATYPE_NOT_ALLOWED');
 
     const wrongLiteral = runRuntime('a:separator["."] = "a.b"', { profile, output: 'map' });
     assert.deepEqual(wrongLiteral.meta.errors.map(({ code, phase }) => ({ code, phase })),

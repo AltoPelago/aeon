@@ -318,14 +318,16 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
     }
 
     const effectiveMode = options.effectiveMode ?? profile.coreDefaults?.mode;
+    const legacyDefaults = profile.coreDefaults === undefined && options.effectiveMode === undefined;
     const datatypePolicy = options.datatypePolicy
-        ?? (options.preset === 'rich' ? 'allow_custom' : profile.coreDefaults?.datatypePolicy ?? 'reserved_only');
+        ?? (options.preset === 'rich' ? 'allow_custom' : profile.coreDefaults?.datatypePolicy)
+        ?? (legacyDefaults ? 'reserved_only' : undefined);
     const compileResult = compileProfile(input, {
         profile: stripProfileProcessors(profile),
         registry,
         mode,
         ...(effectiveMode ? { effectiveMode } : {}),
-        datatypePolicy,
+        ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         maxAttributeDepth,
         maxClarifierValues,
@@ -339,7 +341,7 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         ? compileCore(input, {
             recovery: mode === 'loose',
             ...(effectiveMode ? { mode: effectiveMode } : {}),
-            datatypePolicy,
+            ...(datatypePolicy ? { datatypePolicy } : {}),
             ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
             maxAttributeDepth,
             maxClarifierValues,

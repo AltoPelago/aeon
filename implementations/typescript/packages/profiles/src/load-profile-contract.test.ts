@@ -124,13 +124,15 @@ test('checks the declared literal family of an admitted alias', () => {
         ['a@{part:separator["."] = "a.b"}:n = 1', 'transport', 'reserved_only', '$.a.@.part'],
         ['a:list = [:separator["."] = "a.b"]', 'transport', 'reserved_only', '$.a[0]'],
         ['a:sep["."] = "a.b"', 'strict', 'allow_custom', '$.a'],
+        ['a@{meta:node = <tag("wrong")>}:n=1\nb@{p:separator["."] = ~a.@.meta[0]}:n=2',
+            'strict', 'allow_custom', '$.b.@.p'],
     ] as const) {
         const result = compile(source, { profile, effectiveMode, datatypePolicy });
         assert.deepEqual(result.meta?.errors?.map(({ code, path }) => ({ code, path })),
             [{ code: 'DATATYPE_LITERAL_MISMATCH', path }], source);
         assert.deepEqual(result.aes, []);
     }
-    const result = compile('b:sep = ^a.b\na:separator["."] = ~b', {
+    const result = compile('b@{meta:node = <tag(^a.b)>}:n=1\na:separator["."] = ~b.@.meta[0]', {
         profile, effectiveMode: 'strict', datatypePolicy: 'allow_custom',
     });
     assert.deepEqual(result.meta?.errors ?? [], []);
@@ -155,5 +157,17 @@ test('rejects invalid syntax, versions, and unsupported policy rules', () => {
         ['aeon:mode = "strict"\n' + contract, /profile contracts use body bindings only/],
     ] as const) {
         assert.throws(() => loadProfileContract(source), expected);
+    }
+});
+
+test('distinguishes general encoding and base64 when classifying a shared reference target', () => {
+    const profile = createProfile(loadProfileContract(contract.replace(
+        '  separator =',
+        '  packet = { literal_family = "EncodingLiteral", clarifiers = "none", alias_of = "encoding" }\n  separator =',
+    )));
+    for (const claims of ['good:packet = ~base\nbad:base64 = ~base', 'bad:base64 = ~base\ngood:packet = ~base']) {
+        const result = compile(`base:encoding = &A\n${claims}`, { profile, mode: 'loose' });
+        assert.deepEqual(result.meta?.errors?.map(({ code, path }) => ({ code, path })),
+            [{ code: 'DATATYPE_LITERAL_MISMATCH', path: '$.bad' }]);
     }
 });
