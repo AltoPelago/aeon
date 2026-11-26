@@ -11,7 +11,9 @@ use aeon_aeos::{
     SpanInput, ValidationEnvelope, ValidationOptions, validate, validate_cts_payload,
 };
 use aeon_annotations::{extract_annotations, sort_annotations};
+#[cfg(test)]
 use aeon_canonical::canonicalize;
+use aeon_canonical::{CanonicalizeOptions, canonicalize_with_options};
 use aeon_core::{
     AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
     ExportTelexOptions, NullLiteralMode, PathSegment, PortableAesCompatibilityEvent,
@@ -1726,7 +1728,11 @@ fn fmt(args: &[String]) -> Result<ExitCode, String> {
     let max_input_bytes = optional_numeric_flag_value(args, "--max-input-bytes").map_err(|_| {
         String::from("Error: Invalid value for --max-input-bytes (expected a non-negative integer)")
     })?;
-    let file = find_file(args, &["--max-input-bytes"]);
+    let max_value_nesting_depth = optional_numeric_flag_value(args, "--max-value-nesting-depth")
+        .map_err(|_| {
+            String::from("Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)")
+        })?;
+    let file = find_file(args, &["--max-input-bytes", "--max-value-nesting-depth"]);
     if write_output && file.is_none() {
         return Err(String::from(
             "Error: --write requires a file path\nUsage: aeon fmt [file] [--write]",
@@ -1745,7 +1751,7 @@ fn fmt(args: &[String]) -> Result<ExitCode, String> {
         }
     };
 
-    let (code, output) = format_source_for_cli(&source, max_input_bytes)?;
+    let (code, output) = format_source_for_cli(&source, max_input_bytes, max_value_nesting_depth)?;
     if code != ExitCode::SUCCESS {
         if output.starts_with("Input size ") {
             eprintln!("{output}");
@@ -1769,6 +1775,7 @@ fn fmt(args: &[String]) -> Result<ExitCode, String> {
 fn format_source_for_cli(
     source: &str,
     max_input_bytes: Option<usize>,
+    max_value_nesting_depth: Option<usize>,
 ) -> Result<(ExitCode, String), String> {
     if let Some(limit) = max_input_bytes {
         let actual = source.len();
@@ -1779,7 +1786,11 @@ fn format_source_for_cli(
             ));
         }
     }
-    let result = canonicalize(source);
+    let mut options = CanonicalizeOptions::default();
+    if let Some(limit) = max_value_nesting_depth {
+        options.limits.max_value_nesting_depth = limit;
+    }
+    let result = canonicalize_with_options(source, &options);
     if !result.errors.is_empty() {
         return Ok((
             ExitCode::from(1),
@@ -2846,7 +2857,7 @@ fn print_help() {
     println!(
         "  integrity sign <file> --private-key <path> [--json|--write] [--replace] [--include-bytes] [--include-checksum] [--receipt <path>]"
     );
-    println!("  fmt [file] [--write] [--max-input-bytes <n>]");
+    println!("  fmt [file] [--write] [--max-input-bytes <n>] [--max-value-nesting-depth <n>]");
     println!("  cts-adapter");
 }
 
@@ -6126,7 +6137,8 @@ mod tests {
 
     #[test]
     fn fmt_stdin_contract_output_matches_simple_document() {
-        let (code, output) = format_source_for_cli("b = 1\na = 2\n", None).expect("fmt result");
+        let (code, output) =
+            format_source_for_cli("b = 1\na = 2\n", None, None).expect("fmt result");
         assert_eq!(code, ExitCode::SUCCESS);
         let expected = [
             "aeon:header = {",
@@ -6146,7 +6158,8 @@ mod tests {
     #[test]
     fn fmt_output_for_shorthand_mode_matches_positive_canonical_contract() {
         let (code, output) =
-            format_source_for_cli("aeon:mode = \"transport\"\na = {}\n", None).expect("fmt result");
+            format_source_for_cli("aeon:mode = \"transport\"\na = {}\n", None, None)
+                .expect("fmt result");
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(
             output,
@@ -6163,7 +6176,7 @@ mod tests {
                         1E6\n\
                         1_000e-3\n\
                       ]\n";
-        let (code, output) = format_source_for_cli(source, None).expect("fmt result");
+        let (code, output) = format_source_for_cli(source, None, None).expect("fmt result");
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(
             output,
@@ -6174,7 +6187,7 @@ mod tests {
     #[test]
     fn fmt_rejects_invalid_infinity_spellings() {
         for source in ["a = +Infinity\n", "a = +NaN\n"] {
-            let (code, output) = format_source_for_cli(source, None).expect("fmt result");
+            let (code, output) = format_source_for_cli(source, None, None).expect("fmt result");
             assert_eq!(code, ExitCode::from(1), "{source}");
             // The default writer now reports the native Core parser diagnostic.
             assert!(
@@ -6212,7 +6225,7 @@ mod tests {
 
     #[test]
     fn fmt_invalid_input_emits_structured_error_lines() {
-        let (code, output) = format_source_for_cli("a = {\n", None).expect("fmt result");
+        let (code, output) = format_source_for_cli("a = {\n", None, None).expect("fmt result");
         assert_eq!(code, ExitCode::from(1));
         let lines = normalize(&output)
             .split('\n')

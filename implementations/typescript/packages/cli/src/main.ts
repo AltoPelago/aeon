@@ -375,8 +375,9 @@ function getDefaultContractRegistryPath(): string {
  */
 function fmt(args: string[]): void {
     const writeOutput = args.includes('--write');
-    const file = findFileWithValueFlags(args, ['--max-input-bytes']);
+    const file = findFileWithValueFlags(args, ['--max-input-bytes', '--max-value-nesting-depth']);
     const maxInputBytes = resolveMaxInputBytes(args);
+    const maxValueNestingDepth = resolveDepthOption(args, '--max-value-nesting-depth');
 
     if (writeOutput && !file) {
         console.error('Error: --write requires a file path');
@@ -388,8 +389,12 @@ function fmt(args: string[]): void {
         process.exit(2);
     }
 
+    if (maxValueNestingDepth !== undefined && !Number.isSafeInteger(maxValueNestingDepth)) {
+        console.error('Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)');
+        process.exit(2);
+    }
     const input = file ? readFileWithLimit(file, maxInputBytes) : readStdin(maxInputBytes);
-    const result = canonicalize(input);
+    const result = canonicalize(input, maxValueNestingDepth == null ? {} : { maxValueNestingDepth });
     if (result.errors.length > 0) {
         for (const error of result.errors) {
             console.log(formatGenericErrorLine(error));

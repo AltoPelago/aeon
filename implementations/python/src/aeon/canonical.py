@@ -59,6 +59,7 @@ class CanonicalizeOptions:
     # Explicit lexical-v1 retains historical source bytes.
     ordering: str = "reference-safe-v1"
     max_ordering_edges: int = 1_000_000
+    max_value_nesting_depth: int = 256
 
 
 def _zero_span() -> Span:
@@ -90,6 +91,7 @@ def canonicalize(source: str, options: CanonicalizeOptions | None = None) -> Can
         max_generic_depth=effective.max_generic_depth,
         max_generic_arguments=effective.max_generic_arguments,
         max_datatype_components=effective.max_datatype_components,
+        max_value_nesting_depth=effective.max_value_nesting_depth,
     )
     if parse_result.errors or parse_result.document is None:
         return CanonicalResult(text="", errors=[error for error in parse_result.errors if isinstance(error, AeonError)])

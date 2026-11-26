@@ -1432,7 +1432,11 @@ enum Frame {
 
 impl Frame {
     const fn counts_as_value_container(&self) -> bool {
-        matches!(self, Self::Node(_) | Self::Sequence(_) | Self::Object(_))
+        match self {
+            Self::Node(_) | Self::Sequence(_) => true,
+            Self::Object(frame) => frame.counts_toward_nesting,
+            _ => false,
+        }
     }
 
     #[cfg(test)]
@@ -1559,7 +1563,7 @@ impl Frame {
                             return Step::Failed(error);
                         }
                         parser.advance();
-                        return Step::Continue(Frame::Object(ObjectFrame::new()));
+                        return Step::Continue(Frame::Object(ObjectFrame::new(true)));
                     }
                     TokenKind::LeftAngle => {
                         if let Err(error) = parser.enter_value_container() {
@@ -1818,7 +1822,7 @@ impl DocumentFrame {
                 self.phase = DocumentPhase::Delimiter;
                 Step::Push {
                     parent: Frame::Document(self),
-                    child: Frame::Binding(BindingFrame::new()),
+                    child: Frame::Binding(BindingFrame::new(true)),
                 }
             }
             DocumentPhase::Delimiter => {
@@ -1864,15 +1868,15 @@ struct BindingFrame {
 }
 
 impl BindingFrame {
-    fn new() -> Self {
+    fn new(at_document_root: bool) -> Self {
         Self {
-            phase: BindingPhase::Key,
+            phase: BindingPhase::Key { at_document_root },
         }
     }
 
     fn step(self, parser: &mut Parser<'_, '_>, product: &mut Option<Product>) -> Step {
         match self.phase {
-            BindingPhase::Key => {
+            BindingPhase::Key { at_document_root } => {
                 assert!(
                     product.is_none(),
                     "Sofia binding frame received an early product"
@@ -1889,6 +1893,7 @@ impl BindingFrame {
                 parser.skip_newlines();
                 let head = BindingHead {
                     start,
+                    is_header_envelope: at_document_root && is_header && key == "aeon:header",
                     key,
                     is_header,
                     structural_id,
@@ -1981,6 +1986,16 @@ impl BindingFrame {
         }
         parser.advance();
         parser.skip_newlines();
+        // The header envelope groups field values without adding a nesting level.
+        if head.as_ref().is_header_envelope && parser.check(TokenKind::LeftBrace) {
+            parser.advance();
+            return Step::Push {
+                parent: Frame::Binding(Self {
+                    phase: BindingPhase::Value(head.into_box()),
+                }),
+                child: Frame::Object(ObjectFrame::new(false)),
+            };
+        }
         match parser.parse_scalar() {
             Ok(Some(value)) => return Self::finish(parser, head.into_inner(), value, output),
             Ok(None) => {}
@@ -2022,7 +2037,7 @@ impl BindingFrame {
 
 #[derive(Clone)]
 enum BindingPhase {
-    Key,
+    Key { at_document_root: bool },
     Attributes(Box<BindingHead>),
     Datatype(Box<BindingHead>),
     Value(Box<BindingHead>),
@@ -2033,6 +2048,7 @@ struct BindingHead {
     start: crate::Position,
     key: String,
     is_header: bool,
+    is_header_envelope: bool,
     structural_id: Option<String>,
     datatype: Option<String>,
     attributes: BTreeMap<String, AttributeValue>,
@@ -3157,13 +3173,15 @@ enum SequencePhase {
 struct ObjectFrame {
     bindings: Vec<Binding>,
     phase: ObjectPhase,
+    counts_toward_nesting: bool,
 }
 
 impl ObjectFrame {
-    fn new() -> Self {
+    fn new(counts_toward_nesting: bool) -> Self {
         Self {
             bindings: Vec::new(),
             phase: ObjectPhase::Binding,
+            counts_toward_nesting,
         }
     }
 
@@ -3181,7 +3199,7 @@ impl ObjectFrame {
                 self.phase = ObjectPhase::Delimiter;
                 Step::Push {
                     parent: Frame::Object(self),
-                    child: Frame::Binding(BindingFrame::new()),
+                    child: Frame::Binding(BindingFrame::new(false)),
                 }
             }
             ObjectPhase::Delimiter => {
@@ -3218,7 +3236,9 @@ impl ObjectFrame {
     fn finish(self, parser: &mut Parser<'_, '_>, output: &mut Option<Product>) -> Step {
         debug_assert!(parser.check(TokenKind::RightBrace));
         parser.advance();
-        parser.leave_value_container();
+        if self.counts_toward_nesting {
+            parser.leave_value_container();
+        }
         complete(
             output,
             Product::Value(Value::ObjectNode {

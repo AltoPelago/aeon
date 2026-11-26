@@ -9,12 +9,31 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.canonical import canonicalize
+from aeon.canonical import CanonicalizeOptions, canonicalize
 from aeon.core import compile_source
 from aeon.lexer import tokenize
 
 
 class CanonicalTests(unittest.TestCase):
+    def test_value_nesting_limit_is_shared_by_authored_and_canonical_headers(self) -> None:
+        for source, limit in (
+            ("x = 0", 0),
+            ('aeon:mode = "transport"\nx = 0', 0),
+            ("aeon:meta = [1]\nx = [2]", 1),
+        ):
+            with self.subTest(source=source, limit=limit):
+                options = CanonicalizeOptions(max_value_nesting_depth=limit)
+                result = canonicalize(source, options)
+                self.assertEqual([], result.errors)
+                self.assertEqual(result, canonicalize(result.text, options))
+
+        options = CanonicalizeOptions(max_value_nesting_depth=0)
+        for source in ("x = [1]", "aeon:meta = [1]", "aeon:header = { meta = [1] }"):
+            with self.subTest(source=source):
+                result = canonicalize(source, options)
+                self.assertEqual("", result.text)
+                self.assertEqual(["NESTING_DEPTH_EXCEEDED"], [error.code for error in result.errors])
+
     def test_canonical_preserves_structural_identity_in_head_position(self) -> None:
         result = canonicalize('items = [\\B2\\@{source = "user"}:string = "green"]\nage\\A1\\:int32 = 42')
         self.assertEqual([], result.errors)

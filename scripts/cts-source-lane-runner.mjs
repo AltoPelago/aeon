@@ -466,7 +466,7 @@ async function runTelexMaterialize({ sutPath, telex, scope }) {
   }
 }
 
-async function runFmt({ sutPath, source }) {
+async function runFmt({ sutPath, source, maxValueNestingDepth }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cts-fmt-'));
   const file = path.join(dir, 'input.aeon');
   fs.writeFileSync(file, source, 'utf8');
@@ -474,6 +474,9 @@ async function runFmt({ sutPath, source }) {
   const isJs = sutPath.endsWith('.js') || sutPath.endsWith('.mjs') || sutPath.endsWith('.cjs');
   const command = isJs ? process.execPath : sutPath;
   const args = isJs ? [sutPath, 'fmt', file] : ['fmt', file];
+  if (maxValueNestingDepth !== undefined) {
+    args.push('--max-value-nesting-depth', String(maxValueNestingDepth));
+  }
 
   const { stdout, stderr, code } = await spawnCaptured(command, args);
 
@@ -649,7 +652,12 @@ async function main() {
         ok = errors.length === 0;
         result = { document: finalized.parse.document ?? null };
       } else if (args.lane === 'canonical') {
-        const formatted = await runFmt({ sutPath: args.sut, source });
+        const maxValueNestingDepth = test.input?.options?.max_value_nesting_depth;
+        if (maxValueNestingDepth !== undefined
+          && (!Number.isSafeInteger(maxValueNestingDepth) || maxValueNestingDepth < 0)) {
+          fail(`Invalid canonical value nesting limit in ${test.id}`);
+        }
+        const formatted = await runFmt({ sutPath: args.sut, source, maxValueNestingDepth });
         if (!formatted.ok) {
           console.error(`❌ ${test.id}: harness failure`);
           if (formatted.stderr) console.error(formatted.stderr.trim());
