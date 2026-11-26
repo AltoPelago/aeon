@@ -28,6 +28,7 @@
     "test:cts:core:released": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/core/v1/core-cts.v1.snapshot-0.6.json --lane core",
     "test:cts:core:legacy": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/core/v1/core-cts.v1.json --lane core",
     "test:cts:core:next": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/cts-source-lane-runner.mjs --sut ./packages/cli/dist/main.js --cts ../../cts/core/v1/core-cts.v1.next.json --lane core",
+    "test:cts:gp:next": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/run-gp-profile-cts.mjs",
     "test:cts:wasm:core": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/run-wasm-core-cts.mjs --cts ../../cts/core/v1/core-cts.v1.snapshot-0.6.json",
     "test:cts:wasm:core:next": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ../../scripts/run-wasm-core-cts.mjs --cts ../../cts/core/v1/core-cts.v1.next.json",
     "test:cts:aes": "pnpm test:cts:aes:released",

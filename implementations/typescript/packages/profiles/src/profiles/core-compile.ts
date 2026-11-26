@@ -1,4 +1,4 @@
-import { compile as compileAeon, type AEONError, type AEONWarning } from '@altopelago/aeon-core';
+import { compile as compileAeon, type AEONError, type AEONWarning, type CompileOptions } from '@altopelago/aeon-core';
 import type { AssignmentEvent } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 import type { CompileCtx, Diagnostic } from '../types.js';
@@ -31,7 +31,7 @@ function warningToDiagnostic(warning: AEONWarning): Omit<Diagnostic, 'level'> {
     };
 }
 
-export function compileWithCore(input: unknown, ctx: CompileCtx): readonly AssignmentEvent[] {
+export function compileWithCore(input: unknown, ctx: CompileCtx, customDatatypeKinds?: CompileOptions['customDatatypeKinds']): readonly AssignmentEvent[] {
     if (typeof input !== 'string') {
         ctx.error({
             message: 'Input must be AEON source text (string).',
@@ -42,6 +42,7 @@ export function compileWithCore(input: unknown, ctx: CompileCtx): readonly Assig
 
     const result = compileAeon(input, {
         recovery: !ctx.strict,
+        ...(customDatatypeKinds ? { customDatatypeKinds } : {}),
         ...(ctx.datatypePolicy ? { datatypePolicy: ctx.datatypePolicy } : {}),
         maxAttributeDepth: ctx.maxAttributeDepth,
         maxClarifierValues: ctx.maxClarifierValues,

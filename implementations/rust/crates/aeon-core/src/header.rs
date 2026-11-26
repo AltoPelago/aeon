@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    AEON_GP_PROFILE_ID, BehaviorMode, Binding, Diagnostic, HeaderFields, Position, Span, Value,
+    AEON_GP_PROFILE_ID, BehaviorMode, Binding, Diagnostic, HeaderFields, Position,
+    SET_TO_ELEVEN_PROFILE_ID, Span, Value,
 };
 
 fn combined_span(a: Span, b: Span) -> Span {
@@ -130,7 +131,11 @@ impl IncrementalHeaderState {
     }
 
     pub(crate) fn uses_gp_profile(&self, option_profile: Option<&str>) -> bool {
-        option_profile == Some(AEON_GP_PROFILE_ID) || self.uses_gp_profile
+        match option_profile {
+            Some(AEON_GP_PROFILE_ID) => true,
+            Some(SET_TO_ELEVEN_PROFILE_ID) => false,
+            _ => self.uses_gp_profile,
+        }
     }
 
     pub(crate) const fn observed_field_count(&self) -> usize {

@@ -25,8 +25,8 @@ use crate::{
     AssignmentEvent, BehaviorMode, Binding, BindingProjection, CanonicalPath, CompileOptions,
     CompileResult, Diagnostic, EventBatch, EventBatches, SourcePlane, SourceRetention, Value,
     compile_owned_sofia_whole, compile_owned_with_implementation, compile_portability_warnings,
-    event_count_exceeded_error, format_path, input_size_diagnostic_for_len,
-    validate_gp_datatype_clarifiers, validate_gp_unprojected_clarifiers,
+    event_count_exceeded_error, format_path, gp_custom_generic_value_error,
+    input_size_diagnostic_for_len, validate_gp_event_datatypes, validate_gp_unprojected_datatypes,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,6 +153,7 @@ struct ProgressiveValidationState {
     datatype_event_errors: ModeOrderedDiagnosticLedger,
     datatype_attribute_checks: ModeDiagnosticLedger<AttributeDatatypeCheck>,
     gp_profile_errors: Vec<Diagnostic>,
+    gp_custom_value_errors: Vec<(usize, Diagnostic)>,
     gp_unprojected_errors: Vec<Diagnostic>,
     reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
     datatype_targets: HashMap<String, CompactDatatypeValue>,
@@ -203,6 +204,7 @@ impl ProgressiveValidationState {
             datatype_event_errors: ModeOrderedDiagnosticLedger::default(),
             datatype_attribute_checks: ModeDiagnosticLedger::default(),
             gp_profile_errors: Vec::new(),
+            gp_custom_value_errors: Vec::new(),
             gp_unprojected_errors: Vec::new(),
             reference_datatype_claims: Vec::new(),
             datatype_targets: HashMap::new(),
@@ -220,7 +222,7 @@ impl ProgressiveValidationState {
     }
 
     fn observe_bindings(&mut self, bindings: &[Binding]) {
-        validate_gp_unprojected_clarifiers(bindings, &mut self.gp_unprojected_errors);
+        validate_gp_unprojected_datatypes(bindings, &mut self.gp_unprojected_errors);
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
         }
@@ -310,6 +312,12 @@ impl ProgressiveValidationState {
                         reference: CompactDatatypeValue::from_value(&event.value),
                         span: event.span,
                     });
+            } else if let Some(datatype) = &event.datatype
+                && let Some(error) =
+                    gp_custom_generic_value_error(datatype, event.value.value_kind(), path)
+            {
+                self.gp_custom_value_errors
+                    .push((first_event_ordinal + offset, error.with_span(event.span)));
             }
         }
         for &mode in self.candidate_modes() {
@@ -328,7 +336,7 @@ impl ProgressiveValidationState {
                 }
             }
         }
-        validate_gp_datatype_clarifiers(events, &rendered_paths, &mut self.gp_profile_errors);
+        validate_gp_event_datatypes(events, &rendered_paths, &mut self.gp_profile_errors);
     }
 
     fn observe_references(
@@ -427,6 +435,23 @@ impl ProgressiveValidationState {
     ) -> Vec<Diagnostic> {
         let mode = self.effective_mode();
         let mut ordered = self.datatype_event_errors.errors(mode).to_vec();
+        let gp_custom_active = self.gp_profile_active()
+            && crate::validation::effective_datatype_policy(mode, self.options.datatype_policy)
+                == crate::DatatypePolicy::AllowCustom;
+        if gp_custom_active {
+            ordered.extend(
+                self.gp_custom_value_errors
+                    .iter()
+                    .filter(|(ordinal, _)| {
+                        !self
+                            .datatype_event_errors
+                            .errors(mode)
+                            .binary_search_by_key(ordinal, |(error_ordinal, _)| *error_ordinal)
+                            .is_ok()
+                    })
+                    .cloned(),
+            );
+        }
         for claim in &self.reference_datatype_claims {
             let resolved =
                 self.resolve_compact_datatype_reference(&claim.reference, terminal_values);
@@ -441,6 +466,14 @@ impl ProgressiveValidationState {
                 self.options.max_generic_depth,
             ) {
                 ordered.push((claim.event_ordinal, error));
+            } else if gp_custom_active
+                && let Some(error) = gp_custom_generic_value_error(
+                    &claim.datatype,
+                    resolved.value_kind(),
+                    &claim.path,
+                )
+            {
+                ordered.push((claim.event_ordinal, error.with_span(claim.span)));
             }
         }
         ordered.sort_by_key(|(ordinal, _)| *ordinal);
@@ -484,7 +517,7 @@ impl ProgressiveValidationState {
             .errors(self.effective_mode())
             .iter()
             .filter_map(|check| {
-                check.diagnostic(|value| {
+                check.diagnostic(self.gp_profile_active(), |value| {
                     self.resolve_compact_datatype_reference(
                         &CompactDatatypeValue::from_value(value),
                         terminal_values,
@@ -547,6 +580,7 @@ impl ProgressiveValidationState {
             retained_candidate_error_count: self.datatype_event_errors.retained_error_count()
                 + self.datatype_attribute_checks.retained_error_count()
                 + self.gp_profile_errors.len()
+                + self.gp_custom_value_errors.len()
                 + self.gp_unprojected_errors.len()
                 + self.typed_mode_errors.retained_error_count(),
             event_count: self.event_count,

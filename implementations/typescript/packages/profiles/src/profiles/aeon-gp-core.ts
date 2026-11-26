@@ -1,3 +1,4 @@
+import { datatypeHasGenericArgs } from '@altopelago/aeon-aes';
 import type { Profile, CompileCtx } from '../types.js';
 import { compileWithCore } from './core-compile.js';
 import { validateDatatypeSemantics } from './datatype-semantics.js';
@@ -86,7 +87,9 @@ export const aeonGpCoreProfile: Profile = {
         clones: true,
     },
     compile: (input, ctx: CompileCtx) => {
-        const aes = compileWithCore(input, ctx);
+        const aes = compileWithCore(input, ctx, datatype =>
+            datatypeHasGenericArgs(datatype) ? ['ListNode', 'TupleLiteral'] : null
+        );
         validateDatatypeSemantics(aes, datatypeSemantics, ctx);
         return aes;
     },

@@ -1,0 +1,19 @@
+[
+  {"id": "strict-symbol-with-reserved-generic", "source": "aeon:mode = \"strict\"\nduration:symbol<time> = |1min|", "errors": []},
+  {"id": "nested-symbol-generic", "source": "stages:list<symbol<State>> = [|approved|]", "errors": []},
+  {"id": "symbol-generic-with-clarifier", "source": "aeon:mode = \"strict\"\nduration:symbol<time>[\"minutes\"] = |1min|", "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.duration"}]},
+  {"id": "reserved-generic-and-clarifier", "source": "value:string<Locale>[\"en\"] = \"hello\"", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.value"}, {"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.value"}]},
+  {"id": "nested-reserved-generic", "source": "value:list<string<Locale>> = [\"hello\"]", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.value"}]},
+  {"id": "radix-generic-and-clarifier", "source": "mask:radix<Base[3]>[16] = %1", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.mask"}, {"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.mask"}]},
+  {"id": "binding-node-reserved-argument", "source": "doc:node<string> = <tag>", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.doc"}]},
+  {"id": "reference-node-reserved-argument", "source": "target:node = <tag>\ndoc:node<string> = ~target", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.doc"}]},
+  {"id": "node-head-reserved-argument", "source": "doc:node = <tag:node<string>>", "errors": []},
+  {"id": "metadata-node-reserved-argument", "source": "doc@{meta:node<string> = <tag>}:n = 0", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.doc.@.meta"}]},
+  {"id": "anonymous-typed-item", "source": "doc:list = [:string<Locale> = \"hello\"]", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.doc[0]"}]},
+  {"id": "node-head-generic-with-clarifier", "source": "doc:node = <tag:node<string>[9007199254740993]>", "errors": [{"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.doc[0]"}]},
+  {"id": "non-node-head-adornments", "source": "doc:node = <tag:pair<string>[\"x\"]>", "errors": [{"code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "path": "$.doc[0]"}, {"code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", "path": "$.doc[0]"}]},
+  {"id": "custom-generic-symbolic-value", "source": "aeon:mode = \"custom\"\nr:rational<number> = |1/3|", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.r"}]},
+  {"id": "custom-generic-symbolic-reference", "source": "aeon:mode = \"custom\"\ntarget:symbol = |1/3|\nr:rational<number> = ~target", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.r"}]},
+  {"id": "custom-generic-list-value", "source": "aeon:mode = \"custom\"\nvalues:Series<number> = [1, 2]", "errors": []},
+  {"id": "custom-generic-attribute", "source": "aeon:mode = \"custom\"\na@{meta:rational<number> = |1/3|}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta"}]}
+]

@@ -2,8 +2,8 @@
 //! before projection can discard metadata, without following references.
 use super::pathing::is_identifier;
 use super::{
-    AttributeValue, Binding, Diagnostic, Span, Value, gp_custom_clarifier_literal,
-    parse_gp_datatype_surface, validate_gp_datatype_surface,
+    AttributeValue, Binding, Diagnostic, GpDatatypePosition, Span, Value,
+    gp_custom_clarifier_literal, parse_gp_datatype_surface, validate_gp_datatype_surface,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -47,6 +47,7 @@ fn check(
     path: &str,
     span: Span,
     errors: &mut Vec<Diagnostic>,
+    position: GpDatatypePosition,
 ) {
     if let Some(surface) = datatype.and_then(parse_gp_datatype_surface) {
         validate_gp_datatype_surface(
@@ -55,6 +56,7 @@ fn check(
             span,
             errors,
             value.is_some_and(gp_custom_clarifier_literal),
+            position,
         );
     }
 }
@@ -87,7 +89,7 @@ fn push_attributes<'a>(
     }
 }
 
-pub(crate) fn validate_gp_unprojected_clarifiers(
+pub(crate) fn validate_gp_unprojected_datatypes(
     bindings: &[Binding],
     errors: &mut Vec<Diagnostic>,
 ) {
@@ -109,6 +111,7 @@ pub(crate) fn validate_gp_unprojected_clarifiers(
                         &path,
                         binding.span,
                         errors,
+                        GpDatatypePosition::Binding,
                     );
                 }
                 tasks.push(Task::Value(
@@ -133,6 +136,7 @@ pub(crate) fn validate_gp_unprojected_clarifiers(
                     &path,
                     span,
                     errors,
+                    GpDatatypePosition::Binding,
                 );
                 if let Some(value) = &entry.value {
                     tasks.push(Task::Value(value, path.clone(), span, true));
@@ -165,7 +169,14 @@ pub(crate) fn validate_gp_unprojected_clarifiers(
                     ..
                 } => {
                     if metadata {
-                        check(datatype.as_deref(), Some(value), &path, span, errors);
+                        check(
+                            datatype.as_deref(),
+                            Some(value),
+                            &path,
+                            span,
+                            errors,
+                            GpDatatypePosition::Binding,
+                        );
                     }
                     tasks.push(Task::Value(value, path.clone(), span, metadata));
                     push_attributes(&mut tasks, attributes, attribute_order, &path, span);
@@ -200,7 +211,14 @@ pub(crate) fn validate_gp_unprojected_clarifiers(
                     let head = format!("{path}[0]");
                     // Node-head datatypes have no payload AssignmentEvent,
                     // even when the node itself belongs to the body payload.
-                    check(datatype.as_deref(), Some(value), &head, *head_span, errors);
+                    check(
+                        datatype.as_deref(),
+                        Some(value),
+                        &head,
+                        *head_span,
+                        errors,
+                        GpDatatypePosition::NodeHead,
+                    );
                     for (index, child) in children.iter().enumerate().rev() {
                         tasks.push(Task::Value(
                             child,

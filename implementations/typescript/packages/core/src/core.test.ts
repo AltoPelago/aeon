@@ -1164,9 +1164,9 @@ describe('Core - compile()', () => {
             assert.ok(result.events.length > 0);
         });
 
-        it('should reject scalar values for generic custom datatypes in custom mode', () => {
+        it('should allow scalar values for generic custom datatypes in custom mode', () => {
             const result = compile('aeon:mode = "custom"\na:custom<custom> = 0');
-            assert.ok(result.errors.some(e => (e as { code?: string }).code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.deepEqual(result.errors, []);
         });
 
         it('should allow list and tuple values for generic custom datatypes in custom mode', () => {

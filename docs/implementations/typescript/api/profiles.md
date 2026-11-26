@@ -46,6 +46,18 @@ interface CompileOptions {
 - `mode`, `datatypePolicy`, and depth controls are forwarded into compilation context.
 - Profiles may define processors, although higher-level runtime flows may intentionally skip them to preserve phase ordering.
 - Profiles may expose contract metadata such as `modeDefault`, `datatypePolicyDefault`, `collections`, `containers`, `datatypeSemantics`, and `capabilities`.
+- `aeon.gp.profile.v1` allows generics on custom labels and the reserved
+  datatypes `list`, `tuple`, `triple`, `object`, `node`, `null`, `nan`,
+  `infinity`, and `symbol`. Strict GP accepts `duration:symbol<time> = |1min|`. Binding annotations on `node` accept `node` or
+  custom arguments. On node heads, only `node` may carry generic arguments.
+  Disallowed generic claims raise `PROFILE_DATATYPE_GENERIC_NOT_ALLOWED`.
+  GP rejects clarifiers on node heads and on `symbol` annotations. When the
+  effective datatype policy admits custom labels, GP requires a parameterized
+  custom value to bind a list or tuple.
+- `set.to.eleven.v1` is an opt-in test profile that accepts generic arguments
+  and clarifiers together on any Core-valid datatype annotation, including
+  `duration:symbol<time>["minutes"] = |1min|`. Configure the usual Core
+  limits for tests that need deeper generics or multiple clarifier values.
 - `aeon.gp.profile.v1` validates datatype clarifiers against its declared datatype semantics: undeclared datatype clarifiers fail, `none` entries reject explicit clarifiers, `radix_base` requires exactly one integral numeric value from `2` through `64`, `separator_chars` requires string values, and `encoding_name` requires exactly one string value.
 
 ## Built-in exports
@@ -54,6 +66,7 @@ interface CompileOptions {
 - `createDefaultRegistry()`
 - `coreProfile`
 - `aeonGpCoreProfile` (`aeon.gp.profile.v1`, with GP collection semantics for `list`/`tuple`, container semantics for `object`/`node`, closed datatype clarifier validation for radix, separator, and encoding families, and required processor capabilities)
+- `setToElevenProfile` (`set.to.eleven.v1`)
 - `jsonProfile`
 
 ## Example

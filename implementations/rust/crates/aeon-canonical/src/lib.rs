@@ -1314,26 +1314,6 @@ fn normalize_encoding(raw: &str) -> String {
     raw.to_owned()
 }
 
-fn validate_reserved_datatype_adornments(datatype: &str) -> Result<(), String> {
-    let base = datatype_base(datatype);
-    if !is_reserved_v1_datatype(base) {
-        return Ok(());
-    }
-
-    if datatype.contains('<')
-        && !matches!(
-            base,
-            "list" | "tuple" | "triple" | "object" | "node" | "null" | "nan" | "infinity"
-        )
-    {
-        return Err(format!(
-            "Datatype `{base}` does not support generic arguments in v1"
-        ));
-    }
-
-    Ok(())
-}
-
 fn validate_datatype_clarifiers(clarifiers: &[&str]) -> Result<(), String> {
     if clarifiers.is_empty() {
         return Ok(());
@@ -1464,28 +1444,6 @@ fn parse_clarifier_string(raw: &str) -> Result<usize, String> {
     Err(String::from("Unterminated clarifier string"))
 }
 
-fn validate_binding_node_datatype(datatype: &str) -> Result<(), String> {
-    if datatype_base(datatype) != "node" {
-        return Ok(());
-    }
-    for generic_arg in datatype_generic_args(datatype) {
-        let base = datatype_base(generic_arg);
-        if base != "node" && is_reserved_v1_datatype(base) {
-            return Err(String::from(
-                "Binding datatype `node<T>` may use `node` or a custom profile/domain argument; reserved child value datatypes belong on node heads",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn datatype_base(datatype: &str) -> &str {
-    datatype
-        .find(['<', '['])
-        .map(|idx| &datatype[..idx])
-        .unwrap_or(datatype)
-}
-
 fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
     let mut specs = Vec::new();
     let mut angle_depth = 0usize;
@@ -1506,106 +1464,6 @@ fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
     }
 
     specs
-}
-
-fn datatype_generic_args(datatype: &str) -> Vec<&str> {
-    let Some(start) = datatype.find('<') else {
-        return Vec::new();
-    };
-    let mut args = Vec::new();
-    let mut angle_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    let mut arg_start = start + 1;
-    for (index, ch) in datatype[start + 1..].char_indices() {
-        let absolute_index = start + 1 + index;
-        match ch {
-            '<' if bracket_depth == 0 => angle_depth += 1,
-            '>' if bracket_depth == 0 && angle_depth == 0 => {
-                let arg = datatype[arg_start..absolute_index].trim();
-                if !arg.is_empty() {
-                    args.push(arg);
-                }
-                break;
-            }
-            '>' if bracket_depth == 0 => angle_depth = angle_depth.saturating_sub(1),
-            '[' if angle_depth == 0 => bracket_depth += 1,
-            ']' if angle_depth == 0 => bracket_depth = bracket_depth.saturating_sub(1),
-            ',' if angle_depth == 0 && bracket_depth == 0 => {
-                let arg = datatype[arg_start..absolute_index].trim();
-                if !arg.is_empty() {
-                    args.push(arg);
-                }
-                arg_start = absolute_index + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    args
-}
-
-fn is_reserved_v1_datatype(base: &str) -> bool {
-    matches!(
-        base,
-        "array"
-            | "base64"
-            | "bin"
-            | "binary"
-            | "blob"
-            | "bool"
-            | "boolean"
-            | "date"
-            | "datetime"
-            | "dt"
-            | "e64"
-            | "enc64"
-            | "encoding64"
-            | "float"
-            | "f"
-            | "h"
-            | "hex"
-            | "i"
-            | "int"
-            | "integer"
-            | "list"
-            | "lookup"
-            | "n"
-            | "node"
-            | "null"
-            | "number"
-            | "object"
-            | "pointer"
-            | "ptr"
-            | "radix"
-            | "decimal"
-            | "radix2"
-            | "radix6"
-            | "radix8"
-            | "radix12"
-            | "radix16"
-            | "rfc3339"
-            | "separated"
-            | "sep"
-            | "kadot"
-            | "symbol"
-            | "string"
-            | "str"
-            | "text"
-            | "time"
-            | "timestamp"
-            | "trimmed"
-            | "trimtick"
-            | "tuple"
-            | "triple"
-            | "utc"
-            | "xml"
-            | "yaml"
-            | "ymd"
-            | "zone"
-            | "zoned"
-            | "zoned-datetime"
-            | "wtc"
-            | "zutc"
-    )
 }
 
 fn is_identifier_literal(raw: &str) -> bool {
@@ -1782,8 +1640,6 @@ impl<'a> Parser<'a> {
                 return Err(self.syntax_error("Expected datatype annotation"));
             }
             let parsed = self.parse_datatype_like()?;
-            validate_binding_node_datatype(&parsed)
-                .map_err(|message| self.syntax_error(&message))?;
             Some(parsed)
         } else {
             None
@@ -1851,8 +1707,6 @@ impl<'a> Parser<'a> {
                     return Err(self.syntax_error("Expected datatype annotation"));
                 }
                 let parsed = self.parse_datatype_like()?;
-                validate_binding_node_datatype(&parsed)
-                    .map_err(|message| self.syntax_error(&message))?;
                 Some(parsed)
             } else {
                 None
@@ -1972,8 +1826,6 @@ impl<'a> Parser<'a> {
             self.index += 1;
             self.skip_ws(true);
             let parsed = self.parse_datatype_like()?;
-            validate_binding_node_datatype(&parsed)
-                .map_err(|message| self.syntax_error(&message))?;
             Some(parsed)
         } else {
             None
@@ -2162,14 +2014,6 @@ impl<'a> Parser<'a> {
             if self.peek() == Some(':') && datatype.is_none() {
                 self.index += 1;
                 let parsed = self.parse_datatype_like()?;
-                let base = datatype_base(&parsed);
-                if (parsed.contains('<') && base != "node")
-                    || !datatype_bracket_specs(&parsed).is_empty()
-                {
-                    return Err(self.syntax_error(
-                        "Node head datatypes must be simple labels or node<T> without clarifiers",
-                    ));
-                }
                 datatype = Some(parsed);
                 continue;
             }
@@ -2444,9 +2288,6 @@ impl<'a> Parser<'a> {
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
         }
-        if let Err(message) = validate_reserved_datatype_adornments(&value) {
-            return Err(self.syntax_error(&message));
-        }
         Ok(value)
     }
 
@@ -2471,9 +2312,6 @@ impl<'a> Parser<'a> {
             .to_owned();
         if value.is_empty() {
             return Err(self.syntax_error("Expected token"));
-        }
-        if let Err(message) = validate_reserved_datatype_adornments(&value) {
-            return Err(self.syntax_error(&message));
         }
         Ok(value)
     }
@@ -2544,9 +2382,6 @@ impl<'a> Parser<'a> {
             return Err(self.syntax_error(&message));
         }
         if let Err(message) = validate_generic_type_names(&value) {
-            return Err(self.syntax_error(&message));
-        }
-        if let Err(message) = validate_reserved_datatype_adornments(&value) {
             return Err(self.syntax_error(&message));
         }
         Ok(value)
@@ -3290,14 +3125,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_binding_node_claims_with_reserved_child_value_datatypes() {
+    fn preserves_binding_node_claims_with_reserved_child_value_datatypes() {
         let result = canonicalize("tag:node<string> = <tag>\n");
-        assert_eq!(result.errors.len(), 1);
-        assert!(
-            result.errors[0]
-                .message
-                .contains("reserved child value datatypes belong on node heads")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert!(result.text.contains("tag:node<string> = <tag>"));
     }
 
     #[test]
@@ -3773,12 +3604,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_meaningless_reserved_datatype_generics_during_canonicalization() {
+    fn preserves_reserved_datatype_generics_during_canonicalization() {
         for source in ["a:n<string> = 3\n", "b:boolean<toggle> = true\n"] {
             let result = canonicalize(source);
-            assert_eq!(result.text, "", "{source}");
-            assert_eq!(result.errors.len(), 1, "{source}");
-            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
+            assert!(result.errors.is_empty(), "{:?}", result.errors);
+            assert!(result.text.ends_with(source), "{}", result.text);
         }
     }
 

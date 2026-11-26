@@ -175,6 +175,8 @@ export interface ModeEnforcementOptions {
     readonly mode?: Mode;
     /** Explicit datatype compatibility override for typed modes */
     readonly datatypePolicy?: DatatypePolicy;
+    /** Expected literal kinds for annotations using a custom datatype. */
+    readonly customDatatypeKinds?: (datatype: string) => readonly string[] | null;
 }
 
 /**
@@ -231,6 +233,7 @@ export function enforceMode(
 ): ModeEnforcementResult {
     const mode = options.mode ?? extractMode(header);
     const datatypePolicy = options.datatypePolicy ?? defaultDatatypePolicyForMode(mode);
+    const { customDatatypeKinds } = options;
     const errors: ModeEnforcementError[] = [];
     const pathToIndex = new Map<string, number>();
     // Keep the terminal value, since literal classification can depend on the requested datatype.
@@ -270,7 +273,7 @@ export function enforceMode(
         }
 
         const expectedKinds = expectedKindsForReservedDatatype(event.datatype);
-        const kinds = expectedKinds ?? expectedKindsForCustomDatatype(event.datatype);
+        const kinds = expectedKinds ?? customDatatypeKinds?.(event.datatype);
         const isSwitch = datatypeBase(event.datatype) === 'switch';
         const actualKind = kinds || isSwitch || mode === 'strict'
             ? resolveDatatypeCheckKind(event.value, events, pathToIndex, event.datatype, terminalValues)
@@ -304,6 +307,7 @@ export function enforceMode(
             pathToIndex,
             mode,
             datatypePolicy,
+            customDatatypeKinds,
             terminalValues
         ));
         errors.push(...validateAnonymousTypedValues(
@@ -313,7 +317,8 @@ export function enforceMode(
             events,
             pathToIndex,
             mode,
-            datatypePolicy
+            datatypePolicy,
+            customDatatypeKinds
         ));
         errors.push(...validateNodeHeadDatatypes(event.value, formatPath(event.path), event.span, mode));
     }
@@ -417,7 +422,8 @@ function validateAnonymousTypedValues(
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
-    datatypePolicy: DatatypePolicy
+    datatypePolicy: DatatypePolicy,
+    customDatatypeKinds: ModeEnforcementOptions['customDatatypeKinds']
 ): readonly ModeEnforcementError[] {
     const errors: ModeEnforcementError[] = [];
 
@@ -437,7 +443,7 @@ function validateAnonymousTypedValues(
                 } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
                 } else if (!expectedKinds) {
-                    const customExpectedKinds = expectedKindsForCustomDatatype(datatype);
+                    const customExpectedKinds = customDatatypeKinds?.(datatype);
                     if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
                         errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, customExpectedKinds));
                     }
@@ -445,27 +451,27 @@ function validateAnonymousTypedValues(
             }
         }
 
-        errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy));
+        errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
         return errors;
     }
 
     if (value.type === 'ObjectNode') {
         for (const binding of value.bindings) {
-            errors.push(...validateAnonymousTypedValues(binding.value, `${ownerPath}.${binding.key}`, span, events, pathToIndex, mode, datatypePolicy));
+            errors.push(...validateAnonymousTypedValues(binding.value, `${ownerPath}.${binding.key}`, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
         }
         return errors;
     }
 
     if (value.type === 'ListNode' || value.type === 'TupleLiteral') {
         for (let i = 0; i < value.elements.length; i++) {
-            errors.push(...validateAnonymousTypedValues(value.elements[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy));
+            errors.push(...validateAnonymousTypedValues(value.elements[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
         }
         return errors;
     }
 
     if (value.type === 'NodeLiteral') {
         for (let i = 0; i < value.children.length; i++) {
-            errors.push(...validateAnonymousTypedValues(value.children[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy));
+            errors.push(...validateAnonymousTypedValues(value.children[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
         }
     }
 
@@ -562,6 +568,7 @@ function validateAnnotationEntries(
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
     datatypePolicy: DatatypePolicy,
+    customDatatypeKinds: ModeEnforcementOptions['customDatatypeKinds'],
     terminalValues: Map<Value, Value>
 ): readonly ModeEnforcementError[] {
     if (!annotations || annotations.size === 0) {
@@ -582,7 +589,7 @@ function validateAnnotationEntries(
             if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
-                const kinds = expectedKinds ?? expectedKindsForCustomDatatype(entry.datatype);
+                const kinds = expectedKinds ?? customDatatypeKinds?.(entry.datatype);
                 if (kinds) {
                     const actualKind = resolveDatatypeCheckKind(entry.value, events, pathToIndex, entry.datatype, terminalValues);
                     if (!kinds.includes(actualKind)) {
@@ -600,6 +607,7 @@ function validateAnnotationEntries(
             pathToIndex,
             mode,
             datatypePolicy,
+            customDatatypeKinds,
             terminalValues
         ));
     }
@@ -874,14 +882,6 @@ export function datatypeHasGenericArgs(datatype: string): boolean {
     }
 
     return false;
-}
-
-function expectedKindsForCustomDatatype(datatype: string): readonly string[] | null {
-    if (datatypeHasGenericArgs(datatype)) {
-        return ['ListNode', 'TupleLiteral'];
-    }
-
-    return null;
 }
 
 const NUMERIC_TYPES = new Set([

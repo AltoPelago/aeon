@@ -348,7 +348,6 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            this.validateBindingNodeGeneric(datatype);
         }
 
         // Expect =
@@ -418,7 +417,6 @@ class Parser {
             if (this.check(TokenType.Colon)) {
                 this.advance();
                 attrDatatype = this.parseTypeAnnotation();
-                this.validateBindingNodeGeneric(attrDatatype);
             }
 
             this.consume(TokenType.Equals, "Expected '=' in attribute");
@@ -475,14 +473,6 @@ class Parser {
             if (genericDepth > this.maxGenericDepth) {
                 throw new GenericDepthExceededError(genericDepth, this.maxGenericDepth, this.peek().span);
             }
-            if (name === 'radix') {
-                throw new SyntaxError(
-                    "Radix datatype bases must use bracket syntax like 'radix[10]'",
-                    this.peek().span,
-                    'radix[10]',
-                    this.peek().value
-                );
-            }
             this.advance(); // consume <
             genericArgs.push(this.parseGenericArgument(genericDepth, components));
             this.enforceGenericArgumentCount(genericArgs.length);
@@ -517,8 +507,6 @@ class Parser {
             }
         }
 
-        this.validateReservedDatatypeAdornments(name, genericArgs);
-
         const end = this.previous().span.end;
         return {
             type: 'TypeAnnotation',
@@ -527,43 +515,6 @@ class Parser {
             clarifiers,
             span: createSpan(start, end),
         };
-    }
-
-    private validateReservedDatatypeAdornments(
-        name: string,
-        genericArgs: readonly string[]
-    ): void {
-        if (!RESERVED_V1_DATATYPES.has(name)) return;
-
-        if (genericArgs.length > 0 && !GENERIC_V1_DATATYPES.has(name)) {
-            throw new SyntaxError(
-                `Datatype '${name}' does not support generic arguments in v1`,
-                this.previous().span,
-                null,
-                name
-            );
-        }
-
-    }
-
-    private validateBindingNodeGeneric(datatype: TypeAnnotation): void {
-        if (datatype.name !== 'node' || datatype.genericArgs.length === 0) {
-            return;
-        }
-
-        for (const arg of datatype.genericArgs) {
-            // Generic arguments may carry their own generics or clarifiers;
-            // neither decoration changes the reserved datatype's identity.
-            const base = arg.split(/[<\[]/, 1)[0] ?? arg;
-            if (base !== 'node' && RESERVED_V1_DATATYPES.has(base)) {
-                throw new SyntaxError(
-                    "Binding-level node<T> claims may use node<T> only for custom profile/domain claims or node<node>; reserved child value datatypes belong on node heads",
-                    datatype.span,
-                    'node<node> or node<custom>',
-                    this.formatTypeAnnotation(datatype)
-                );
-            }
-        }
     }
 
     private parseGenericArgument(genericDepth: number, components: { count: number }): string {
@@ -691,7 +642,6 @@ class Parser {
         if (this.check(TokenType.Colon)) {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
-            this.validateBindingNodeGeneric(datatype);
         }
 
         this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
@@ -793,22 +743,6 @@ class Parser {
             this.advance(); // consume :
             datatype = this.parseTypeAnnotation();
             headEnd = datatype.span.end;
-            if (datatype.genericArgs.length > 0 && datatype.name !== 'node') {
-                throw new SyntaxError(
-                    'Generic node head datatypes must use node<T>',
-                    datatype.span,
-                    'node<T>',
-                    this.formatTypeAnnotation(datatype)
-                );
-            }
-            if (datatype.clarifiers.length > 0) {
-                throw new SyntaxError(
-                    'Node head datatypes must not use clarifiers',
-                    datatype.span,
-                    'node head datatype',
-                    this.formatTypeAnnotation(datatype)
-                );
-            }
         }
 
         const children: Value[] = [];
@@ -1612,22 +1546,8 @@ class Parser {
     }
 }
 
-const GENERIC_V1_DATATYPES = new Set(['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity']);
 const RESERVED_NULL_SENTINELS = new Set(['none', 'notSet', 'notApplicable', 'tombstone']);
 const RESERVED_ATTRIBUTE_KEYS = new Set(['@', '@items', '__proto__', 'constructor', 'prototype']);
-const RESERVED_V1_DATATYPES = new Set([
-    'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
-    'uint', 'uint8', 'uint16', 'uint32', 'uint64',
-    'float', 'float32', 'float64',
-    'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
-    'hex', 'date', 'time', 'datetime', 'wtc',
-    'encoding', 'base64', 'embed', 'inline',
-    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12', 'radix16',
-    'sep', 'kadot', 'symbol',
-    'sansa',
-    'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
-]);
-
 /**
  * Parse AEON tokens into an AST
  */

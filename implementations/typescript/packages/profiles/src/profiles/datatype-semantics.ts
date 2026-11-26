@@ -2,6 +2,22 @@ import { aeonRadixBaseFromNumber, formatPath, type AesNumberLiteral, type Assign
 import type { Span } from '@altopelago/aeon-lexer';
 import type { CompileCtx, DatatypeSemantics } from '../types.js';
 
+const GP_GENERIC_DATATYPES = new Set(['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity', 'symbol']);
+const RESERVED_V1_DATATYPES = new Set([
+    'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
+    'uint', 'uint8', 'uint16', 'uint32', 'uint64',
+    'float', 'float32', 'float64',
+    'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
+    'hex', 'date', 'time', 'datetime', 'wtc',
+    'encoding', 'base64', 'embed', 'inline',
+    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12', 'radix16',
+    'sep', 'kadot', 'symbol',
+    'sansa',
+    'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
+]);
+
+type DatatypePosition = 'binding' | 'node-head' | 'argument';
+
 interface ParsedDatatype {
     readonly name: string;
     readonly clarifiers: readonly (string | AesNumberLiteral)[];
@@ -17,7 +33,7 @@ export function validateDatatypeSemantics(
         if (event.datatype === undefined) continue;
         const parsed = parseDatatype(event.datatype);
         if (!parsed) continue;
-        validateParsedDatatype(parsed, semantics, ctx, event.normalizedPath, event.value.type);
+        validateParsedDatatype(parsed, semantics, ctx, formatPath(event.path), event.value.type);
     }
     validateUnprojectedClaims(aes, semantics, ctx);
 }
@@ -58,9 +74,9 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], semantics: R
         const nested = paths.has(formatPath({ segments: event.path.segments.slice(0, -1) }));
         if (!nested) tasks.push({ value: event.value, path: formatPath(event.path), metadata: false, annotations: event.annotations, span: event.span });
     }
-    function check(datatype: ParsedDatatype | null | undefined, value: Value, path: string, span?: Span): void {
+    function check(datatype: ParsedDatatype | null | undefined, value: Value, path: string, span?: Span, position: DatatypePosition = 'binding'): void {
         while (value.type === 'TypedValue') value = value.value;
-        if (datatype) validateParsedDatatype(datatype, semantics, { error: diagnostic => ctx.error({ ...diagnostic, ...(span ? { span } : {}) }) }, path, value.type);
+        if (datatype) validateParsedDatatype(datatype, semantics, { error: diagnostic => ctx.error({ ...diagnostic, ...(span ? { span } : {}) }) }, path, value.type, position);
     }
     function attributes(entries: Attributes | undefined, path: string): void {
         for (const block of [...(entries ?? [])].reverse()) {
@@ -72,7 +88,7 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], semantics: R
     while (tasks.length) {
         const task = tasks.pop()!;
         const { value, path, metadata } = task;
-        if (metadata) check(task.datatype, value, path, task.span);
+        if (metadata) check(task.datatype, value, path, task.span, task.checkOnly ? 'node-head' : 'binding');
         if (task.checkOnly) continue;
         switch (value.type) {
             case 'TypedValue':
@@ -113,11 +129,35 @@ function validateParsedDatatype(
     semantics: Readonly<Record<string, DatatypeSemantics>>,
     ctx: Pick<CompileCtx, 'error'>,
     path: string | undefined,
-    literalFamily?: string
+    literalFamily?: string,
+    position: DatatypePosition = 'binding'
 ): void {
-    validateOwnClarifiers(datatype, semantics, ctx, path, literalFamily);
-    for (const arg of datatype.args) {
-        validateParsedDatatype(arg, semantics, ctx, path);
+    const { name, args, clarifiers } = datatype;
+    const location = path === undefined ? {} : { path };
+    if (args.length > 0) {
+        let message: string | undefined;
+        if (position === 'node-head' && name !== 'node') {
+            message = 'Profile only allows generic arguments on node head datatype :node';
+        } else if (position === 'binding' && name === 'node'
+            && args.some(arg => arg.name !== 'node' && RESERVED_V1_DATATYPES.has(arg.name))) {
+            message = 'Profile binding datatype :node accepts only node or custom datatype arguments';
+        } else if (RESERVED_V1_DATATYPES.has(name) && !GP_GENERIC_DATATYPES.has(name)) {
+            message = `Profile does not allow generic arguments on datatype ':${name}'`;
+        }
+        if (message) ctx.error({ code: 'PROFILE_DATATYPE_GENERIC_NOT_ALLOWED', message, ...location });
+    }
+
+    if (position === 'node-head' && clarifiers.length > 0) {
+        ctx.error({
+            code: 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED',
+            message: 'Profile does not allow clarifiers on node head datatypes',
+            ...location,
+        });
+    } else {
+        validateOwnClarifiers(datatype, semantics, ctx, path, literalFamily);
+    }
+    for (const arg of args) {
+        validateParsedDatatype(arg, semantics, ctx, path, undefined, 'argument');
     }
 }
 
@@ -130,7 +170,7 @@ function validateOwnClarifiers(
 ): void {
     if (datatype.clarifiers.length === 0) return;
 
-    const rule = semantics[datatype.name];
+    const rule = Object.hasOwn(semantics, datatype.name) ? semantics[datatype.name] : undefined;
     if (!rule && (literalFamily === 'SeparatorLiteral' || literalFamily === 'RadixLiteral')) {
         return;
     }
@@ -207,13 +247,9 @@ class DatatypeSurfaceParser {
             while (true) {
                 this.skipWhitespace();
                 if (this.peek() === '>') return null;
-                if (isNumberStart(this.peek())) {
-                    this.parseGenericNumber();
-                } else {
-                    const arg = this.parseType();
-                    if (!arg) return null;
-                    args.push(arg);
-                }
+                const arg = this.parseType();
+                if (!arg) return null;
+                args.push(arg);
                 this.skipWhitespace();
                 if (this.peek() === '>') {
                     this.pos++;
@@ -244,13 +280,6 @@ class DatatypeSurfaceParser {
         if (!match) return null;
         this.pos += match[0]!.length;
         return match[0]!;
-    }
-
-    private parseGenericNumber(): void {
-        const match = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(this.source.slice(this.pos));
-        if (match) {
-            this.pos += match[0]!.length;
-        }
     }
 
     private parseClarifiers(): readonly (string | AesNumberLiteral)[] | null {
@@ -307,8 +336,4 @@ class DatatypeSurfaceParser {
     private peek(): string {
         return this.source[this.pos] ?? '';
     }
-}
-
-function isNumberStart(value: string): boolean {
-    return value === '+' || value === '-' || value === '.' || /\d/.test(value);
 }

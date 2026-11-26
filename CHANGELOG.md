@@ -8,6 +8,16 @@ repositories.
 
 ## Unreleased
 
+- Core preserves generic arguments and clarifiers on datatype annotations,
+  including node heads. GP now owns the datatype-specific restrictions and
+  accepts generic arguments on `symbol`, including strict
+  `duration:symbol<time> = |1min|`. GP keeps the collection requirement for
+  parameterized custom values. The opt-in `set.to.eleven.v1` test
+  profile accepts any combination of Core-valid generic arguments and clarifiers.
+  Core grammar and resource limits apply under both profiles. This behavior
+  requires a successor to the immutable Core CTS 0.6 snapshot, whose rejection
+  cases cover the former Core restrictions.
+
 ## 0.17.0 - 2026-11-25
 
 ### Published release

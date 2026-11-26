@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -393,9 +394,47 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source('aeon:mode = "strict"\na:radix = %-.3\nb:radix = %+.1\nc:radix = %.1')
         self.assertEqual([], result.errors)
 
-    def test_reserved_scalar_generics_are_rejected(self) -> None:
+    def test_core_preserves_reserved_scalar_generics(self) -> None:
         result = compile_source("a:n<string> = 3")
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+        self.assertEqual([], result.errors)
+        self.assertEqual("n<string>", result.events[0]["datatype"])
+
+    def test_profiles_own_datatype_adornment_rules(self) -> None:
+        fixtures = json.loads((Path(__file__).resolve().parents[3] / "test-fixtures/gp-datatype-generics.json").read_text())
+        for fixture in fixtures:
+            source = fixture["source"]
+            with self.subTest(source=source):
+                core = compile_source(source)
+                self.assertEqual([], core.errors)
+                for profile in ("set.to.eleven.v1", "aeon.gp.profile.v1"):
+                    expected = [] if profile == "set.to.eleven.v1" else fixture["errors"]
+                    for selected in (
+                        compile_source(source, CompileOptions(profile=profile)),
+                        compile_source(f'aeon:profile="{profile}"\n{source}'),
+                    ):
+                        self.assertEqual(expected, [{"code": e.code, "path": e.path} for e in selected.errors])
+                        if expected:
+                            self.assertEqual([], selected.events)
+
+    def test_test_profile_uses_core_syntax_limits_and_literal_family_validation(self) -> None:
+        options = CompileOptions(profile="set.to.eleven.v1", max_generic_arguments=1)
+        for source, code in (
+            ('a:symbol<1> = |approved|', "SYNTAX_ERROR"),
+            ('a:string<Locale>["en", "AU"] = "hello"', "CLARIFIER_VALUES_EXCEEDED"),
+            ('a:string<Language, Region> = "hello"', "GENERIC_ARGUMENTS_EXCEEDED"),
+            ('aeon:mode = "strict"\na:node<radix[2]> = 1', "DATATYPE_LITERAL_MISMATCH"),
+        ):
+            with self.subTest(source=source):
+                result = compile_source(source, options)
+                self.assertEqual([code], [e.code for e in result.errors])
+                self.assertEqual([], result.events)
+
+        result = compile_source(
+            'aeon:profile="aeon.gp.profile.v1"\na:string<Locale>["en", 9007199254740993] = "hello"',
+            CompileOptions(profile="set.to.eleven.v1", max_clarifier_values=2),
+        )
+        self.assertEqual([], result.errors)
+        self.assertEqual('string<Locale>["en", 9007199254740993]', result.events[0]["datatype"])
 
     def test_parameterized_object_and_node_claims_are_preserved(self) -> None:
         result = compile_source(
@@ -409,10 +448,10 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("nan<number>", result.events[5]["datatype"])
         self.assertEqual("infinity<speedofmass>", result.events[6]["datatype"])
 
-    def test_binding_node_claim_rejects_reserved_child_value_datatypes(self) -> None:
+    def test_core_preserves_reserved_child_datatypes_in_binding_node_claims(self) -> None:
         result = compile_source("tag:node<string> = <tag>")
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
-        self.assertIn("reserved child value datatypes belong on node heads", result.errors[0].message)
+        self.assertEqual([], result.errors)
+        self.assertEqual("node<string>", result.events[0]["datatype"])
 
     def test_reserved_datatype_clarifiers_are_preserved_without_core_meaning(self) -> None:
         result = compile_source(
@@ -718,13 +757,17 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("node", node_value["datatype"]["name"])
         self.assertEqual(["string"], node_value["datatype"]["genericArgs"])
 
-    def test_non_node_generic_inline_node_head_datatype_is_rejected(self) -> None:
-        result = compile_source('aeon:mode = "transport"\nwidget:node = <tag:pair<int32,string>("x")>')
-        self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
+    def test_core_preserves_generic_inline_node_head_datatypes(self) -> None:
+        result = compile_source('widget:node = <tag:pair<int32,string>["x"]("x")>')
+        self.assertEqual([], result.errors)
+        datatype = result.events[0]["value"]["datatype"]
+        self.assertEqual("pair", datatype["name"])
+        self.assertEqual(["int32", "string"], datatype["genericArgs"])
+        self.assertEqual(["x"], datatype["clarifiers"])
 
-    def test_custom_mode_rejects_scalar_values_for_generic_custom_datatypes(self) -> None:
+    def test_core_allows_scalar_values_for_generic_custom_datatypes(self) -> None:
         result = compile_source('aeon:mode = "custom"\na:custom<custom> = 0')
-        self.assertEqual(["DATATYPE_LITERAL_MISMATCH"], [error.code for error in result.errors])
+        self.assertEqual([], result.errors)
 
     def test_custom_mode_allows_list_and_tuple_values_for_generic_custom_datatypes(self) -> None:
         list_result = compile_source('aeon:mode = "custom"\nb:custom<custom> = [2]')
