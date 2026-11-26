@@ -416,6 +416,21 @@ class CoreCompileTests(unittest.TestCase):
                         if expected:
                             self.assertEqual([], selected.events)
 
+    def test_gp_checks_unicode_names_in_nested_datatype_descriptors(self) -> None:
+        options = CompileOptions(profile="aeon.gp.profile.v1")
+        for label in ("French", "Français", "Étage_٢"):
+            for source, path in (
+                (f'a:string<{label}> = "hello"', "$.a"),
+                (f'a:node = <tag:pair<{label}>>', "$.a[0]"),
+            ):
+                with self.subTest(source=source):
+                    self.assertEqual([], compile_source(source).errors)
+                    self.assertEqual(
+                        [("PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", path)],
+                        [(error.code, error.path) for error in compile_source(source, options).errors],
+                    )
+            self.assertEqual([], compile_source(f'duration:symbol<{label}> = |1min|', options).errors)
+
     def test_test_profile_uses_core_syntax_limits_and_literal_family_validation(self) -> None:
         options = CompileOptions(profile="set.to.eleven.v1", max_generic_arguments=1)
         for source, code in (

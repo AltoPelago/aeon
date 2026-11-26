@@ -255,6 +255,12 @@ export function enforceMode(
             continue;
         }
 
+        if (customDatatypeKinds && datatypePolicy === 'allow_custom'
+            && (event.annotations?.size || 'attributes' in event.value)) {
+            validateCustomMetadataKinds(event, customDatatypeKinds, (value, datatype) =>
+                resolveDatatypeCheckKind(value, events, pathToIndex, datatype, terminalValues), errors);
+        }
+
         // Indexed list/tuple element events are synthetic structural nodes.
         // Strict typing is enforced on declared bindings and nested members.
         if (isIndexedElementEvent(event)) {
@@ -307,7 +313,6 @@ export function enforceMode(
             pathToIndex,
             mode,
             datatypePolicy,
-            customDatatypeKinds,
             terminalValues
         ));
         errors.push(...validateAnonymousTypedValues(
@@ -560,6 +565,107 @@ function base64UrlSextet(char: string): number {
     return char === '-' ? 62 : 63;
 }
 
+function validateCustomMetadataKinds(
+    event: AssignmentEvent,
+    customKinds: NonNullable<ModeEnforcementOptions['customDatatypeKinds']>,
+    resolveKind: (value: Value, datatype: string) => string,
+    errors: ModeEnforcementError[],
+): void {
+    interface Claim {
+        readonly value: Value;
+        readonly path: string;
+        readonly datatype?: string | null;
+        readonly span: Span;
+    }
+
+    const tasks: Claim[] = [];
+    const member = (path: string, key: string) =>
+        path + formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
+    function attributes(blocks: readonly Attribute[] | undefined, owner: string): void {
+        for (const block of [...(blocks ?? [])].reverse()) {
+            for (const [key, entry] of [...block.entries].reverse()) {
+                const path = member(`${owner}.@`, key);
+                attributes(entry.attributes, path);
+                tasks.push({
+                    value: entry.value, path, span: entry.span ?? entry.value.span,
+                    datatype: entry.datatype && formatTypeAnnotation(entry.datatype),
+                });
+            }
+        }
+    }
+    function projected(entries: ReadonlyMap<string, AttributeEntry> | undefined, owner: string): void {
+        for (const [key, entry] of [...(entries ?? [])].reverse()) {
+            const path = member(`${owner}.@`, key);
+            projected(entry.annotations, path);
+            tasks.push({ value: entry.value, path, span: entry.span ?? entry.value.span, datatype: entry.datatype ?? null });
+        }
+    }
+
+    const owner = formatPath(event.path);
+    let root = event.value;
+    while (root.type === 'TypedValue') {
+        attributes(root.attributes, owner);
+        root = root.value;
+    }
+    if (root.type === 'NodeLiteral') {
+        attributes(root.attributes, `${owner}[0]`);
+    } else if (root.type === 'ObjectNode' || root.type === 'ListNode' || root.type === 'TupleLiteral') {
+        attributes(root.attributes, owner);
+    }
+    projected(event.annotations, owner);
+
+    while (tasks.length > 0) {
+        const { value, path, datatype, span } = tasks.pop()!;
+        if (datatype && !expectedKindsForReservedDatatype(datatype)) {
+            const expected = customKinds(datatype);
+            if (expected) {
+                const kind = resolveKind(value, datatype);
+                if (kind !== 'CloneReference' && kind !== 'PointerReference' && !expected.includes(kind)) {
+                    errors.push(new DatatypeLiteralMismatchError(span, path, datatype, kind, expected));
+                }
+            }
+        }
+
+        switch (value.type) {
+            case 'TypedValue':
+                tasks.push({
+                    value: value.value, path, span: value.span,
+                    datatype: value.datatype && formatTypeAnnotation(value.datatype),
+                });
+                attributes(value.attributes, path);
+                break;
+            case 'ObjectNode':
+                for (const binding of [...value.bindings].reverse()) {
+                    const child = member(path, binding.key);
+                    tasks.push({
+                        value: binding.value, path: child, span: binding.span,
+                        datatype: binding.datatype && formatTypeAnnotation(binding.datatype),
+                    });
+                    attributes(binding.attributes, child);
+                }
+                attributes(value.attributes, path);
+                break;
+            case 'ListNode':
+            case 'TupleLiteral':
+                for (let index = value.elements.length - 1; index >= 0; index--) {
+                    const child = value.elements[index]!;
+                    tasks.push({ value: child, path: `${path}[${index}]`, span: child.span });
+                }
+                attributes(value.attributes, path);
+                break;
+            case 'NodeLiteral': {
+                const head = `${path}[0]`;
+                for (let index = value.children.length - 1; index >= 0; index--) {
+                    const child = value.children[index]!;
+                    tasks.push({ value: child, path: `${head}[${index}]`, span: child.span });
+                }
+                attributes(value.attributes, head);
+                break;
+            }
+        }
+    }
+}
+
 function validateAnnotationEntries(
     annotations: ReadonlyMap<string, AttributeEntry> | undefined,
     ownerPath: string,
@@ -568,7 +674,6 @@ function validateAnnotationEntries(
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
     datatypePolicy: DatatypePolicy,
-    customDatatypeKinds: ModeEnforcementOptions['customDatatypeKinds'],
     terminalValues: Map<Value, Value>
 ): readonly ModeEnforcementError[] {
     if (!annotations || annotations.size === 0) {
@@ -589,11 +694,10 @@ function validateAnnotationEntries(
             if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
-                const kinds = expectedKinds ?? customDatatypeKinds?.(entry.datatype);
-                if (kinds) {
+                if (expectedKinds) {
                     const actualKind = resolveDatatypeCheckKind(entry.value, events, pathToIndex, entry.datatype, terminalValues);
-                    if (!kinds.includes(actualKind)) {
-                        errors.push(new DatatypeLiteralMismatchError(span, attrPath, entry.datatype, actualKind, kinds));
+                    if (!expectedKinds.includes(actualKind)) {
+                        errors.push(new DatatypeLiteralMismatchError(span, attrPath, entry.datatype, actualKind, expectedKinds));
                     }
                 }
             }
@@ -607,7 +711,6 @@ function validateAnnotationEntries(
             pathToIndex,
             mode,
             datatypePolicy,
-            customDatatypeKinds,
             terminalValues
         ));
     }
@@ -859,8 +962,24 @@ export function datatypeHasGenericArgs(datatype: string): boolean {
     let bracketDepth = 0;
     let genericStart = -1;
 
+    let quote: string | undefined;
+    let escaped = false;
     for (let index = 0; index < datatype.length; index += 1) {
         const char = datatype[index]!;
+        if (quote !== undefined) {
+            if (escaped) {
+                escaped = false;
+            } else if (char === '\\') {
+                escaped = true;
+            } else if (char === quote) {
+                quote = undefined;
+            }
+            continue;
+        }
+        if (char === '"' || char === "'") {
+            quote = char;
+            continue;
+        }
         if (char === '[') {
             bracketDepth += 1;
             continue;

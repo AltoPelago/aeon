@@ -2312,40 +2312,55 @@ fn base64url_sextet(byte: u8) -> Option<u8> {
 #[derive(Debug)]
 pub(crate) enum AttributeDatatypeCheck {
     Error(Diagnostic),
-    GpError(Diagnostic),
     Reference {
         path: String,
         datatype: String,
         value: Value,
-        gp_only: bool,
+        custom_generic: bool,
     },
 }
 
 impl AttributeDatatypeCheck {
+    pub(crate) fn gp_custom_value(datatype: &str, value: &Value, path: &str) -> Option<Self> {
+        if is_reserved_datatype(datatype) || !crate::datatype_has_generic_args(datatype) {
+            return None;
+        }
+        let mut value = value;
+        while let Value::TypedValue { value: inner, .. } = value {
+            value = inner;
+        }
+        if matches!(
+            value,
+            Value::CloneReference { .. } | Value::PointerReference { .. }
+        ) {
+            return Some(Self::Reference {
+                path: path.to_owned(),
+                datatype: datatype.to_owned(),
+                value: value.clone(),
+                custom_generic: true,
+            });
+        }
+        crate::gp_custom_generic_value_error(datatype, value.value_kind(), path).map(Self::Error)
+    }
+
     pub(crate) fn diagnostic<'a>(
         &'a self,
-        gp_active: bool,
         resolve: impl FnOnce(&'a Value) -> CompactDatatypeValue,
     ) -> Option<Diagnostic> {
         match self {
             Self::Error(error) => Some(error.clone()),
-            Self::GpError(error) => gp_active.then(|| error.clone()),
             Self::Reference {
                 path,
                 datatype,
                 value,
-                gp_only,
+                custom_generic,
             } => {
-                if *gp_only {
-                    return gp_active
-                        .then(|| {
-                            crate::gp_custom_generic_value_error(
-                                datatype,
-                                resolve(value).value_kind(),
-                                path,
-                            )
-                        })
-                        .flatten();
+                if *custom_generic {
+                    return crate::gp_custom_generic_value_error(
+                        datatype,
+                        resolve(value).value_kind(),
+                        path,
+                    );
                 }
                 let resolved = resolve(value);
                 (!datatype_matches_compact_value(datatype, &resolved)).then(|| {
@@ -2759,9 +2774,15 @@ fn validate_resolved_attribute_datatypes(
         max_generic_depth,
         &mut checks,
     );
+    if gp_active && datatype_policy == DatatypePolicy::AllowCustom {
+        crate::gp_attributes::collect_gp_attribute_value_checks(
+            authored_targets.paths.bindings,
+            &mut checks,
+        );
+    }
     let mut references = DatatypeReferenceCache::default();
     for check in &checks {
-        errors.extend(check.diagnostic(gp_active, |value| {
+        errors.extend(check.diagnostic(|value| {
             references.resolve(value, |segments| authored_targets.lookup(segments))
         }));
     }
@@ -2940,24 +2961,6 @@ fn validate_attribute_datatype_map(
                         )
                         .at_path(attr_path.clone()),
                     ));
-                } else if crate::datatype_has_generic_args(datatype) {
-                    if matches!(
-                        value,
-                        Value::CloneReference { .. } | Value::PointerReference { .. }
-                    ) {
-                        checks.push(AttributeDatatypeCheck::Reference {
-                            path: attr_path,
-                            datatype: datatype.clone(),
-                            value: value.clone(),
-                            gp_only: true,
-                        });
-                    } else if let Some(error) = crate::gp_custom_generic_value_error(
-                        datatype,
-                        value.value_kind(),
-                        &attr_path,
-                    ) {
-                        checks.push(AttributeDatatypeCheck::GpError(error));
-                    }
                 }
             } else if matches!(
                 value,
@@ -2967,7 +2970,7 @@ fn validate_attribute_datatype_map(
                     path: attr_path,
                     datatype: datatype.clone(),
                     value: value.clone(),
-                    gp_only: false,
+                    custom_generic: false,
                 });
             } else if !datatype_matches_value(datatype, value) {
                 checks.push(AttributeDatatypeCheck::Error(

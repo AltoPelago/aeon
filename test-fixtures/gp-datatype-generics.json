@@ -15,5 +15,14 @@
   {"id": "custom-generic-symbolic-value", "source": "aeon:mode = \"custom\"\nr:rational<number> = |1/3|", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.r"}]},
   {"id": "custom-generic-symbolic-reference", "source": "aeon:mode = \"custom\"\ntarget:symbol = |1/3|\nr:rational<number> = ~target", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.r"}]},
   {"id": "custom-generic-list-value", "source": "aeon:mode = \"custom\"\nvalues:Series<number> = [1, 2]", "errors": []},
-  {"id": "custom-generic-attribute", "source": "aeon:mode = \"custom\"\na@{meta:rational<number> = |1/3|}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta"}]}
+  {"id": "custom-generic-attribute", "source": "aeon:mode = \"custom\"\na@{meta:rational<number> = |1/3|}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta"}]},
+  {"id": "custom-generic-metadata-item", "source": "aeon:mode = \"custom\"\na@{meta:list = [:rational<symbol<time>> = |1/3|]}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta[0]"}]},
+  {"id": "custom-generic-metadata-body-item", "source": "aeon:mode = \"custom\"\na@{meta:list = [:rational<symbol<time>> = [|1/3|]]}:number = 0", "errors": []},
+  {"id": "custom-generic-metadata-object-member", "source": "aeon:mode = \"custom\"\na@{meta:object = {entry:rational<symbol<time>> = |1/3|}}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta.entry"}]},
+  {"id": "custom-generic-node-head-metadata-item", "source": "aeon:mode = \"custom\"\na:node = <tag@{meta:list = [:rational<symbol<time>> = |1/3|]}>", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a[0].@.meta[0]"}]},
+  {"id": "custom-generic-metadata-clone-chain", "source": "aeon:mode = \"custom\"\ntarget:symbol = |1/3|\nalias:symbol = ~>target\na@{meta:list = [:rational<symbol<time>> = ~alias]}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta[0]"}]},
+  {"id": "custom-generic-metadata-collection-reference", "source": "aeon:mode = \"custom\"\ntarget:list = [1]\na@{meta:list = [:rational<symbol<time>> = ~>target]}:number = 0", "errors": []},
+  {"id": "custom-generic-with-quoted-bracket", "source": "aeon:mode = \"custom\"\na:rational<encoding[\"[\"], symbol<time>> = |1/3|", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a"}]},
+  {"id": "custom-generic-metadata-with-quoted-bracket", "source": "aeon:mode = \"custom\"\na@{meta:list = [:rational<encoding[\"]\"], symbol<time>> = |1/3|]}:number = 0", "errors": [{"code": "DATATYPE_LITERAL_MISMATCH", "path": "$.a.@.meta[0]"}]},
+  {"id": "custom-generic-with-quoted-bracket-collection", "source": "aeon:mode = \"custom\"\na:rational<encoding[\"[\"], symbol<time>> = [1]", "errors": []}
 ]

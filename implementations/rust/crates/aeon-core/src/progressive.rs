@@ -155,6 +155,7 @@ struct ProgressiveValidationState {
     gp_profile_errors: Vec<Diagnostic>,
     gp_custom_value_errors: Vec<(usize, Diagnostic)>,
     gp_unprojected_errors: Vec<Diagnostic>,
+    gp_attribute_value_checks: Vec<AttributeDatatypeCheck>,
     reference_datatype_claims: Vec<CompactReferenceDatatypeClaim>,
     datatype_targets: HashMap<String, CompactDatatypeValue>,
     reference_targets: HashSet<String>,
@@ -206,6 +207,7 @@ impl ProgressiveValidationState {
             gp_profile_errors: Vec::new(),
             gp_custom_value_errors: Vec::new(),
             gp_unprojected_errors: Vec::new(),
+            gp_attribute_value_checks: Vec::new(),
             reference_datatype_claims: Vec::new(),
             datatype_targets: HashMap::new(),
             reference_targets: HashSet::new(),
@@ -222,7 +224,16 @@ impl ProgressiveValidationState {
     }
 
     fn observe_bindings(&mut self, bindings: &[Binding]) {
-        validate_gp_unprojected_datatypes(bindings, &mut self.gp_unprojected_errors);
+        if self.gp_profile_possible() {
+            let value_checks = (self.options.datatype_policy
+                != Some(crate::DatatypePolicy::ReservedOnly))
+            .then_some(&mut self.gp_attribute_value_checks);
+            validate_gp_unprojected_datatypes(
+                bindings,
+                &mut self.gp_unprojected_errors,
+                value_checks,
+            );
+        }
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
         }
@@ -286,6 +297,7 @@ impl ProgressiveValidationState {
         }
         let first_event_ordinal = self.event_count;
         self.event_count = self.event_count.saturating_add(events.len());
+        let gp_possible = self.gp_profile_possible();
         for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
             if !self.assume_unique_event_paths
                 && !self
@@ -312,7 +324,8 @@ impl ProgressiveValidationState {
                         reference: CompactDatatypeValue::from_value(&event.value),
                         span: event.span,
                     });
-            } else if let Some(datatype) = &event.datatype
+            } else if gp_possible
+                && let Some(datatype) = &event.datatype
                 && let Some(error) =
                     gp_custom_generic_value_error(datatype, event.value.value_kind(), path)
             {
@@ -336,7 +349,9 @@ impl ProgressiveValidationState {
                 }
             }
         }
-        validate_gp_event_datatypes(events, &rendered_paths, &mut self.gp_profile_errors);
+        if gp_possible {
+            validate_gp_event_datatypes(events, &rendered_paths, &mut self.gp_profile_errors);
+        }
     }
 
     fn observe_references(
@@ -413,6 +428,17 @@ impl ProgressiveValidationState {
         self.header.effective_mode(self.options.mode)
     }
 
+    fn gp_profile_possible(&self) -> bool {
+        // A document header may select GP later unless trusted options explicitly opt out.
+        self.options.profile.as_deref() != Some(crate::SET_TO_ELEVEN_PROFILE_ID)
+    }
+
+    fn gp_custom_value_checks_active(&self, mode: BehaviorMode) -> bool {
+        self.gp_profile_active()
+            && crate::validation::effective_datatype_policy(mode, self.options.datatype_policy)
+                == crate::DatatypePolicy::AllowCustom
+    }
+
     fn gp_profile_active(&self) -> bool {
         self.header.uses_gp_profile(self.options.profile.as_deref())
     }
@@ -435,9 +461,7 @@ impl ProgressiveValidationState {
     ) -> Vec<Diagnostic> {
         let mode = self.effective_mode();
         let mut ordered = self.datatype_event_errors.errors(mode).to_vec();
-        let gp_custom_active = self.gp_profile_active()
-            && crate::validation::effective_datatype_policy(mode, self.options.datatype_policy)
-                == crate::DatatypePolicy::AllowCustom;
+        let gp_custom_active = self.gp_custom_value_checks_active(mode);
         if gp_custom_active {
             ordered.extend(
                 self.gp_custom_value_errors
@@ -513,11 +537,18 @@ impl ProgressiveValidationState {
         &'a self,
         terminal_values: &'a mut HashMap<String, CompactDatatypeValue>,
     ) -> impl Iterator<Item = Diagnostic> + 'a {
+        let mode = self.effective_mode();
+        let gp_checks = if self.gp_custom_value_checks_active(mode) {
+            self.gp_attribute_value_checks.as_slice()
+        } else {
+            &[]
+        };
         self.datatype_attribute_checks
-            .errors(self.effective_mode())
+            .errors(mode)
             .iter()
+            .chain(gp_checks)
             .filter_map(|check| {
-                check.diagnostic(self.gp_profile_active(), |value| {
+                check.diagnostic(|value| {
                     self.resolve_compact_datatype_reference(
                         &CompactDatatypeValue::from_value(value),
                         terminal_values,
@@ -582,6 +613,7 @@ impl ProgressiveValidationState {
                 + self.gp_profile_errors.len()
                 + self.gp_custom_value_errors.len()
                 + self.gp_unprojected_errors.len()
+                + self.gp_attribute_value_checks.len()
                 + self.typed_mode_errors.retained_error_count(),
             event_count: self.event_count,
             seen_path_count: self.seen_event_paths.len(),
@@ -3978,6 +4010,46 @@ mod tests {
         assert_eq!(retained.completed_binding_count, 0);
         assert_eq!(retained.released_completed_binding_count, 4);
         assert_eq!(retained.prevalidation_error_count, 3);
+    }
+
+    #[test]
+    fn explicit_permissive_profile_skips_all_gp_candidate_diagnostics() {
+        for limit in [None, Some(1)] {
+            for width in [8, 32] {
+                let options = CompileOptions {
+                    profile: Some(crate::SET_TO_ELEVEN_PROFILE_ID.to_owned()),
+                    mode: Some(BehaviorMode::Transport),
+                    max_events: limit,
+                    ..CompileOptions::default()
+                };
+                let one = NonZeroUsize::new(1).expect("one is non-zero");
+                let mut compiler = ProgressiveCompiler::new_compact(options, one, one);
+                for index in 0..width {
+                    compiler
+                        .push_str(&format!(
+                            "value{index}@{{meta:list=[:rational<symbol<time>>=|1/3|]}}:node=<tag:Pair<Item>[\"profile\"]>\n"
+                        ))
+                        .expect("accept input row");
+                    while compiler.pull_batch().is_some() {}
+                    let retained = compiler.retention();
+                    assert!(!retained.validation_gp_profile_active);
+                    assert_eq!(retained.validation_retained_candidate_error_count, 0);
+                }
+                compiler
+                    .push_str("aeon:profile=\"aeon.gp.profile.v1\"\n")
+                    .expect("accept header input");
+                match finish_progressive_compiler(&mut compiler) {
+                    ProgressiveDisposition::Accepted { result, .. } if limit.is_none() => {
+                        assert!(result.errors.is_empty());
+                    }
+                    ProgressiveDisposition::Invalidated { result, .. } if limit.is_some() => {
+                        assert_eq!(result.errors.len(), 1);
+                        assert_eq!(result.errors[0].code, "EVENT_COUNT_EXCEEDED");
+                    }
+                    result => panic!("unexpected terminal result: {result:?}"),
+                }
+            }
+        }
     }
 
     #[test]

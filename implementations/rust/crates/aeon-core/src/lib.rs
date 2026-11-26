@@ -1240,7 +1240,7 @@ fn finalize_compile(
                 &mut errors,
             );
         }
-        validate_gp_unprojected_datatypes(&bindings, &mut errors);
+        validate_gp_unprojected_datatypes(&bindings, &mut errors, None);
     }
     validate_compact_reference_steps(
         &flattened.reference_steps,
@@ -1338,7 +1338,7 @@ fn validate_only_compile(
     );
     if gp_active {
         validate_gp_validation_datatypes(&flattened.events, &mut errors);
-        validate_gp_unprojected_datatypes(&bindings, &mut errors);
+        validate_gp_unprojected_datatypes(&bindings, &mut errors, None);
     }
     trace_compile("compile:validation_only:references");
     validate_compact_reference_steps(
