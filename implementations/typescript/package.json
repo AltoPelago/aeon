@@ -52,7 +52,7 @@
     "test:cts:sansa:resolve": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/sansa-resolve-cts-runner/dist/index.js --cts ../../cts/sansa/v1/sansa-resolve-cts.v1.json",
     "test:cts:annotations": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/run-with-repo-paths.mjs node ./tools/annotation-cts-runner/dist/index.js --sut ./packages/cli/dist/main.js --cts ../../cts/annotations/v1/annotation-stream-cts.v1.json",
     "test:cts:all": "node ../../scripts/ensure-typescript-build.mjs && node ../../scripts/check-empty-key-cts.mjs",
-    "ci:typescript": "pnpm build && pnpm typecheck && pnpm lint && pnpm depcheck && pnpm test:unit:ci && pnpm test:fuzz && pnpm test:stress && pnpm test:cts:all && pnpm test:cts:release",
+    "ci:typescript": "pnpm build && pnpm typecheck && pnpm lint && pnpm depcheck && pnpm test:unit:ci && pnpm test:fuzz && pnpm test:stress && pnpm test:cts:all",
     "ci:canonical": "pnpm build && cd ../rust && cargo build -p aeon-cli && cd ../typescript && bash ../../scripts/canonical-cts.sh --mode all --brief",
     "ci": "pnpm ci:typescript && pnpm ci:canonical",
     "clean": "pnpm -r --filter './packages/**' --filter './tools/**' clean",

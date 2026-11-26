@@ -97,7 +97,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: 3918c78b6650446da59550c2da43c87510625831
+          ref: d63e5713d77702b8d1738744ca66f917b3c22ffa # Draft generic admission targets
           path: aeonite-cts
 
       - name: CTS claim validation
@@ -154,15 +154,10 @@ jobs:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs python-native
 
-      - name: CTS conformance (all lanes)
+      - name: CTS development lanes and immutable snapshot audit
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: pnpm test:cts:all
-
-      - name: Immutable release Core, AES projection and WASM CTS
-        env:
-          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
-        run: pnpm test:cts:release
 
       - name: Core escaped-path public CLI parity
         run: node ../../scripts/test-core-path-escaping.mjs

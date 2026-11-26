@@ -467,11 +467,10 @@ impl ProgressiveValidationState {
                 self.gp_custom_value_errors
                     .iter()
                     .filter(|(ordinal, _)| {
-                        !self
-                            .datatype_event_errors
+                        self.datatype_event_errors
                             .errors(mode)
                             .binary_search_by_key(ordinal, |(error_ordinal, _)| *error_ordinal)
-                            .is_ok()
+                            .is_err()
                     })
                     .cloned(),
             );
