@@ -34,6 +34,15 @@ class CanonicalTests(unittest.TestCase):
                 self.assertEqual("", result.text)
                 self.assertEqual(["NESTING_DEPTH_EXCEEDED"], [error.code for error in result.errors])
 
+    def test_value_nesting_limit_reports_python_stack_exhaustion(self) -> None:
+        depth = 400
+        options = CanonicalizeOptions(max_value_nesting_depth=depth)
+        self.assertEqual([], canonicalize("x = 0", options).errors)
+        source = "x = " + "[" * depth + "0" + "]" * depth
+        result = canonicalize(source, options)
+        self.assertEqual("", result.text)
+        self.assertEqual(["UNSAFE_MAX_NESTING_DEPTH"], [error.code for error in result.errors])
+
     def test_canonical_preserves_structural_identity_in_head_position(self) -> None:
         result = canonicalize('items = [\\B2\\@{source = "user"}:string = "green"]\nage\\A1\\:int32 = 42')
         self.assertEqual([], result.errors)

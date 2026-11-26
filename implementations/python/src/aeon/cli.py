@@ -491,11 +491,12 @@ def first_non_flag(args: list[str]) -> str | None:
 
 def numeric_flag_value(args: list[str], flag: str) -> int | None:
     value = flag_value(args, flag)
-    if value is None:
+    if value is None or not value.isdecimal():
         return None
-    if not value.isdigit():
+    try:
+        return int(value)
+    except ValueError:
         return None
-    return int(value)
 
 
 def print_help() -> None:

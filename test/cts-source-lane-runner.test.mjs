@@ -14,7 +14,7 @@ function runFixtures(t, lane, fixtures) {
   const suite = join(dir, 'suite.json');
   const manifest = join(dir, 'manifest.json');
   const sut = join(dir, 'sut.mjs');
-  const tests = fixtures.map(({ id, expected }) => ({ id, input: { source: id }, expected }));
+  const tests = fixtures.map(({ id, options, expected }) => ({ id, input: { source: id, options }, expected }));
   writeFileSync(suite, JSON.stringify({ title: 'Source lane controls', tests }));
   writeFileSync(manifest, JSON.stringify({
     meta: { sut_protocol: 'cts.protocol.v1', lane },
@@ -24,7 +24,16 @@ function runFixtures(t, lane, fixtures) {
   writeFileSync(sut, `
     import { readFileSync } from 'node:fs';
     const responses = ${JSON.stringify(responses)};
-    console.log(JSON.stringify(responses[readFileSync(process.argv[3], 'utf8')]));
+    const response = responses[readFileSync(process.argv[3], 'utf8')];
+    if (process.argv[2] === 'fmt') {
+      if (process.argv[4] !== '--max-value-nesting-depth' || process.argv[5] !== '0') {
+        process.exit(2);
+      }
+      process.stdout.write(response.stdout);
+      process.exitCode = response.code;
+    } else {
+      console.log(JSON.stringify(response));
+    }
   `);
 
   const result = spawnSync(process.execPath, [runner, '--sut', sut, '--cts', manifest, '--lane', lane], {
@@ -51,6 +60,18 @@ test('AES runner fails a rejection that returned an assignment event', (t) => {
   assert.match(output, /clean-rejection: PASS/u);
   assert.match(output, /leaking-rejection: FAIL\n   - expected no AES events on rejection, got 1/u);
   assert.match(output, /leaking-without-event-expectation: FAIL\n   - expected no AES events on rejection, got 1/u);
+});
+
+test('Canonical runner forwards depth zero and checks partial output on rejection', (t) => {
+  const options = { max_value_nesting_depth: 0 };
+  const expected = { ok: false, errors: [{ code: 'NESTING_DEPTH_EXCEEDED' }], result: { canonical_text: '' } };
+  const diagnostic = '[NESTING_DEPTH_EXCEEDED] Value exceeds the nesting limit\n';
+  const output = runFixtures(t, 'canonical', [
+    { id: 'clean-rejection', options, expected, actual: { stdout: diagnostic, code: 1 } },
+    { id: 'partial-rejection', options, expected, actual: { stdout: 'x = 123\n' + diagnostic, code: 1 } },
+  ]);
+  assert.match(output, /clean-rejection: PASS/u);
+  assert.match(output, /partial-rejection: FAIL\n   - canonical_text mismatch: expected "", got "x = 123"/u);
 });
 
 test('Core runner preserves whitespace after escaped quotes inside datatype clarifiers', (t) => {

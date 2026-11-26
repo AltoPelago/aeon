@@ -482,24 +482,27 @@ async function runFmt({ sutPath, source, maxValueNestingDepth }) {
 
   fs.rmSync(dir, { recursive: true, force: true });
 
-  const errors = code === 0
-    ? []
-    : stdout
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const match = /^(.*?)(?:\s+\[([A-Z0-9_]+)\])(?:\s+path=(\S+))?(?:\s+span=(\S+))?$/u.exec(line);
-          const bracketPrefix = /^\[([A-Z0-9_]+)\]\s+(.*)$/u.exec(line);
-          return {
-            code: match?.[2] ?? bracketPrefix?.[1] ?? '',
-            message: match?.[1]?.trim() ?? bracketPrefix?.[2]?.trim() ?? line,
-            path: match?.[3] ?? '$',
-            span: parseCliSpan(source, match?.[4]),
-          };
-        });
+  if (code === 0) return { ok: true, text: stdout, stderr, errors: [] };
 
-  return { ok: true, stdout, stderr, errors };
+  const errors = [];
+  const outputLines = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    const match = /^(.*?)(?:\s+\[([A-Z0-9_]+)\])(?:\s+path=(\S+))?(?:\s+span=(\S+))?$/u.exec(trimmed);
+    const bracketPrefix = /^\[([A-Z0-9_]+)\]\s+(.*)$/u.exec(trimmed);
+    if (match || bracketPrefix) {
+      errors.push({
+        code: match?.[2] ?? bracketPrefix[1],
+        message: match?.[1]?.trim() ?? bracketPrefix[2].trim(),
+        path: match?.[3] ?? '$',
+        span: parseCliSpan(source, match?.[4]),
+      });
+    } else {
+      outputLines.push(line);
+    }
+  }
+
+  return { ok: errors.length > 0, text: outputLines.join('\n'), stderr, errors };
 }
 
 async function spawnCaptured(command, args, options = {}) {
@@ -674,7 +677,7 @@ async function main() {
         warnings = [];
         ok = errors.length === 0;
         result = {
-          canonical_text: ok ? normalizeCanonicalText(formatted.stdout) : '',
+          canonical_text: normalizeCanonicalText(formatted.text),
         };
       } else if (args.lane === 'finalize-json' || args.lane === 'finalize-map' || (args.lane === 'sansa-address' && 'document' in (test.expected?.result ?? {}))) {
         const finalized = await runFinalize({

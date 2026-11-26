@@ -83,27 +83,32 @@ def canonicalize(source: str, options: CanonicalizeOptions | None = None) -> Can
     lex_result = tokenize(source)
     if lex_result.errors:
         return CanonicalResult(text="", errors=lex_result.errors)
-    parse_result = parse_tokens(
-        source,
-        lex_result.tokens,
-        max_attribute_depth=effective.max_attribute_depth,
-        max_clarifier_values=effective.max_clarifier_values,
-        max_generic_depth=effective.max_generic_depth,
-        max_generic_arguments=effective.max_generic_arguments,
-        max_datatype_components=effective.max_datatype_components,
-        max_value_nesting_depth=effective.max_value_nesting_depth,
-    )
-    if parse_result.errors or parse_result.document is None:
-        return CanonicalResult(text="", errors=[error for error in parse_result.errors if isinstance(error, AeonError)])
-    if effective.ordering not in ("lexical-v1", "reference-safe-v1"):
-        return CanonicalResult(text="", errors=[CanonicalOrderingError(
-            "CANONICAL_ORDERING_INVALID_OPTION", "Unknown canonical ordering contract", parse_result.document.span
-        )])
-    if effective.ordering == "reference-safe-v1":
-        from ._canonical_ordering import canonicalize_document
+    try:
+        parse_result = parse_tokens(
+            source,
+            lex_result.tokens,
+            max_attribute_depth=effective.max_attribute_depth,
+            max_clarifier_values=effective.max_clarifier_values,
+            max_generic_depth=effective.max_generic_depth,
+            max_generic_arguments=effective.max_generic_arguments,
+            max_datatype_components=effective.max_datatype_components,
+            max_value_nesting_depth=effective.max_value_nesting_depth,
+        )
+        if parse_result.errors or parse_result.document is None:
+            return CanonicalResult(text="", errors=[error for error in parse_result.errors if isinstance(error, AeonError)])
+        if effective.ordering not in ("lexical-v1", "reference-safe-v1"):
+            return CanonicalResult(text="", errors=[CanonicalOrderingError(
+                "CANONICAL_ORDERING_INVALID_OPTION", "Unknown canonical ordering contract", parse_result.document.span
+            )])
+        if effective.ordering == "reference-safe-v1":
+            from ._canonical_ordering import canonicalize_document
 
-        return canonicalize_document(parse_result.document, effective)
-    return CanonicalResult(text=render_document(parse_result.document), errors=[])
+            return canonicalize_document(parse_result.document, effective)
+        return CanonicalResult(text=render_document(parse_result.document), errors=[])
+    except RecursionError:
+        return CanonicalResult(text="", errors=[AeonError(
+            "Canonicalization exceeded the Python stack limit", _zero_span(), "UNSAFE_MAX_NESTING_DEPTH"
+        )])
 
 
 def strip_leading_bom(source: str) -> str:
