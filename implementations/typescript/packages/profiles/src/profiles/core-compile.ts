@@ -42,6 +42,7 @@ export function compileWithCore(input: unknown, ctx: CompileCtx, customDatatypeK
 
     const result = compileAeon(input, {
         recovery: !ctx.strict,
+        ...(ctx.effectiveMode ? { mode: ctx.effectiveMode } : {}),
         ...(customDatatypeKinds ? { customDatatypeKinds } : {}),
         ...(ctx.datatypePolicy ? { datatypePolicy: ctx.datatypePolicy } : {}),
         maxAttributeDepth: ctx.maxAttributeDepth,

@@ -22,6 +22,7 @@ interface CompileOptions {
   readonly profile?: ProfileRef;
   readonly registry?: ProfileRegistry;
   readonly mode?: 'strict' | 'loose';
+  readonly effectiveMode?: 'strict' | 'transport' | 'custom';
   readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
   readonly maxInputBytes?: number;
   readonly maxAttributeDepth?: number;
@@ -43,7 +44,8 @@ interface CompileOptions {
 
 - `profile` selects the compiler profile.
 - `registry` provides profile lookup when `profile` is a string id.
-- `mode`, `datatypePolicy`, and depth controls are forwarded into compilation context.
+- `mode` controls diagnostic recovery. `effectiveMode` selects the AEON behavior mode.
+- `datatypePolicy` and depth controls are forwarded into compilation context.
 - Profiles may define processors, although higher-level runtime flows may intentionally skip them to preserve phase ordering.
 - Profiles may expose contract metadata such as `modeDefault`, `datatypePolicyDefault`, `collections`, `containers`, `datatypeSemantics`, and `capabilities`.
 - `aeon.gp.profile.v1` allows generics on custom labels and the reserved
@@ -87,9 +89,12 @@ const result = compile(source, { profile });
 ```
 
 The official `aeon.gp.profile.v1` artifact version `1.1.0` is supported.
-Loaded policies supply generic and clarifier rules and expose contract metadata
-such as default mode, collection semantics, and capabilities. The usual Core
-mode, datatype policy, and resource options still govern each compilation.
+Loaded profiles apply their published behavior mode and datatype policy defaults.
+Explicit `effectiveMode` and `datatypePolicy` options override the respective defaults.
+When neither the caller nor the profile selects an effective mode, Core uses the
+document's declared mode or its transport default. Generic and clarifier rules come
+from the artifact. Core checks the declared literal family of admitted custom labels
+such as `separator`. Collection semantics and capabilities are exposed as metadata.
 
 Run `pnpm test:cts:gp:next` from `implementations/typescript` to test the
 official artifact alongside the built-in TypeScript and WASM profiles against

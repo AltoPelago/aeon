@@ -234,6 +234,7 @@ export function enforceMode(
     const mode = options.mode ?? extractMode(header);
     const datatypePolicy = options.datatypePolicy ?? defaultDatatypePolicyForMode(mode);
     const { customDatatypeKinds } = options;
+    const allowCustom = mode === 'transport' || datatypePolicy === 'allow_custom';
     const errors: ModeEnforcementError[] = [];
     const pathToIndex = new Map<string, number>();
     // Keep the terminal value, since literal classification can depend on the requested datatype.
@@ -255,7 +256,7 @@ export function enforceMode(
             continue;
         }
 
-        if (customDatatypeKinds && datatypePolicy === 'allow_custom'
+        if (customDatatypeKinds && allowCustom
             && (event.annotations?.size || 'attributes' in event.value)) {
             validateCustomMetadataKinds(event, customDatatypeKinds, (value, datatype) =>
                 resolveDatatypeCheckKind(value, events, pathToIndex, datatype, terminalValues), errors);
@@ -265,7 +266,7 @@ export function enforceMode(
         // They still carry explicit annotations on authored anonymous values.
         if (isIndexedElementEvent(event)) {
             const datatype = event.datatype;
-            if (datatype && datatypePolicy === 'allow_custom' && !expectedKindsForReservedDatatype(datatype)) {
+            if (datatype && allowCustom && !expectedKindsForReservedDatatype(datatype)) {
                 const kinds = customDatatypeKinds?.(datatype);
                 if (kinds) {
                     const kind = resolveDatatypeCheckKind(event.value, events, pathToIndex, datatype, terminalValues);
@@ -298,7 +299,7 @@ export function enforceMode(
             errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
-        if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
+        if (!allowCustom && !expectedKinds) {
             errors.push(new CustomDatatypeNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }

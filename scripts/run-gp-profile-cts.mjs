@@ -35,7 +35,11 @@ assert.equal(policy.version, entry.version);
 const loadedProfile = createProfile(policy);
 
 function runTypeScript(source, mode, profile) {
-  const result = compile(`aeon:mode = "${mode}"\n${source}`, { profile });
+  const result = compile(source, {
+    profile,
+    effectiveMode: mode,
+    datatypePolicy: mode === 'strict' ? 'reserved_only' : 'allow_custom',
+  });
   return {
     errors: result.meta?.errors ?? [],
     warnings: result.meta?.warnings ?? [],

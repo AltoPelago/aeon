@@ -15,6 +15,7 @@ containers = {
   node = { ordered = true, heterogeneous = true, unique_attributes = true, mixed_content = true }
 }
 datatype_semantics = {
+  separator = { literal_family = "SeparatorLiteral", clarifiers = "separator_chars", alias_of = "sep" }
   symbol = { literal_family = "SymbolicLiteral", clarifiers = "none" }
   encoding = { literal_family = "EncodingLiteral", clarifiers = "encoding_name" }
   decimal = { literal_family = "RadixLiteral", clarifiers = "none", equivalent_to = "radix[10]" }
@@ -85,6 +86,56 @@ test('reads generic admission and clarifier decisions from the artifact', () => 
     assert.equal(error(encoding, original), undefined);
     assert.equal(error(encoding, revised), 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED');
     assert.equal(error('a:radix16[2] = %F', original), 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED');
+});
+
+test('applies loaded defaults and honors trusted overrides', () => {
+    const profile = createProfile(loadProfileContract(contract
+        .replace('mode_default = "transport"', 'mode_default = "strict"')));
+    const reservedOnly = createProfile(loadProfileContract(contract
+        .replace('mode_default = "transport"', 'mode_default = "strict"')
+        .replace('datatype_policy_default = "allow_custom"', 'datatype_policy_default = "reserved_only"')));
+    const errors = (result: ReturnType<typeof compile>) => result.meta?.errors?.map(({ code }) => code) ?? [];
+
+    assert.deepEqual(errors(compile('a = 3', { profile })), ['UNTYPED_VALUE_IN_STRICT_MODE']);
+    const authoredTransport = 'aeon:header = { mode = "transport" }\na = 3';
+    assert.deepEqual(errors(compile(authoredTransport, { profile })), ['UNTYPED_VALUE_IN_STRICT_MODE']);
+    const registry = createDefaultRegistry().register(profile);
+    assert.deepEqual(errors(compile(authoredTransport, { profile: profile.id, registry, effectiveMode: 'transport' })), []);
+    assert.deepEqual(errors(compile(authoredTransport, {})), []);
+
+    const custom = 'a:Box<n> = [1]';
+    assert.deepEqual(errors(compile(custom, { profile })), []);
+    assert.deepEqual(errors(compile(custom, { profile: reservedOnly })), ['CUSTOM_DATATYPE_NOT_ALLOWED']);
+    assert.deepEqual(errors(compile(custom, { profile: reservedOnly, datatypePolicy: 'allow_custom' })), []);
+    assert.deepEqual(errors(compile(custom, { profile, datatypePolicy: 'reserved_only' })), ['CUSTOM_DATATYPE_NOT_ALLOWED']);
+
+    const permissive = createProfile(loadProfileContract(contract));
+    assert.deepEqual(errors(compile('aeon:mode = "strict"\na = 3', { profile: permissive })), []);
+    const unspecified = createProfile(loadProfileContract(contract.replace('mode_default = "transport"\n', '')));
+    assert.deepEqual(errors(compile('aeon:mode = "strict"\na = 3', { profile: unspecified })), ['UNTYPED_VALUE_IN_STRICT_MODE']);
+});
+
+test('checks the declared literal family of an admitted alias', () => {
+    const profile = createProfile(loadProfileContract(contract.replace('custom_labels = true', 'custom_labels = false')));
+    for (const [source, effectiveMode, datatypePolicy, path] of [
+        ['a:separator["."] = "a.b"', 'strict', 'allow_custom', '$.a'],
+        ['a:separator = "a.b"', 'transport', 'allow_custom', '$.a'],
+        ['b:string = "a.b"\na:separator["."] = ~b', 'strict', 'allow_custom', '$.a'],
+        ['a@{part:separator["."] = "a.b"}:n = 1', 'transport', 'reserved_only', '$.a.@.part'],
+        ['a:list = [:separator["."] = "a.b"]', 'transport', 'reserved_only', '$.a[0]'],
+        ['a:sep["."] = "a.b"', 'strict', 'allow_custom', '$.a'],
+    ] as const) {
+        const result = compile(source, { profile, effectiveMode, datatypePolicy });
+        assert.deepEqual(result.meta?.errors?.map(({ code, path }) => ({ code, path })),
+            [{ code: 'DATATYPE_LITERAL_MISMATCH', path }], source);
+        assert.deepEqual(result.aes, []);
+    }
+    const result = compile('b:sep = ^a.b\na:separator["."] = ~b', {
+        profile, effectiveMode: 'strict', datatypePolicy: 'allow_custom',
+    });
+    assert.deepEqual(result.meta?.errors ?? [], []);
+    assert.equal(result.aes.at(-1)?.datatype, 'separator["."]');
+    assert.equal(result.aes.at(-1)?.value.type, 'CloneReference');
 });
 
 test('rejects invalid syntax, versions, and unsupported policy rules', () => {

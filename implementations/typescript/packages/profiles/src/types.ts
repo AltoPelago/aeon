@@ -1,4 +1,4 @@
-import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import type { AssignmentEvent, Mode } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
 
 export type DiagnosticLevel = 'error' | 'warning';
@@ -26,7 +26,10 @@ export interface CompileResult {
 export interface CompileOptions {
     readonly profile?: ProfileRef;
     readonly registry?: ProfileRegistry;
+    /** Controls diagnostic recovery. */
     readonly mode?: 'strict' | 'loose';
+    /** Trusted AEON behavior mode, ahead of profile defaults and document headers. */
+    readonly effectiveMode?: Mode;
     readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
     readonly maxInputBytes?: number;
     readonly maxAttributeDepth?: number;
@@ -40,6 +43,7 @@ export interface CompileOptions {
 
 export interface CompileCtx {
     readonly strict: boolean;
+    readonly effectiveMode?: Mode;
     readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
     readonly maxAttributeDepth: number;
     readonly maxClarifierValues: number;
@@ -106,6 +110,11 @@ export interface Profile {
     readonly version?: string;
     readonly modeDefault?: 'strict' | 'loose';
     readonly datatypePolicyDefault?: 'reserved_only' | 'allow_custom';
+    /** Core settings applied by an executable contract profile. */
+    readonly coreDefaults?: {
+        readonly mode?: Mode;
+        readonly datatypePolicy?: CompileOptions['datatypePolicy'];
+    };
     readonly collections?: Readonly<Record<string, CollectionSemantics>>;
     readonly containers?: Readonly<Record<string, ContainerSemantics>>;
     readonly datatypeSemantics?: Readonly<Record<string, DatatypeSemantics>>;
@@ -123,7 +132,7 @@ export interface GenericAdmissionPolicy {
 }
 
 /** Validated profile data, reusable across compilation calls. */
-export interface ProfilePolicy extends Omit<Profile, 'compile' | 'processors' | 'version'> {
+export interface ProfilePolicy extends Omit<Profile, 'compile' | 'processors' | 'version' | 'coreDefaults'> {
     readonly version: string;
     readonly coreId: 'aeon.core.v1';
     readonly description?: string;
