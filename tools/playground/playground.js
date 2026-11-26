@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const errors = shell.querySelector("[data-playground-errors]");
   const outputTitle = shell.querySelector("[data-playground-output-title]");
   const loading = shell.querySelector("[data-playground-loading]");
+  const profileSelect = shell.querySelector("[data-playground-profile]");
   const modeButtons = shell.querySelectorAll("[data-mode]");
   const viewButtons = shell.querySelectorAll("[data-output-view]");
   const examplesOpen = shell.querySelector("[data-examples-open]");
@@ -93,7 +94,9 @@ document.addEventListener("DOMContentLoaded", () => {
     example: "transport",
     requestId: 0
   };
-  const runtimeProfile = "aeon.gp.profile.v1";
+  function selectedProfile() {
+    return profileSelect?.value || "aeon.gp.profile.v1";
+  }
   try {
     const transferredSource = window.sessionStorage.getItem("aeon:playground-source");
     if (transferredSource) {
@@ -247,13 +250,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (relaxed) {
         return {
           text: sourceForBuilderSeed(text),
-          options: { profile: runtimeProfile, mode: "loose", datatypePolicy: "reserved_only", includeAnnotations: true, output: "map" }
+          options: { profile: selectedProfile(), mode: "loose", datatypePolicy: "reserved_only", includeAnnotations: true, output: "map" }
         };
       }
       const mapping = mapMode(mode);
       return {
         text: sourceForMode(text, mode),
-        options: { profile: runtimeProfile, mode: mapping.runtimeMode, datatypePolicy: mapping.datatypePolicy, includeAnnotations: true, output: "map" }
+        options: { profile: selectedProfile(), mode: mapping.runtimeMode, datatypePolicy: mapping.datatypePolicy, includeAnnotations: true, output: "map" }
       };
     },
     onApply: () => render(),
@@ -536,7 +539,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const runtimeSource = sourceForMode(text, state.mode);
       const lineOffset = sourceDiagnosticLineOffset(text, state.mode);
       const runtimeResult = runRuntime(runtimeSource, {
-        profile: runtimeProfile,
+        profile: selectedProfile(),
         mode: mapping.runtimeMode,
         datatypePolicy: mapping.datatypePolicy,
         includeAnnotations: true,
@@ -598,6 +601,8 @@ document.addEventListener("DOMContentLoaded", () => {
   source.addEventListener("input", () => {
     render();
   });
+
+  profileSelect?.addEventListener("change", render);
 
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => {

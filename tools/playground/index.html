@@ -35,9 +35,14 @@
                 <div class="playground-toggle-group" role="group" aria-label="Validation mode">
                     <button class="playground-toggle is-active" type="button" data-mode="transport" data-tooltip="Transport mode keeps the broader transport-friendly surface. AEOS schemas are not applied here." title="Transport mode keeps the broader transport-friendly surface. AEOS schemas are not applied here." aria-pressed="true">Transport</button>
                     <button class="playground-toggle" type="button" data-mode="custom" data-tooltip="Custom mode allows ecosystem-defined custom datatypes. AEOS schemas are not applied here." title="Custom mode allows ecosystem-defined custom datatypes. AEOS schemas are not applied here." aria-pressed="false">Custom</button>
-                    <button class="playground-toggle" type="button" data-mode="strict" data-tooltip="Strict mode enforces the reserved strict language surface, not the GP schema." title="Strict mode enforces the reserved strict language surface, not the GP schema." aria-pressed="false">Strict</button>
+                    <button class="playground-toggle" type="button" data-mode="strict" data-tooltip="Strict mode requires reserved datatypes." title="Strict mode requires reserved datatypes." aria-pressed="false">Strict</button>
                 </div>
-                <span class="playground-schema-note">GP profile · no schema</span>
+                <label class="local-profile-select">Profile
+                    <select data-playground-profile>
+                        <option value="aeon.gp.profile.v1">GP</option>
+                        <option value="set.to.eleven.v1">set.to.eleven.v1</option>
+                    </select>
+                </label>
             </div>
             <div class="playground-toggle-group playground-output-toggle-group" role="group" aria-label="Output view">
                 <button class="playground-toggle" type="button" data-output-view="aes" data-tooltip="Show the Assignment Event Stream emitted from the current source." title="Show the Assignment Event Stream emitted from the current source." aria-pressed="false">AES</button>
