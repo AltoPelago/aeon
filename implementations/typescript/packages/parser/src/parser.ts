@@ -68,7 +68,7 @@ export interface ParserOptions {
     readonly maxGenericArguments?: number;
     /** Maximum aggregate components in one recursive datatype (default: 64). */
     readonly maxDatatypeComponents?: number;
-    /** Maximum nesting depth for value structures like lists and objects (default: 256) */
+    /** Maximum nesting depth for header field and body values (default: 256). */
     readonly maxValueNestingDepth?: number;
     /** @deprecated Use maxValueNestingDepth. */
     readonly maxNestingDepth?: number;
@@ -258,7 +258,9 @@ class Parser {
 
             if (fieldName === 'header') {
                 hasStructured = true;
-                const value = this.parseValue();
+                // The structured header groups fields. Depth starts at each field value,
+                // as in the shorthand header, and counts any containers inside that value.
+                const value = this.check(TokenType.LeftBrace) ? this.parseObject() : this.parseValue();
                 // Extract fields from structured header
                 if (value.type === 'ObjectNode') {
                     for (const binding of value.bindings) {

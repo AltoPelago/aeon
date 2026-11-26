@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {extractMode} from '../implementations/typescript/packages/aes/dist/index.js';
+import {createProfile, loadProfileContract} from '../implementations/typescript/packages/profiles/dist/index.js';
 import {runRuntime} from '../implementations/typescript/packages/runtime/dist/index.js';
 import {canonicalize} from '../implementations/typescript/packages/canonical/dist/index.js';
 import {tokenize} from '../implementations/typescript/packages/lexer/dist/index.js';
@@ -44,7 +46,7 @@ async function mounted(text, {open = true, getMode, runtimeConfig} = {}) {
   const source = {value:text, dispatchEvent() {}};
   const errors = [];
   const context = vm.createContext({window:{}, document:{addEventListener(){},removeEventListener(){}},
-    Map, Event, FormData:DetailFormData, countParent:()=>{descriptions++;}, formatClarifierValue, parseAddress:sansa.parseAddress, renderAddress:sansa.renderAddress,
+    Map, Event, FormData:DetailFormData, extractMode, countParent:()=>{descriptions++;}, formatClarifierValue, parseAddress:sansa.parseAddress, renderAddress:sansa.renderAddress,
     createComposerPaths(api) {
       const paths = createComposerPaths(api);
       return {...paths, describe(path) { descriptions++; return paths.describe(path); }};
@@ -208,6 +210,45 @@ test('strict datatype repair remains available only after a clean relaxed parse'
   await assert.rejects(invalid.composer.open(),/syntax|pars/i);
   assert.equal(invalid.source.value,input+'\ny=');
 });
+test('Composer follows authored mode when the loaded profile omits its default', async () => {
+  const profile = createProfile(loadProfileContract(`
+profile_id = "composer.test.v1"
+profile_version = "1.0.0"
+core_id = "aeon.core.v1"
+collections = {}
+containers = {}
+datatype_semantics = {}
+generic_admission = {
+  reserved_datatypes = []
+  custom_labels = false
+  custom_value_kinds = []
+  node_head_datatypes = []
+  binding_node_reserved_arguments = []
+}
+capabilities = { references = true, clones = true }
+`));
+  const config = (text, _mode, relaxed) => ({
+    text,
+    options: {
+      profile, mode: relaxed ? 'loose' : 'strict',
+      ...(relaxed ? {effectiveMode: 'transport'} : {}),
+      output: 'map',
+    },
+  });
+  for (const [input, peer] of [
+    ['aeon:mode = "STRICT"\nx:number = 1', /field2:string = ""/],
+    ['aeon:header = { mode = "custom" }\nx:number = 1', /field2:string = ""/],
+    ['aeon:mode = "strict"\nx = 1', /field2:string = ""/],
+    ['"aeon:mode" = "strict"\nx = 1', /field3 = ""/],
+  ]) {
+    const fixture = await mounted(input, {getMode: () => undefined, runtimeConfig: config});
+    fixture.elements.get('add-peer').listeners.click();
+    const text = await fixture.apply();
+    assert.match(text, peer);
+    assert.deepEqual(runRuntime(text, config(text).options).meta.errors, []);
+  }
+});
+
 test('Apply rejects changed or unfinished source and malformed generated edits without overwriting text', async()=>{
   for (const next of ['x=1\ny=','x=2']) {
     const fixture = await mounted('x=1'); fixture.source.value=next;

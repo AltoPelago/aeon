@@ -8,12 +8,13 @@ document.addEventListener('DOMContentLoaded', () => {
     restored = JSON.parse(sessionStorage.getItem('aeon:local-reload') ?? 'null');
     sessionStorage.removeItem('aeon:local-reload');
     if (typeof restored?.source === 'string') source.value = restored.source;
-    if (profile && Array.from(profile.options).some(option => option.value === restored?.profile)) {
-      profile.value = restored.profile;
-    }
   } catch { /* Storage can be unavailable; the editor remains usable. */ }
   window.addEventListener('aeon-playground-ready', () => {
-    if (['transport', 'custom', 'strict'].includes(restored?.mode)) document.querySelector(`[data-mode="${restored.mode}"]`)?.click();
+    if (profile && Array.from(profile.options).some(option => !option.hidden && option.value === restored?.profile)) {
+      profile.value = restored.profile;
+      profile.dispatchEvent(new Event('change'));
+    }
+    if (['transport', 'custom', 'strict', 'profile'].includes(restored?.mode)) document.querySelector(`[data-mode="${restored.mode}"]:not([hidden])`)?.click();
     if (['aes', 'finalized', 'annotations', 'canonical'].includes(restored?.view)) document.querySelector(`[data-output-view="${restored.view}"]`)?.click();
   }, {once:true});
   let revision, busy = false;

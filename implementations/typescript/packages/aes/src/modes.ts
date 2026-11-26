@@ -192,7 +192,7 @@ export interface ModeEnforcementResult {
 /**
  * Extract mode from header
  */
-export function extractMode(header: Header | null): Mode {
+export function extractMode(header: Pick<Header, 'fields'> | null): Mode {
     if (!header) {
         return 'transport'; // Default
     }

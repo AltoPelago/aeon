@@ -33,7 +33,11 @@ interface RuntimeOptions {
   readonly includeAnnotations?: boolean;
   readonly maxInputBytes?: number;
   readonly maxAttributeDepth?: number;
-  readonly maxSeparatorDepth?: number;
+  readonly maxClarifierValues?: number;
+  readonly maxGenericDepth?: number;
+  readonly maxGenericArguments?: number;
+  readonly maxDatatypeComponents?: number;
+  readonly maxValueNestingDepth?: number;
   readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
 }
 ```

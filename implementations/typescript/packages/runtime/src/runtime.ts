@@ -74,6 +74,7 @@ export interface RuntimeOptions {
     readonly maxGenericDepth?: number;
     readonly maxGenericArguments?: number;
     readonly maxDatatypeComponents?: number;
+    readonly maxValueNestingDepth?: number;
     readonly maxMaterializedWeight?: number;
     readonly maxReferenceDepth?: number;
     readonly trailingSeparatorDelimiterPolicy?: 'off' | 'warn' | 'error';
@@ -292,6 +293,7 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
     const maxGenericDepth = options.maxGenericDepth ?? 1;
     const maxGenericArguments = options.maxGenericArguments ?? 32;
     const maxDatatypeComponents = options.maxDatatypeComponents ?? 64;
+    const maxValueNestingDepth = options.maxValueNestingDepth;
 
     const errors: RuntimeDiagnostic[] = [];
     const warnings: RuntimeDiagnostic[] = [];
@@ -334,6 +336,7 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         maxGenericDepth,
         maxGenericArguments,
         maxDatatypeComponents,
+        ...(maxValueNestingDepth !== undefined ? { maxValueNestingDepth } : {}),
     });
 
     const needCoreMetadata = includeAnnotations || scope !== 'payload';
@@ -348,6 +351,7 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
             maxGenericDepth,
             maxGenericArguments,
             maxDatatypeComponents,
+            ...(maxValueNestingDepth !== undefined ? { maxValueNestingDepth } : {}),
             emitAnnotations: includeAnnotations,
         })
         : null;
@@ -722,6 +726,7 @@ export function runTypedRuntime<TDocument>(
         ...(options.maxGenericDepth !== undefined ? { maxGenericDepth: options.maxGenericDepth } : {}),
         ...(options.maxGenericArguments !== undefined ? { maxGenericArguments: options.maxGenericArguments } : {}),
         ...(options.maxDatatypeComponents !== undefined ? { maxDatatypeComponents: options.maxDatatypeComponents } : {}),
+        ...(options.maxValueNestingDepth !== undefined ? { maxValueNestingDepth: options.maxValueNestingDepth } : {}),
         ...(options.maxMaterializedWeight !== undefined ? { maxMaterializedWeight: options.maxMaterializedWeight } : {}),
         ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
         ...(options.materialization !== undefined ? { materialization: options.materialization } : {}),

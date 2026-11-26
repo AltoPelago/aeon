@@ -50,6 +50,7 @@ export function compileWithCore(input: unknown, ctx: CompileCtx, customDatatypeK
         maxGenericDepth: ctx.maxGenericDepth,
         maxGenericArguments: ctx.maxGenericArguments,
         maxDatatypeComponents: ctx.maxDatatypeComponents,
+        ...(ctx.maxValueNestingDepth !== undefined ? { maxValueNestingDepth: ctx.maxValueNestingDepth } : {}),
     });
     if (result.errors.length > 0) {
         for (const err of result.errors) {

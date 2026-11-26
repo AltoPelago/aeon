@@ -1,5 +1,6 @@
 import {parseAddress, renderAddress} from "@altopelago/sansa";
 import {formatClarifierValue} from "@aeon/parser";
+import {extractMode} from "@aeon/aes";
 import {createComposerPaths} from "./composer-paths.mjs";
 const composerPaths = createComposerPaths({parseAddress, renderAddress});
 
@@ -618,7 +619,7 @@ function mountAeonSourceComposer(options) {
   const removeButton = shell.querySelector("[data-source-builder-remove]");
   if (!source || !modal || !tree || !detail) return null;
 
-  const state = { rows: [], selectedPath: null, sourceText: null };
+  const state = { rows: [], selectedPath: null, sourceText: null, mode: "transport" };
   const runtimeReady = options.runtimeReady ?? import("@aeon/runtime");
   const getMode = options.getMode ?? (() => "transport");
   const runtimeConfig = options.runtimeConfig ?? ((text) => ({
@@ -853,11 +854,18 @@ function mountAeonSourceComposer(options) {
 
   async function seedRows() {
     const text = source.value;
-    const mode = getMode();
-    const result = await parseSource(text, mode);
+    const selectedMode = getMode();
+    const result = await parseSource(text, selectedMode);
+    let mode = selectedMode;
+    if (mode === undefined) {
+      const event = result.aes.find(entry => entry.sourcePlane === "header"
+        && entry.path.segments.length === 2 && entry.key === "aeon:mode");
+      mode = extractMode(event ? {fields: new Map([["mode", event.value]])} : null);
+    }
     const rows = sourceRowsFromRuntimeResult(result);
     if (source.value !== text) throw new Error("Source changed; reload AEON Composer before applying edits.");
     state.sourceText = text;
+    state.mode = mode;
     state.rows = rows;
     addStandaloneCommentRows(text, state.rows);
     if (mode !== "transport") {
@@ -964,7 +972,7 @@ function mountAeonSourceComposer(options) {
       path,
       ...(kind === "comment" ? { kind: "comment", commentType: "doc" } : {}),
       type: "StringLiteral",
-      datatype: getMode() === "transport" || kind === "comment" ? "" : "string",
+      datatype: state.mode === "transport" || kind === "comment" ? "" : "string",
       value: kind === "comment" ? "Comment" : "",
       open: true
     });
