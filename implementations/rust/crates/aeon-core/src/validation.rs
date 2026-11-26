@@ -726,6 +726,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
     max_separator_depth: usize,
     max_generic_depth: usize,
     recovery: bool,
+    gp_active: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
@@ -763,6 +764,14 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 datatype_policy,
             ) {
                 errors.push(error);
+            } else if gp_active
+                && let Some(error) = crate::gp_custom_generic_value_error(
+                    datatype,
+                    resolved_value.value_kind(),
+                    path,
+                )
+            {
+                errors.push(error.with_span(event.span));
             }
         }
     }
@@ -772,6 +781,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
+        gp_active,
         errors,
     );
 }
@@ -903,7 +913,7 @@ impl CompactDatatypeValue {
         }
     }
 
-    fn value_kind(&self) -> &'static str {
+    pub(crate) fn value_kind(&self) -> &'static str {
         match self {
             Self::Number => "NumberLiteral",
             Self::Infinity => "InfinityLiteral",
@@ -998,6 +1008,7 @@ pub(crate) fn validate_datatypes_light(
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    gp_active: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
@@ -1083,6 +1094,14 @@ pub(crate) fn validate_datatypes_light(
                         .at_path(event.path.clone())
                         .with_span(event.span),
                 );
+            } else if gp_active
+                && let Some(error) = crate::gp_custom_generic_value_error(
+                    datatype,
+                    resolved_value.value_kind(),
+                    &event.path,
+                )
+            {
+                errors.push(error.with_span(event.span));
             }
         }
     }
@@ -1092,6 +1111,7 @@ pub(crate) fn validate_datatypes_light(
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
+        gp_active,
         errors,
     );
 }
@@ -1623,7 +1643,7 @@ fn datatype_base(datatype: &str) -> &str {
     &datatype[..end_idx]
 }
 
-fn is_reserved_datatype(datatype: &str) -> bool {
+pub(crate) fn is_reserved_datatype(datatype: &str) -> bool {
     let base = datatype_base(datatype);
     matches!(
         base,
@@ -1723,13 +1743,6 @@ fn datatype_mismatch_message(path: &str, datatype: &str, actual_kind: &str) -> S
             expected.join(" or ")
         );
     }
-    if let Some(expected) = expected_kinds_for_custom_datatype(datatype) {
-        return format!(
-            "Datatype/literal mismatch at '{}': datatype ':{datatype}' expects {}, got {actual_kind}",
-            path,
-            expected.join(" or ")
-        );
-    }
     format!(
         "Datatype/literal mismatch at '{}': datatype ':{datatype}' is not supported for literal matching, got {actual_kind}",
         path
@@ -1796,38 +1809,11 @@ fn datatype_value_error(
     None
 }
 
-fn expected_kinds_for_custom_datatype(datatype: &str) -> Option<Vec<&'static str>> {
-    if datatype_has_generic_args(datatype) {
-        Some(vec!["ListNode", "TupleLiteral"])
-    } else {
-        None
-    }
-}
-
-pub(crate) fn datatype_has_generic_args(datatype: &str) -> bool {
-    let mut bracket_depth = 0usize;
-    let mut generic_start = None;
-
-    for ch in datatype.chars() {
-        match ch {
-            '[' => bracket_depth += 1,
-            ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            _ if bracket_depth > 0 => {}
-            '<' => generic_start = Some(()),
-            '>' if generic_start.is_some() => return true,
-            _ => {}
-        }
-    }
-
-    false
-}
-
 fn datatype_matches_value(datatype: &str, value: &Value) -> bool {
     datatype_matches_compact_value(datatype, &CompactDatatypeValue::from_value(value))
 }
 
 fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) -> bool {
-    let custom_expected = expected_kinds_for_custom_datatype(datatype);
     match datatype_base(datatype) {
         "number" | "n" | "int" | "int8" | "int16" | "int32" | "int64" | "uint" | "uint8"
         | "uint16" | "uint32" | "uint64" | "float" | "float32" | "float64" => {
@@ -1869,10 +1855,6 @@ fn datatype_matches_compact_value(datatype: &str, value: &CompactDatatypeValue) 
         "node" => matches!(value, CompactDatatypeValue::Node),
         "sansa" => matches!(value, CompactDatatypeValue::Sansa),
         "null" => matches!(value, CompactDatatypeValue::Null),
-        _ if custom_expected.is_some() => {
-            let expected = custom_expected.as_ref().expect("checked is_some");
-            expected.contains(&value.value_kind())
-        }
         _ => true,
     }
 }
@@ -2334,10 +2316,33 @@ pub(crate) enum AttributeDatatypeCheck {
         path: String,
         datatype: String,
         value: Value,
+        custom_generic: bool,
     },
 }
 
 impl AttributeDatatypeCheck {
+    pub(crate) fn gp_custom_value(datatype: &str, value: &Value, path: &str) -> Option<Self> {
+        if is_reserved_datatype(datatype) || !crate::datatype_has_generic_args(datatype) {
+            return None;
+        }
+        let mut value = value;
+        while let Value::TypedValue { value: inner, .. } = value {
+            value = inner;
+        }
+        if matches!(
+            value,
+            Value::CloneReference { .. } | Value::PointerReference { .. }
+        ) {
+            return Some(Self::Reference {
+                path: path.to_owned(),
+                datatype: datatype.to_owned(),
+                value: value.clone(),
+                custom_generic: true,
+            });
+        }
+        crate::gp_custom_generic_value_error(datatype, value.value_kind(), path).map(Self::Error)
+    }
+
     pub(crate) fn diagnostic<'a>(
         &'a self,
         resolve: impl FnOnce(&'a Value) -> CompactDatatypeValue,
@@ -2348,7 +2353,15 @@ impl AttributeDatatypeCheck {
                 path,
                 datatype,
                 value,
+                custom_generic,
             } => {
+                if *custom_generic {
+                    return crate::gp_custom_generic_value_error(
+                        datatype,
+                        resolve(value).value_kind(),
+                        path,
+                    );
+                }
                 let resolved = resolve(value);
                 (!datatype_matches_compact_value(datatype, &resolved)).then(|| {
                     Diagnostic::new(
@@ -2749,6 +2762,7 @@ fn validate_resolved_attribute_datatypes(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
+    gp_active: bool,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mut checks = Vec::new();
@@ -2760,6 +2774,12 @@ fn validate_resolved_attribute_datatypes(
         max_generic_depth,
         &mut checks,
     );
+    if gp_active && datatype_policy == DatatypePolicy::AllowCustom {
+        crate::gp_attributes::collect_gp_attribute_value_checks(
+            authored_targets.paths.bindings,
+            &mut checks,
+        );
+    }
     let mut references = DatatypeReferenceCache::default();
     for check in &checks {
         errors.extend(check.diagnostic(|value| {
@@ -2950,6 +2970,7 @@ fn validate_attribute_datatype_map(
                     path: attr_path,
                     datatype: datatype.clone(),
                     value: value.clone(),
+                    custom_generic: false,
                 });
             } else if !datatype_matches_value(datatype, value) {
                 checks.push(AttributeDatatypeCheck::Error(

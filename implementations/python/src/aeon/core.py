@@ -4,6 +4,8 @@ from dataclasses import field, fields, is_dataclass
 import json
 import re
 
+from typing import Callable
+
 from ._compat import dataclass
 from ._numbers import format_clarifier
 from ._radix import radix_base_from_number
@@ -228,14 +230,18 @@ def compile_source(source: str, options: CompileOptions | None = None) -> Compil
         if characters > opts.max_path_characters:
             return CompileResult(events=[], errors=[ResourceLimitExceededError("max_path_characters", characters, opts.max_path_characters)], warnings=warnings)
 
-    mode_errors = enforce_mode(parse_result.document, resolved_bindings, opts.datatype_policy, opts.mode)
+    gp_active = uses_gp_profile(opts, parse_result.document)
+    mode_errors = enforce_mode(
+        parse_result.document, resolved_bindings, opts.datatype_policy, opts.mode,
+        custom_datatype_kinds=gp_custom_datatype_kinds if gp_active else None,
+    )
     if mode_errors and not opts.recovery:
         return CompileResult(events=[], errors=[*lex_result.errors, *parse_errors, *path_errors, *mode_errors], warnings=warnings)
 
     reference_errors = validate_references(resolved_bindings, opts.max_attribute_depth)
     profile_errors = (
-        validate_gp_datatype_clarifiers(parse_result.document, resolved_bindings)
-        if uses_gp_profile(opts, parse_result.document)
+        validate_gp_datatypes(parse_result.document, resolved_bindings, opts)
+        if gp_active
         else []
     )
     all_errors = [*lex_result.errors, *parse_errors, *path_errors, *mode_errors, *reference_errors, *profile_errors]
@@ -441,6 +447,21 @@ def coerce_error(error: Exception) -> AeonError:
 
 AEON_GP_PROFILE_ID = "aeon.gp.profile.v1"
 
+SET_TO_ELEVEN_PROFILE_ID = "set.to.eleven.v1"
+
+GP_GENERIC_DATATYPES = {"list", "tuple", "triple", "object", "node", "null", "nan", "infinity", "symbol"}
+RESERVED_V1_DATATYPES = {
+    "n", "number", "int", "int8", "int16", "int32", "int64",
+    "uint", "uint8", "uint16", "uint32", "uint64",
+    "float", "float32", "float64",
+    "string", "trimtick", "prose", "boolean", "bool", "toggle", "infinity", "nan",
+    "hex", "date", "time", "datetime", "wtc",
+    "encoding", "base64", "embed", "inline",
+    "radix", "decimal", "radix2", "radix6", "radix8", "radix12", "radix16",
+    "sep", "kadot", "symbol",
+    "tuple", "triple", "list", "object", "obj", "envelope", "o", "node", "null", "sansa",
+}
+
 GP_DATATYPE_CLARIFIER_RULES = {
     "decimal": "none",
     "radix16": "none",
@@ -463,13 +484,15 @@ class GpNumericClarifier:
 def uses_gp_profile(options: CompileOptions, document: Document) -> bool:
     if options.profile == AEON_GP_PROFILE_ID:
         return True
-    if document.header is None:
+    if options.profile == SET_TO_ELEVEN_PROFILE_ID or document.header is None:
         return False
     profile = document.header.fields.get("profile")
     return isinstance(profile, StringLiteral) and profile.value == AEON_GP_PROFILE_ID
 
 
-def validate_gp_datatype_clarifiers(document: Document, bindings: list[ResolvedBinding]) -> list[AeonError]:
+def validate_gp_datatypes(
+    document: Document, bindings: list[ResolvedBinding], options: CompileOptions,
+) -> list[AeonError]:
     errors: list[AeonError] = []
     for binding in bindings:
         if should_skip_header_binding_for_mode(document, binding) or binding.datatype is None:
@@ -484,14 +507,21 @@ def validate_gp_datatype_clarifiers(document: Document, bindings: list[ResolvedB
             errors,
             value_kind(binding.value),
         )
-    validate_gp_unprojected_claims(document.bindings, errors)
+    mode = normalize_mode(options.mode) if options.mode is not None else extract_mode(document)
+    allow_custom = effective_datatype_policy(mode, options.datatype_policy) == "allow_custom"
+    lookup = {format_path(binding.path): binding for binding in bindings} if allow_custom else None
+    validate_gp_unprojected_claims(document.bindings, errors, lookup)
     return errors
 
 
-def validate_gp_unprojected_claims(bindings: list[Binding], errors: list[AeonError]) -> None:
+def validate_gp_unprojected_claims(
+    bindings: list[Binding], errors: list[AeonError], lookup: dict[str, ResolvedBinding] | None,
+) -> None:
     # Metadata and node-head claims have no separate AssignmentEvents. Keep
     # traversal iterative and visit authored nodes, not materialized copies.
     tasks = []
+    terminal_values: dict[int, Value] = {}
+    value_errors: list[AeonError] = []
 
     def member(path: str, key: str) -> str:
         return path + (f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else f".[{json.dumps(key, ensure_ascii=False)}]")
@@ -504,18 +534,27 @@ def validate_gp_unprojected_claims(bindings: list[Binding], errors: list[AeonErr
             for key, entry in reversed(list(block.entries.items())):
                 tasks.append((entry.value, member(path + ".@", key), True, entry.datatype, entry.attributes, entry.span or entry.value.span, False))
 
-    def check(datatype: TypeAnnotation | None, value: Value, path: str, span: Span) -> None:
+    def check(datatype: TypeAnnotation | None, value: Value, path: str, span: Span, *, node_head: bool = False) -> None:
         if datatype is not None:
-            surface = parse_gp_datatype_surface(format_datatype(datatype))
+            rendered = format_datatype(datatype)
+            if lookup is not None and not node_head and datatype.generic_args and expected_kinds_for_reserved_datatype(rendered) is None:
+                expected = ("ListNode", "TupleLiteral")
+                kind = datatype_check_kind(value, lookup, rendered, terminal_values)
+                if kind not in (*expected, "CloneReference", "PointerReference"):
+                    value_errors.append(DatatypeLiteralMismatchError(path, rendered, kind, expected, span))
+            surface = parse_gp_datatype_surface(rendered)
             if surface is not None:
-                validate_gp_datatype_surface(surface, path, span, errors, value_kind(value))
+                validate_gp_datatype_surface(
+                    surface, path, span, errors, value_kind(value),
+                    position="node_head" if node_head else "binding",
+                )
 
     for binding in reversed(bindings):
         push_binding(binding, "$", False)
     while tasks:
         value, path, metadata, datatype, attrs, span, check_only = tasks.pop()
         if metadata:
-            check(datatype, value, path, span)
+            check(datatype, value, path, span, node_head=check_only)
         if check_only:
             continue
         if isinstance(value, TypedValue):
@@ -542,6 +581,7 @@ def validate_gp_unprojected_claims(bindings: list[Binding], errors: list[AeonErr
             # children follow it. A check-only task avoids revisiting the node.
             tasks.append((value, head, True, value.datatype, [], value.span, True))
         attributes(attrs, path)
+    errors[:0] = value_errors
 
 
 def validate_gp_datatype_surface(
@@ -550,10 +590,31 @@ def validate_gp_datatype_surface(
     span: Span,
     errors: list[AeonError],
     literal_family: str | None = None,
+    *,
+    position: str = "binding",
 ) -> None:
     name = str(surface["name"])
+    args = surface["args"]
+    if args:
+        message = None
+        if position == "node_head" and name != "node":
+            message = "Profile only allows generic arguments on node head datatype :node"
+        elif position == "binding" and name == "node" and any(
+            arg["name"] != "node" and arg["name"] in RESERVED_V1_DATATYPES for arg in args
+        ):
+            message = "Profile binding datatype :node accepts only node or custom datatype arguments"
+        elif name in RESERVED_V1_DATATYPES and name not in GP_GENERIC_DATATYPES:
+            message = f"Profile does not allow generic arguments on datatype ':{name}'"
+        if message is not None:
+            errors.append(AeonError(message, span, "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", path))
+
     clarifiers = surface.get("clarifiers")
-    if isinstance(clarifiers, list):
+    if position == "node_head" and isinstance(clarifiers, list):
+        errors.append(AeonError(
+            "Profile does not allow clarifiers on node head datatypes",
+            span, "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED", path,
+        ))
+    elif isinstance(clarifiers, list):
         rule = GP_DATATYPE_CLARIFIER_RULES.get(name)
         if rule is None and literal_family in {"SeparatorLiteral", "RadixLiteral"}:
             pass
@@ -602,17 +663,19 @@ def validate_gp_datatype_surface(
                 )
             )
 
-    for arg in surface["args"]:
-        validate_gp_datatype_surface(arg, path, span, errors)
+    for arg in args:
+        validate_gp_datatype_surface(arg, path, span, errors, position="argument")
 
 
 def parse_gp_datatype_surface(source: str) -> dict[str, object] | None:
     text = source.strip()
-    match = re.match(r"[A-Za-z_][A-Za-z0-9_-]*", text)
-    if match is None:
+    if not text or not (text[0].isalpha() or text[0] == "_"):
         return None
-    name = match.group(0)
-    index = skip_gp_whitespace(text, match.end())
+    name_end = 1
+    while name_end < len(text) and (text[name_end].isalnum() or text[name_end] == "_"):
+        name_end += 1
+    name = text[:name_end]
+    index = skip_gp_whitespace(text, name_end)
 
     args: list[dict[str, object]] = []
     if index < len(text) and text[index] == "<":
@@ -953,6 +1016,8 @@ def enforce_mode(
     bindings: list[ResolvedBinding],
     datatype_policy: str | None,
     effective_mode: str | None = None,
+    *,
+    custom_datatype_kinds: Callable[[str], tuple[str, ...] | None] | None = None,
 ) -> list[AeonError]:
     mode = normalize_mode(effective_mode) if effective_mode is not None else extract_mode(document)
     effective_policy = effective_datatype_policy(mode, datatype_policy)
@@ -973,7 +1038,7 @@ def enforce_mode(
                     errors.append(UntypedValueInStrictModeError(format_path(binding.path), binding.span))
             continue
         expected = expected_kinds_for_reserved_datatype(binding.datatype)
-        kinds = expected if expected is not None else expected_kinds_for_custom_datatype(binding.datatype)
+        kinds = expected or (custom_datatype_kinds(binding.datatype) if custom_datatype_kinds else None)
         is_switch = datatype_base(binding.datatype) == "switch"
         actual_kind = (
             datatype_check_kind(binding.value, lookup, binding.datatype, terminal_values)
@@ -1023,7 +1088,7 @@ def enforce_mode(
             )
         )
         errors.extend(validate_node_head_datatypes(binding.value, format_path(binding.path), binding.span, mode))
-        errors.extend(validate_anonymous_typed_values(binding.value, format_path(binding.path), binding.span, lookup, mode, effective_policy))
+        errors.extend(validate_anonymous_typed_values(binding.value, format_path(binding.path), binding.span, lookup, mode, effective_policy, custom_datatype_kinds))
     return errors
 
 
@@ -1034,6 +1099,7 @@ def validate_anonymous_typed_values(
     lookup: dict[str, ResolvedBinding],
     mode: str,
     effective_policy: str,
+    custom_datatype_kinds: Callable[[str], tuple[str, ...] | None] | None,
 ) -> list[AeonError]:
     errors: list[AeonError] = []
     if isinstance(value, TypedValue):
@@ -1051,24 +1117,24 @@ def validate_anonymous_typed_values(
                     errors.append(CustomToggleAliasNotAllowedError(owner_path, datatype, value.span or span))
                 elif expected is not None and actual_kind not in expected:
                     errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, expected, value.span or span))
-                elif expected is None:
-                    custom_expected = expected_kinds_for_custom_datatype(datatype)
+                elif expected is None and custom_datatype_kinds:
+                    custom_expected = custom_datatype_kinds(datatype)
                     if custom_expected is not None and actual_kind not in custom_expected:
                         errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, custom_expected, value.span or span))
         if value.value is not None:
-            errors.extend(validate_anonymous_typed_values(value.value, owner_path, span, lookup, mode, effective_policy))
+            errors.extend(validate_anonymous_typed_values(value.value, owner_path, span, lookup, mode, effective_policy, custom_datatype_kinds))
         return errors
     if isinstance(value, ObjectNode):
         for binding in value.bindings:
-            errors.extend(validate_anonymous_typed_values(binding.value, f"{owner_path}.{binding.key}", span, lookup, mode, effective_policy))
+            errors.extend(validate_anonymous_typed_values(binding.value, f"{owner_path}.{binding.key}", span, lookup, mode, effective_policy, custom_datatype_kinds))
         return errors
     if isinstance(value, (ListNode, TupleLiteral)):
         for index, element in enumerate(value.elements):
-            errors.extend(validate_anonymous_typed_values(element, f"{owner_path}[{index}]", span, lookup, mode, effective_policy))
+            errors.extend(validate_anonymous_typed_values(element, f"{owner_path}[{index}]", span, lookup, mode, effective_policy, custom_datatype_kinds))
         return errors
     if isinstance(value, NodeLiteral):
         for index, child in enumerate(value.children):
-            errors.extend(validate_anonymous_typed_values(child, f"{owner_path}[{index}]", span, lookup, mode, effective_policy))
+            errors.extend(validate_anonymous_typed_values(child, f"{owner_path}[{index}]", span, lookup, mode, effective_policy, custom_datatype_kinds))
     return errors
 
 
@@ -1274,11 +1340,10 @@ def validate_annotation_entries(
             if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
                 errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
             else:
-                kinds = expected if expected is not None else expected_kinds_for_custom_datatype(datatype)
-                if kinds is not None and value is not None and hasattr(value, "type"):
+                if expected is not None and value is not None and hasattr(value, "type"):
                     actual_kind = datatype_check_kind(value, lookup, datatype, terminal_values)
-                    if actual_kind not in kinds:
-                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, kinds, span))
+                    if actual_kind not in expected:
+                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
         value = entry.get("value")
         if isinstance(value, (ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
             errors.extend(validate_node_head_datatypes(value, attr_path, span, mode))
@@ -1525,7 +1590,7 @@ def expected_kinds_for_reserved_datatype(datatype: str) -> tuple[str, ...] | Non
     return RESERVED_KIND_MAP.get(base)
 
 
-def expected_kinds_for_custom_datatype(datatype: str) -> tuple[str, ...] | None:
+def gp_custom_datatype_kinds(datatype: str) -> tuple[str, ...] | None:
     if datatype_has_generic_args(datatype):
         return ("ListNode", "TupleLiteral")
     return None
@@ -1543,7 +1608,20 @@ def datatype_base(datatype: str) -> str:
 def datatype_has_generic_args(datatype: str) -> bool:
     bracket_depth = 0
     generic_start = -1
+    quote: str | None = None
+    escaped = False
     for index, char in enumerate(datatype):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ('"', "'"):
+            quote = char
+            continue
         if char == "[":
             bracket_depth += 1
             continue

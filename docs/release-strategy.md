@@ -259,6 +259,15 @@ pnpm test
 pnpm test:cts:all
 ```
 
+The development CI run uses the pinned CTS checkout in its workflow to run
+the draft Core, AES, canonical and GP profile targets. It also runs each case
+in the immutable Core and WASM 0.5 and 0.6 targets and the AES 0.4 and 0.6 targets.
+The snapshot audit checks the exact case IDs and outcomes of superseded
+rejections. A release qualification uses the strict `pnpm test:cts:release`
+command against the release implementation and requires zero mismatches.
+The `pnpm test:cts:canonical:next` command selects the draft canonical target
+for development.
+
 Recommended repo-level checks:
 
 ```bash

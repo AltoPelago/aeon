@@ -29,7 +29,7 @@ pub use engine::{
     EventBatch, EventBatches, SourceRetention,
 };
 use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
-use gp_attributes::validate_gp_unprojected_clarifiers;
+use gp_attributes::validate_gp_unprojected_datatypes;
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
@@ -89,8 +89,6 @@ use token_parser::{
     parse_document_from_tokens_recovery_with_implementation,
     parse_document_from_tokens_with_implementation,
 };
-#[cfg(test)]
-use validation::datatype_has_generic_args;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -951,6 +949,7 @@ fn benchmark_validation_phases_with_implementation(
         options.datatype_policy,
         options.effective_max_clarifier_values(),
         options.max_generic_depth,
+        uses_gp_profile(options.profile.as_deref(), &lowered),
         &mut datatype_errors,
     );
     let datatype_validation_ns = datatype_start.elapsed().as_nanos();
@@ -1201,6 +1200,7 @@ fn finalize_compile(
         .include_header
         .then(|| extract_header_fields(&bindings));
 
+    let gp_active = uses_gp_profile(options.profile.as_deref(), &bindings);
     if options.emit_binding_projections {
         validate_datatypes(
             &flattened.events,
@@ -1212,6 +1212,7 @@ fn finalize_compile(
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
             options.recovery,
+            gp_active,
             &mut errors,
         );
     } else {
@@ -1225,20 +1226,21 @@ fn finalize_compile(
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
             options.recovery,
+            gp_active,
             &mut errors,
         );
     }
-    if uses_gp_profile(options.profile.as_deref(), &bindings) {
+    if gp_active {
         if options.emit_binding_projections {
-            validate_gp_datatype_clarifiers(&flattened.events, &flattened.bindings, &mut errors);
+            validate_gp_event_datatypes(&flattened.events, &flattened.bindings, &mut errors);
         } else {
-            validate_gp_datatype_clarifiers(
+            validate_gp_event_datatypes(
                 &flattened.events,
                 &flattened.rendered_event_paths,
                 &mut errors,
             );
         }
-        validate_gp_unprojected_clarifiers(&bindings, &mut errors);
+        validate_gp_unprojected_datatypes(&bindings, &mut errors, None);
     }
     validate_compact_reference_steps(
         &flattened.reference_steps,
@@ -1322,6 +1324,7 @@ fn validate_only_compile(
     trace_compile("compile:validation_only:event_lookup");
     let event_lookup = build_validation_event_lookup(&flattened.events, &mut errors);
     trace_compile("compile:validation_only:datatypes");
+    let gp_active = uses_gp_profile(options.profile.as_deref(), &bindings);
     validate_datatypes_light(
         &flattened.events,
         &event_lookup,
@@ -1330,11 +1333,12 @@ fn validate_only_compile(
         options.datatype_policy,
         options.effective_max_clarifier_values(),
         options.max_generic_depth,
+        gp_active,
         &mut errors,
     );
-    if uses_gp_profile(options.profile.as_deref(), &bindings) {
-        validate_gp_validation_datatype_clarifiers(&flattened.events, &mut errors);
-        validate_gp_unprojected_clarifiers(&bindings, &mut errors);
+    if gp_active {
+        validate_gp_validation_datatypes(&flattened.events, &mut errors);
+        validate_gp_unprojected_datatypes(&bindings, &mut errors, None);
     }
     trace_compile("compile:validation_only:references");
     validate_compact_reference_steps(
@@ -1361,6 +1365,14 @@ fn validate_only_compile(
 }
 
 pub(crate) const AEON_GP_PROFILE_ID: &str = "aeon.gp.profile.v1";
+pub(crate) const SET_TO_ELEVEN_PROFILE_ID: &str = "set.to.eleven.v1";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GpDatatypePosition {
+    Binding,
+    NodeHead,
+    Argument,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GpDatatypeClarifierRule {
@@ -1385,8 +1397,10 @@ struct GpDatatypeSurface {
 }
 
 fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
-    if option_profile == Some(AEON_GP_PROFILE_ID) {
-        return true;
+    match option_profile {
+        Some(AEON_GP_PROFILE_ID) => return true,
+        Some(SET_TO_ELEVEN_PROFILE_ID) => return false,
+        _ => {}
     }
     bindings.iter().any(|binding| {
         binding.is_header
@@ -1398,7 +1412,28 @@ fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
     })
 }
 
-pub(crate) fn validate_gp_datatype_clarifiers<P: AsRef<str>>(
+fn datatype_has_generic_args(datatype: &str) -> bool {
+    datatype
+        .find(['<', '['])
+        .is_some_and(|index| datatype.as_bytes()[index] == b'<')
+}
+
+fn gp_custom_generic_value_error(datatype: &str, kind: &str, path: &str) -> Option<Diagnostic> {
+    if matches!(
+        kind,
+        "ListNode" | "TupleLiteral" | "CloneReference" | "PointerReference"
+    ) || !datatype_has_generic_args(datatype)
+        || validation::is_reserved_datatype(datatype)
+    {
+        return None;
+    }
+    Some(Diagnostic::new(
+        "DATATYPE_LITERAL_MISMATCH",
+        format!("Datatype/literal mismatch at '{path}': datatype ':{datatype}' expects ListNode or TupleLiteral, got {kind}"),
+    ).at_path(path))
+}
+
+pub(crate) fn validate_gp_event_datatypes<P: AsRef<str>>(
     events: &[AssignmentEvent],
     rendered_paths: &[P],
     errors: &mut Vec<Diagnostic>,
@@ -1420,14 +1455,12 @@ pub(crate) fn validate_gp_datatype_clarifiers<P: AsRef<str>>(
             event.span,
             errors,
             gp_custom_clarifier_literal(&event.value),
+            GpDatatypePosition::Binding,
         );
     }
 }
 
-fn validate_gp_validation_datatype_clarifiers(
-    events: &[ValidationEvent<'_>],
-    errors: &mut Vec<Diagnostic>,
-) {
+fn validate_gp_validation_datatypes(events: &[ValidationEvent<'_>], errors: &mut Vec<Diagnostic>) {
     for event in events {
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
@@ -1441,6 +1474,7 @@ fn validate_gp_validation_datatype_clarifiers(
             event.span,
             errors,
             gp_custom_clarifier_literal(event.value),
+            GpDatatypePosition::Binding,
         );
     }
 }
@@ -1451,9 +1485,64 @@ fn validate_gp_datatype_surface(
     span: Span,
     errors: &mut Vec<Diagnostic>,
     custom_clarifier_literal: bool,
+    position: GpDatatypePosition,
 ) {
+    let name = datatype.name.as_str();
+    if !datatype.args.is_empty() {
+        let message = if position == GpDatatypePosition::NodeHead && name != "node" {
+            Some("Profile only allows generic arguments on node head datatype :node".to_owned())
+        } else if position == GpDatatypePosition::Binding
+            && name == "node"
+            && datatype
+                .args
+                .iter()
+                .any(|arg| arg.name != "node" && validation::is_reserved_datatype(&arg.name))
+        {
+            Some(
+                "Profile binding datatype :node accepts only node or custom datatype arguments"
+                    .to_owned(),
+            )
+        } else if validation::is_reserved_datatype(name)
+            && !matches!(
+                name,
+                "list"
+                    | "tuple"
+                    | "triple"
+                    | "object"
+                    | "node"
+                    | "null"
+                    | "nan"
+                    | "infinity"
+                    | "symbol"
+            )
+        {
+            Some(format!(
+                "Profile does not allow generic arguments on datatype ':{name}'"
+            ))
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            errors.push(
+                Diagnostic::new("PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", message)
+                    .at_path(rendered_path)
+                    .with_span(span),
+            );
+        }
+    }
+
     if let Some(clarifiers) = &datatype.clarifiers {
-        match gp_datatype_clarifier_rule(&datatype.name) {
+        match gp_datatype_clarifier_rule(name) {
+            _ if position == GpDatatypePosition::NodeHead => {
+                errors.push(
+                    Diagnostic::new(
+                        "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+                        "Profile does not allow clarifiers on node head datatypes",
+                    )
+                    .at_path(rendered_path)
+                    .with_span(span),
+                );
+            }
             Some(GpDatatypeClarifierRule::RadixBase) => {
                 if !valid_radix_base_clarifiers(clarifiers) {
                     errors.push(
@@ -1523,7 +1612,14 @@ fn validate_gp_datatype_surface(
     }
 
     for arg in &datatype.args {
-        validate_gp_datatype_surface(arg, rendered_path, span, errors, false);
+        validate_gp_datatype_surface(
+            arg,
+            rendered_path,
+            span,
+            errors,
+            false,
+            GpDatatypePosition::Argument,
+        );
     }
 }
 
@@ -3334,15 +3430,10 @@ z = 7"###,
     }
 
     #[test]
-    fn rejects_binding_node_claims_with_reserved_child_value_datatypes() {
+    fn core_preserves_binding_node_claims_with_reserved_child_value_datatypes() {
         let result = compile("tag:node<string> = <tag>\n", CompileOptions::default());
-        assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        assert!(
-            result.errors[0]
-                .message
-                .contains("reserved child value datatypes belong on node heads")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("node<string>"));
     }
 
     #[test]
@@ -4893,17 +4984,12 @@ other:number = ~>source.shared.@.metadata"#;
     }
 
     #[test]
-    fn custom_mode_rejects_scalar_values_for_generic_custom_datatypes() {
+    fn core_allows_scalar_values_for_generic_custom_datatypes() {
         let result = compile(
             "aeon:mode = \"custom\"\na:custom<custom> = 0\n",
             CompileOptions::default(),
         );
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|error| error.code == "DATATYPE_LITERAL_MISMATCH")
-        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 
     #[test]
@@ -5051,12 +5137,17 @@ other:number = ~>source.shared.@.metadata"#;
     }
 
     #[test]
-    fn rejects_meaningless_reserved_datatype_generics() {
-        for source in ["a:n<string> = 3\n", "b:boolean<toggle> = true\n"] {
-            let result = compile(source, CompileOptions::default());
-            assert!(!result.errors.is_empty(), "{source}");
-            assert_eq!(result.errors[0].code, "SYNTAX_ERROR");
-        }
+    fn core_preserves_reserved_scalar_datatype_generics() {
+        let result = compile(
+            "a:n<string> = 3\nb:boolean<toggle> = true",
+            CompileOptions::default(),
+        );
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].datatype.as_deref(), Some("n<string>"));
+        assert_eq!(
+            result.events[1].datatype.as_deref(),
+            Some("boolean<toggle>")
+        );
     }
 
     #[test]

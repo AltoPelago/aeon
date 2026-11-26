@@ -14,6 +14,7 @@ import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.jso
 import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
 import gpAttributeFixtures from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
 import gpTagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers.json' with { type: 'json' };
+import gpDatatypeGenerics from '../../../../../test-fixtures/gp-datatype-generics.json' with { type: 'json' };
 import propertyLiterals from '../../../../../test-fixtures/property-address-literals.json' with { type: 'json' };
 
 import {
@@ -312,13 +313,15 @@ test('generated WASM rejects literal Telex generics and retains exact recursive 
   assert.deepEqual(runtime.materializeTelex(source).document, { a: 0 });
 });
 
-test('generated wasm validates GP unprojected claims in one-shot and every two-chunk split', async () => {
+test('generated wasm validates GP datatype claims in one-shot and every two-chunk split', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   for (const validationMode of ['loose', 'strict'] as const) {
     const options = { validationMode, datatypePolicy: 'allow_custom', maxAttributeDepth: 2, maxClarifierValues: 2 } as const;
-    const fixtures = validationMode === 'strict' ? gpTagHeadFixtures : [...gpAttributeFixtures, ...gpTagHeadFixtures];
+    const fixtures = validationMode === 'strict' ? gpTagHeadFixtures : [...gpAttributeFixtures, ...gpTagHeadFixtures, ...gpDatatypeGenerics];
     for (const fixture of fixtures) {
       assert.deepEqual(runtime.processAeon(fixture.source, { ...options, finalize: false }).errors, [], fixture.id);
+      const unrestricted = `${fixture.source}\naeon:profile="set.to.eleven.v1"`;
+      assert.deepEqual(runtime.processAeon(unrestricted, { ...options, finalize: false }).errors, [], fixture.id);
       for (const source of [`aeon:profile="aeon.gp.profile.v1"\n${fixture.source}`, `${fixture.source}\naeon:profile="aeon.gp.profile.v1"`]) {
         const result = runtime.processAeon(source, { ...options, finalize: false });
         assert.deepEqual(result.errors.map(({ code, path }) => ({ code, path })), fixture.errors, fixture.id);

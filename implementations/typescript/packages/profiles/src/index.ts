@@ -11,6 +11,7 @@ export { createRegistry } from './registry.js';
 export { coreProfile } from './profiles/altopelago-core.js';
 export { aeonGpCoreProfile } from './profiles/aeon-gp-core.js';
 export { jsonProfile } from './profiles/json.js';
+export { setToElevenProfile } from './profiles/set-to-eleven.js';
 export { createResolveRefsProcessor } from './processors/resolve-refs.js';
 export type {
     CompileCtx,

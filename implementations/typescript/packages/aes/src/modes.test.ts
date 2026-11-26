@@ -415,10 +415,10 @@ describe('Mode Enforcement', () => {
             assert.ok(!result.errors.some((e) => e.code === 'UNTYPED_TOGGLE_LITERAL'));
         });
 
-        it('should reject scalar values for generic custom datatypes in custom mode', () => {
+        it('should allow scalar values for generic custom datatypes in custom mode', () => {
             const result = enforce('aeon:mode = "custom"\na:custom<custom> = 0');
 
-            assert.ok(result.errors.some((e) => e.code === 'DATATYPE_LITERAL_MISMATCH'));
+            assert.deepEqual(result.errors, []);
         });
 
         it('should allow list and tuple values for generic custom datatypes in custom mode', () => {

@@ -444,13 +444,12 @@ b = [\A1\ = 2]`).tokens;
             assert.deepStrictEqual(result.document!.bindings[5]!.datatype?.genericArgs, ['speedofmass']);
         });
 
-        it('should reject reserved child datatype claims on ordinary node bindings', () => {
+        it('should preserve reserved child datatype claims on ordinary node bindings', () => {
             const tokens = tokenize('tag:node<string> = <tag>').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
-            assert.match(result.errors[0]!.message, /Binding-level node<T>/);
+            assert.deepStrictEqual(result.errors, []);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['string']);
         });
 
         it('should parse node<T> on node heads', () => {
@@ -1340,7 +1339,7 @@ b = [\A1\ = 2]`).tokens;
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.clarifiers.map(value => typeof value === 'object' ? value.value : value), ['10']);
         });
 
-        it('should reject radix generic parameter syntax', () => {
+        it('should reject a literal as a radix generic argument', () => {
             const tokens = tokenize('mask:radix<10> = %19').tokens;
             const result = parse(tokens);
 
@@ -1388,20 +1387,20 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
-        it('should reject meaningless generics on reserved scalar datatypes', () => {
+        it('should preserve generics on reserved scalar datatypes', () => {
             const tokens = tokenize('a:n<string> = 3').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.deepStrictEqual(result.errors, []);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['string']);
         });
 
-        it('should reject meaningless generics on reserved boolean datatypes', () => {
+        it('should preserve generics on reserved boolean datatypes', () => {
             const tokens = tokenize('b:boolean<toggle> = true').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+            assert.deepStrictEqual(result.errors, []);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['toggle']);
         });
 
         it('should preserve clarifiers on reserved scalar datatypes without assigning meaning', () => {
@@ -1716,20 +1715,15 @@ b = [\A1\ = 2]`).tokens;
             }
         });
 
-        it('should reject non-node generic inline node head datatypes', () => {
-            const tokens = tokenize('item = <tag:pair<int32,string>("x")>').tokens;
+        it('should preserve generics and clarifiers on the same node head', () => {
+            const tokens = tokenize('item = <tag:pair<int32,string>["x"]("x")>').tokens;
             const result = parse(tokens);
 
-            assert.ok(result.errors.length > 0);
-            assert.match(result.errors[0]!.message, /Generic node head datatypes must use node<T>/);
-        });
-
-        it('should reject clarifier inline node head datatypes', () => {
-            const tokens = tokenize('item = <tag:contact["x"]("x")>').tokens;
-            const result = parse(tokens);
-
-            assert.ok(result.errors.length > 0);
-            assert.match(result.errors[0]!.message, /Node head datatypes must not use clarifiers/);
+            assert.deepStrictEqual(result.errors, []);
+            const value = result.document!.bindings[0]!.value;
+            assert.strictEqual(value.type, 'NodeLiteral');
+            assert.deepStrictEqual(value.datatype?.genericArgs, ['int32', 'string']);
+            assert.deepStrictEqual(value.datatype?.clarifiers, ['x']);
         });
     });
 

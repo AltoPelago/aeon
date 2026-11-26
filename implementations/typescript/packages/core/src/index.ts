@@ -157,6 +157,8 @@ export interface CompileOptions {
      * For production processing, always use fail-closed (default).
      */
     readonly recovery?: boolean;
+    /** Expected literal kinds for annotations using a custom datatype. */
+    readonly customDatatypeKinds?: (datatype: string) => readonly string[] | null;
     /** Maximum number of attribute segments in a reference path (default: 1). */
     readonly maxAttributeDepth?: number;
     /** Maximum clarifier values on one datatype descriptor (default: 1). */
@@ -377,6 +379,7 @@ export function compile(input: string, options: CompileOptions = {}): CompileRes
     const modeResult = enforceMode(refResult.events, parseResult.document.header, {
         recovery,
         ...(options.mode ? { mode: options.mode } : {}),
+        ...(options.customDatatypeKinds ? { customDatatypeKinds: options.customDatatypeKinds } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
     });
     allErrors.push(...modeResult.errors);

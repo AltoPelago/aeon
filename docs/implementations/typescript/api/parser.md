@@ -47,6 +47,9 @@ interface ParseResult {
 
 ## Notes
 
+- Core parses generic arguments and clarifiers on any datatype name, including
+  node heads. Profiles can restrict those annotations after parsing.
+
 - Generic arguments are datatype descriptors, not literal parameters:
   `custom<number>[1.0]` and `list<custom[1.0]>` are valid syntax;
   `custom<1.0>` is not. Quoted strings cannot be generic type names either.

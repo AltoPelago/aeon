@@ -3410,6 +3410,10 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
         case 'INVALID_NODE_HEAD_DATATYPE':
             return 'Mode Enforcement';
+        case 'PROFILE_DATATYPE_GENERIC_NOT_ALLOWED':
+        case 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED':
+        case 'PROFILE_DATATYPE_CLARIFIER_INVALID':
+            return 'Profile Validation';
         case 'PROFILE_NOT_FOUND':
         case 'PROFILE_PROCESSORS_SKIPPED':
             return 'Profile Compilation';

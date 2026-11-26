@@ -15,11 +15,9 @@ use crate::{
 };
 
 use super::{
-    ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, datatype_base,
-    datatype_bracket_specs, decode_quoted_token, decode_reference_key_token,
-    invalid_temporal_literal, is_ascii_whitespace_only, is_bare_key_kind,
-    is_reserved_null_sentinel, is_valid_number_literal, render_quoted_string,
-    validate_binding_node_datatype, validate_reserved_datatype_adornments,
+    ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, decode_quoted_token,
+    decode_reference_key_token, invalid_temporal_literal, is_ascii_whitespace_only,
+    is_bare_key_kind, is_reserved_null_sentinel, is_valid_number_literal, render_quoted_string,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1214,7 +1212,6 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
         self.count_datatype_component(self.peek().span)?;
         let datatype = self.advance().text.clone();
         self.skip_newlines();
-        validate_reserved_datatype_adornments(&datatype, self.previous().span)?;
         Ok(Some(datatype))
     }
 
@@ -1931,11 +1928,6 @@ impl BindingFrame {
                 let Some(Product::Datatype(datatype)) = product.take() else {
                     unreachable!("Sofia binding frame expected a datatype product");
                 };
-                if let Err(error) =
-                    validate_binding_node_datatype(&datatype, parser.previous().span)
-                {
-                    return Step::Failed(error);
-                }
                 head.datatype = Some(datatype);
                 Self::push_value(parser, PhaseHead::Boxed(head), product)
             }
@@ -1959,11 +1951,6 @@ impl BindingFrame {
             parser.begin_datatype();
             match parser.try_parse_atomic_datatype() {
                 Ok(Some(datatype)) => {
-                    if let Err(error) =
-                        validate_binding_node_datatype(&datatype, parser.previous().span)
-                    {
-                        return Step::Failed(error);
-                    }
                     head.as_mut().datatype = Some(datatype);
                     return Self::push_value(parser, head, output);
                 }
@@ -2121,11 +2108,6 @@ impl AnonymousValueFrame {
                 let Some(Product::Datatype(datatype)) = product.take() else {
                     unreachable!("Sofia anonymous-value frame expected a datatype product");
                 };
-                if let Err(error) =
-                    validate_binding_node_datatype(&datatype, parser.previous().span)
-                {
-                    return Step::Failed(error);
-                }
                 head.datatype = Some(datatype);
                 Self::push_value(parser, PhaseHead::Boxed(head))
             }
@@ -2411,11 +2393,6 @@ impl AttributeEntryFrame {
                 let Some(Product::Datatype(datatype)) = product.take() else {
                     unreachable!("Sofia attribute entry expected a datatype");
                 };
-                if let Err(error) =
-                    validate_binding_node_datatype(&datatype, parser.previous().span)
-                {
-                    return Step::Failed(error);
-                }
                 head.datatype = Some(datatype);
                 Self::push_value(parser, self.depth, PhaseHead::Boxed(head))
             }
@@ -2549,7 +2526,6 @@ struct AttributeEntryHead {
 #[derive(Clone)]
 struct DatatypeFrame {
     start: usize,
-    name: String,
     generic_depth: usize,
     phase: DatatypePhase,
 }
@@ -2558,7 +2534,6 @@ impl DatatypeFrame {
     fn new(generic_depth: usize) -> Self {
         Self {
             start: 0,
-            name: String::new(),
             generic_depth,
             phase: DatatypePhase::Name,
         }
@@ -2587,7 +2562,7 @@ impl DatatypeFrame {
                     return Step::Failed(parser.error_at_current("Expected datatype annotation"));
                 }
                 self.start = parser.current;
-                self.name = parser.advance().text.clone();
+                parser.advance();
                 parser.skip_newlines();
 
                 if parser.check(TokenKind::LeftAngle) {
@@ -2601,17 +2576,6 @@ impl DatatypeFrame {
                             message: format!(
                                 "Generic depth {} exceeds max_generic_depth {}",
                                 self.generic_depth, parser.max_generic_depth
-                            ),
-                        });
-                    }
-                    if self.name == "radix" {
-                        return Step::Failed(Diagnostic {
-                            code: String::from("SYNTAX_ERROR"),
-                            path: Some(String::from("$")),
-                            span: Some(parser.previous().span),
-                            phase: None,
-                            message: String::from(
-                                "Radix datatype bases must use bracket syntax like `radix[10]`",
                             ),
                         });
                     }
@@ -2785,10 +2749,6 @@ impl DatatypeFrame {
 
     fn finish(self, parser: &Parser<'_, '_>, output: &mut Option<Product>) -> Step {
         let datatype = parser.normalized_datatype(self.start, parser.current);
-        if let Err(error) = validate_reserved_datatype_adornments(&datatype, parser.previous().span)
-        {
-            return Step::Failed(error);
-        }
         complete(output, Product::Datatype(datatype))
     }
 }
@@ -2893,14 +2853,6 @@ impl NodeFrame {
                 let Some(Product::Datatype(datatype)) = product.take() else {
                     unreachable!("Sofia node frame expected a datatype");
                 };
-                let base = datatype_base(&datatype);
-                if (datatype.contains('<') && base != "node")
-                    || !datatype_bracket_specs(&datatype).is_empty()
-                {
-                    return Step::Failed(parser.error_at_current(
-                        "Node head datatypes must be simple labels or node<T> without clarifiers",
-                    ));
-                }
                 head.head_end = parser.previous_non_newline().span.end;
                 head.datatype = Some(datatype);
                 Step::Continue(Frame::Node(Self {
@@ -4309,11 +4261,6 @@ literal = ~true.off"#;
                 "Only one attribute block is allowed before a node datatype",
             ),
             (
-                "bad = <root:pair<string>>",
-                "SYNTAX_ERROR",
-                "Node head datatypes must be simple labels or node<T> without clarifiers",
-            ),
-            (
                 "bad = [@{first=1}@{second=2} = 3]",
                 "SYNTAX_ERROR",
                 "Only one attribute block is allowed before an anonymous value datatype",
@@ -4371,7 +4318,7 @@ literal = ~true.off"#;
             (
                 "bad:radix<10> = 1",
                 "SYNTAX_ERROR",
-                "Radix datatype bases must use bracket syntax like `radix[10]`",
+                "Expected generic argument",
             ),
         ];
 

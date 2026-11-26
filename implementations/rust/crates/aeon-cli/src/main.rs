@@ -3786,6 +3786,9 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         | "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"
         | "CUSTOM_DATATYPE_NOT_ALLOWED"
         | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+        "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED"
+        | "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
+        | "PROFILE_DATATYPE_CLARIFIER_INVALID" => Some("Profile Validation"),
         "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
         "TYPE_GUARD_FAILED" => Some("Finalization"),
         _ if code.starts_with("FINALIZE_") => Some("Finalization"),
