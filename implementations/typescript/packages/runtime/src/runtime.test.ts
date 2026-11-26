@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { compileToTelex, loadAeonicLimits } from '@altopelago/aeon-core';
+import { createProfile, loadProfileContract } from '@altopelago/aeon-profiles';
 import { createTypedRuntimeBinder, runFilmRuntime, runRuntime, runTelexRuntime, runTypedRuntime } from './index.js';
 import type { SchemaV1 } from '@altopelago/aeos-core';
 
@@ -72,6 +73,58 @@ test('runs compile -> schema -> resolve -> finalize in strict mode', () => {
     assert.equal(result.meta.errors.length, 0);
     assert.equal((result.document as Record<string, unknown>).name, 'AEON');
     assert.equal((result.document as Record<string, unknown>).copy, 'AEON');
+});
+
+test('runs loaded profile defaults, caller overrides, and alias checks through runtime entry points', () => {
+    const contract = `
+profile_id = "test.runtime.loaded.v1"
+profile_version = "1.0.0"
+core_id = "aeon.core.v1"
+mode_default = "strict"
+datatype_policy_default = "allow_custom"
+datatype_semantics = {
+    separator = { literal_family = "SeparatorLiteral", clarifiers = "separator_chars", alias_of = "sep" }
+}
+generic_admission = {
+    reserved_datatypes = ["list"]
+    custom_labels = true
+    custom_value_kinds = ["ListNode", "TupleLiteral"]
+    node_head_datatypes = ["node"]
+    binding_node_reserved_arguments = ["node"]
+}
+collections = {}
+containers = {}
+capabilities = { references = true, clones = true }
+`;
+    const profile = createProfile(loadProfileContract(contract));
+    const reservedOnly = createProfile(loadProfileContract(contract.replace('allow_custom', 'reserved_only')));
+    const untyped = 'aeon:mode = "transport"\na = 3';
+    const invalid = runRuntime(untyped, { profile });
+    assert.deepEqual(invalid.meta.errors.map(({ code, phase }) => ({ code, phase })),
+        [{ code: 'UNTYPED_VALUE_IN_STRICT_MODE', phase: 5 }]);
+    assert.equal(invalid.document, undefined);
+
+    const allowed = runTypedRuntime(untyped, {
+        profile, effectiveMode: 'transport', includeAnnotations: true, schema: { rules: [] },
+    });
+    assert.deepEqual(allowed.meta.errors, []);
+    assert.deepEqual(allowed.document, { a: 3 });
+
+    const custom = 'a:Box<n> = [1]';
+    assert.deepEqual(runRuntime(custom, { profile, includeAnnotations: true }).document, { a: [1] });
+    assert.equal(runRuntime(custom, { profile: reservedOnly }).meta.errors[0]?.code, 'CUSTOM_DATATYPE_NOT_ALLOWED');
+    assert.deepEqual(runRuntime(custom, { profile: reservedOnly, preset: 'rich' }).document, { a: [1] });
+    const inferred = createProfile(loadProfileContract(contract.replace('datatype_policy_default = "allow_custom"\n', '')));
+    assert.deepEqual(runRuntime(custom, { profile: inferred, effectiveMode: 'custom' }).document, { a: [1] });
+    assert.equal(runRuntime(custom, { profile: inferred }).meta.errors[0]?.code, 'CUSTOM_DATATYPE_NOT_ALLOWED');
+
+    const wrongLiteral = runRuntime('a:separator["."] = "a.b"', { profile, output: 'map' });
+    assert.deepEqual(wrongLiteral.meta.errors.map(({ code, phase }) => ({ code, phase })),
+        [{ code: 'DATATYPE_LITERAL_MISMATCH', phase: 5 }]);
+    assert.equal(wrongLiteral.document, undefined);
+    const correctLiteral = runRuntime('a:separator["."] = ^a.b', { profile, output: 'map' });
+    assert.deepEqual(correctLiteral.meta.errors, []);
+    assert.equal(correctLiteral.aes[0]?.value.type, 'SeparatorLiteral');
 });
 
 for (const mode of ['strict', 'loose'] as const) {

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { getRepoRoot, resolveCTSPath } from './repo-paths.mjs';
+import { getAeoniteSpecsRoot, getRepoRoot, resolveCTSPath } from './repo-paths.mjs';
 
 const root = getRepoRoot();
 const manifestPath = resolveCTSPath('cts/profile/v1/gp-profile-cts.v1.next.json');
@@ -14,21 +15,42 @@ assert.equal(manifest.meta.lane, 'profile');
 assert.equal(manifest.meta.sut_protocol, 'cts.protocol.v1');
 assert.equal(profile, 'aeon.gp.profile.v1');
 
-const { compile } = await import('../implementations/typescript/packages/profiles/dist/index.js');
+const { compile, createProfile, loadProfileContract } = await import('../implementations/typescript/packages/profiles/dist/index.js');
 const { formatPath } = await import('../implementations/typescript/packages/aes/dist/index.js');
 const { tokenize, TokenType } = await import('../implementations/typescript/packages/lexer/dist/index.js');
 const { loadAeonWasm } = await import('../implementations/typescript/packages/wasm/dist/index.js');
 const wasm = await loadAeonWasm(readFileSync(join(root, 'implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm')));
+
+const contractsRoot = join(getAeoniteSpecsRoot(), 'resources/contracts/v1');
+const registry = JSON.parse(readFileSync(join(contractsRoot, 'registry.json'), 'utf8'));
+const entry = registry.contracts.find(item => item.kind === 'profile' && item.id === profile);
+assert.ok(entry, `Missing official ${profile} contract`);
+assert.equal(entry.status, 'active');
+assert.equal(entry.path, `profiles/${profile}.aeon`);
+const profileSource = readFileSync(join(contractsRoot, entry.path));
+assert.equal(createHash('sha256').update(profileSource).digest('hex'), entry.sha256, `${profile} artifact hash`);
+const policy = loadProfileContract(profileSource.toString('utf8'));
+assert.equal(policy.id, profile);
+assert.equal(policy.version, entry.version);
+const loadedProfile = createProfile(policy);
+
+function runTypeScript(source, mode, profile) {
+  const result = compile(source, {
+    profile,
+    effectiveMode: mode,
+    datatypePolicy: mode === 'strict' ? 'reserved_only' : 'allow_custom',
+  });
+  return {
+    errors: result.meta?.errors ?? [],
+    warnings: result.meta?.warnings ?? [],
+    bindings: result.aes.filter(event => event.sourcePlane !== 'header')
+      .map(event => ({ path: formatPath(event.path), datatype: event.datatype ?? null, kind: 'binding' })),
+  };
+}
+
 const runtimes = {
-  TypeScript(source, mode) {
-    const result = compile(`aeon:mode = "${mode}"\n${source}`, { profile });
-    return {
-      errors: result.meta?.errors ?? [],
-      warnings: result.meta?.warnings ?? [],
-      bindings: result.aes.filter(event => event.sourcePlane !== 'header')
-        .map(event => ({ path: formatPath(event.path), datatype: event.datatype ?? null, kind: 'binding' })),
-    };
-  },
+  TypeScript: (source, mode) => runTypeScript(source, mode, profile),
+  'TypeScript (official artifact)': (source, mode) => runTypeScript(source, mode, loadedProfile),
   WASM(source, mode) {
     // The WASM API selects GP from the header. The manifest supplies this
     // trusted selection and suite sources supply only document bodies.

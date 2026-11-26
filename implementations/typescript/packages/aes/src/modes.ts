@@ -234,10 +234,14 @@ export function enforceMode(
     const mode = options.mode ?? extractMode(header);
     const datatypePolicy = options.datatypePolicy ?? defaultDatatypePolicyForMode(mode);
     const { customDatatypeKinds } = options;
+    const allowCustom = mode === 'transport' || datatypePolicy === 'allow_custom';
     const errors: ModeEnforcementError[] = [];
     const pathToIndex = new Map<string, number>();
-    // Keep the terminal value, since literal classification can depend on the requested datatype.
-    const terminalValues = new Map<Value, Value>();
+    const referenceCache: DatatypeReferenceCache = {
+        targets: new Map(),
+        kinds: new Map(),
+        base64Kinds: new Map(),
+    };
 
     for (let i = 0; i < events.length; i++) {
         pathToIndex.set(formatPath(events[i]!.path), i);
@@ -255,20 +259,20 @@ export function enforceMode(
             continue;
         }
 
-        if (customDatatypeKinds && datatypePolicy === 'allow_custom'
+        if (customDatatypeKinds && allowCustom
             && (event.annotations?.size || 'attributes' in event.value)) {
             validateCustomMetadataKinds(event, customDatatypeKinds, (value, datatype) =>
-                resolveDatatypeCheckKind(value, events, pathToIndex, datatype, terminalValues), errors);
+                resolveDatatypeCheckKind(value, events, pathToIndex, datatype, referenceCache), errors);
         }
 
         // Indexed list/tuple element events are synthetic structural nodes.
         // They still carry explicit annotations on authored anonymous values.
         if (isIndexedElementEvent(event)) {
             const datatype = event.datatype;
-            if (datatype && datatypePolicy === 'allow_custom' && !expectedKindsForReservedDatatype(datatype)) {
+            if (datatype && allowCustom && !expectedKindsForReservedDatatype(datatype)) {
                 const kinds = customDatatypeKinds?.(datatype);
                 if (kinds) {
-                    const kind = resolveDatatypeCheckKind(event.value, events, pathToIndex, datatype, terminalValues);
+                    const kind = resolveDatatypeCheckKind(event.value, events, pathToIndex, datatype, referenceCache);
                     if (kind !== 'CloneReference' && kind !== 'PointerReference' && !kinds.includes(kind)) {
                         errors.push(new DatatypeLiteralMismatchError(event.span, formatPath(event.path), datatype, kind, kinds));
                     }
@@ -292,13 +296,13 @@ export function enforceMode(
         const kinds = expectedKinds ?? customDatatypeKinds?.(event.datatype);
         const isSwitch = datatypeBase(event.datatype) === 'switch';
         const actualKind = kinds || isSwitch || mode === 'strict'
-            ? resolveDatatypeCheckKind(event.value, events, pathToIndex, event.datatype, terminalValues)
+            ? resolveDatatypeCheckKind(event.value, events, pathToIndex, event.datatype, referenceCache)
             : undefined;
         if (isSwitch && actualKind === 'ToggleLiteral') {
             errors.push(new CustomToggleAliasNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
-        if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
+        if (!allowCustom && !expectedKinds) {
             errors.push(new CustomDatatypeNotAllowedError(event.span, formatPath(event.path), event.datatype));
             continue;
         }
@@ -323,7 +327,7 @@ export function enforceMode(
             pathToIndex,
             mode,
             datatypePolicy,
-            terminalValues
+            referenceCache
         ));
         errors.push(...validateAnonymousTypedValues(
             event.value,
@@ -373,17 +377,27 @@ function isIndexedElementEvent(event: AssignmentEvent): boolean {
     return lastSegment?.type === 'index';
 }
 
+interface DatatypeReferenceCache {
+    readonly targets: Map<Value, Value>;
+    readonly kinds: Map<Value, string>;
+    readonly base64Kinds: Map<Value, string>;
+}
+
 function resolveDatatypeCheckKind(
     value: Value,
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
     datatype: string,
-    terminalValues: Map<Value, Value>
+    referenceCache: DatatypeReferenceCache
 ): string {
     let current = unwrapTypedValue(value);
+    if (current.type !== 'CloneReference' && current.type !== 'PointerReference') {
+        return resolvedValueKind(current, datatype);
+    }
+
     let seen: Set<Value> | undefined;
     while (current.type === 'CloneReference' || current.type === 'PointerReference') {
-        const cached = terminalValues.get(current);
+        const cached = referenceCache.targets.get(current);
         if (cached) {
             current = cached;
             break;
@@ -396,9 +410,16 @@ function resolveDatatypeCheckKind(
         current = unwrapTypedValue(target);
     }
     if (seen) {
-        for (const reference of seen) terminalValues.set(reference, current);
+        for (const reference of seen) referenceCache.targets.set(reference, current);
     }
-    return resolvedValueKind(current, datatype);
+    // A shared encoding value may be checked both as general encoding and as base64url.
+    const kinds = current.type === 'EncodingLiteral' && datatypeBase(datatype) === 'base64'
+        ? referenceCache.base64Kinds : referenceCache.kinds;
+    const cachedKind = kinds.get(current);
+    if (cachedKind !== undefined) return cachedKind;
+    const kind = resolvedValueKind(current, datatype);
+    kinds.set(current, kind);
+    return kind;
 }
 
 function resolvedValueKind(value: Value, datatype?: string): string {
@@ -677,7 +698,7 @@ function validateAnnotationEntries(
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
     datatypePolicy: DatatypePolicy,
-    terminalValues: Map<Value, Value>
+    referenceCache: DatatypeReferenceCache
 ): readonly ModeEnforcementError[] {
     if (!annotations || annotations.size === 0) {
         return [];
@@ -698,7 +719,7 @@ function validateAnnotationEntries(
                 errors.push(new CustomDatatypeNotAllowedError(span, attrPath, entry.datatype));
             } else {
                 if (expectedKinds) {
-                    const actualKind = resolveDatatypeCheckKind(entry.value, events, pathToIndex, entry.datatype, terminalValues);
+                    const actualKind = resolveDatatypeCheckKind(entry.value, events, pathToIndex, entry.datatype, referenceCache);
                     if (!expectedKinds.includes(actualKind)) {
                         errors.push(new DatatypeLiteralMismatchError(span, attrPath, entry.datatype, actualKind, expectedKinds));
                     }
@@ -714,7 +735,7 @@ function validateAnnotationEntries(
             pathToIndex,
             mode,
             datatypePolicy,
-            terminalValues
+            referenceCache
         ));
     }
     return errors;
@@ -857,8 +878,8 @@ function resolveReferenceSubpath(
 
         if (typeof segment === 'number') {
             const value = unwrapTypedValue(context.value);
-            if (value.type !== 'ListNode' && value.type !== 'TupleLiteral') return null;
-            const element = value.elements[segment];
+            const element = value.type === 'NodeLiteral' ? value.children[segment]
+                : value.type === 'ListNode' || value.type === 'TupleLiteral' ? value.elements[segment] : undefined;
             if (!element) return null;
             context = {
                 value: element,

@@ -1,7 +1,4 @@
-import { datatypeHasGenericArgs } from '@altopelago/aeon-aes';
-import type { Profile, CompileCtx } from '../types.js';
-import { compileWithCore } from './core-compile.js';
-import { validateDatatypeSemantics } from './datatype-semantics.js';
+import { createProfileFromPolicy } from '../create-profile.js';
 
 const datatypeSemantics = {
     radix: {
@@ -49,9 +46,11 @@ const datatypeSemantics = {
     },
 } as const;
 
-export const aeonGpCoreProfile: Profile = {
+// The built-in profile retains the legacy implicit radix/separator clarifier path.
+export const aeonGpCoreProfile = createProfileFromPolicy({
     id: 'aeon.gp.profile.v1',
     version: '1',
+    coreId: 'aeon.core.v1',
     modeDefault: 'strict',
     datatypePolicyDefault: 'reserved_only',
     collections: {
@@ -82,15 +81,15 @@ export const aeonGpCoreProfile: Profile = {
         },
     },
     datatypeSemantics,
+    genericAdmission: {
+        reservedDatatypes: ['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity', 'symbol'],
+        customLabels: true,
+        customValueKinds: ['ListNode', 'TupleLiteral'],
+        nodeHeadDatatypes: ['node'],
+        bindingNodeReservedArguments: ['node'],
+    },
     capabilities: {
         references: true,
         clones: true,
     },
-    compile: (input, ctx: CompileCtx) => {
-        const aes = compileWithCore(input, ctx, datatype =>
-            datatypeHasGenericArgs(datatype) ? ['ListNode', 'TupleLiteral'] : null
-        );
-        validateDatatypeSemantics(aes, datatypeSemantics, ctx);
-        return aes;
-    },
-};
+}, true);

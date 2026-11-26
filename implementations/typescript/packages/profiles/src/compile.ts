@@ -42,7 +42,6 @@ function sortProcessors(processors: readonly Processor[]): readonly Processor[] 
 export function compile(input: unknown, options: CompileOptions): CompileResult {
     const registry = options.registry ?? createDefaultRegistry();
     const strict = (options.mode ?? 'strict') === 'strict';
-    const datatypePolicy = options.datatypePolicy;
     const maxInputBytes = options.maxInputBytes;
 
     const errors: Diagnostic[] = [];
@@ -66,9 +65,27 @@ export function compile(input: unknown, options: CompileOptions): CompileResult 
         }
     }
 
+    const profile = resolveProfile(options.profile, registry);
+    if (!profile) {
+        errors.push({
+            level: 'error',
+            message: `Unknown profile: ${String(options.profile ?? 'core')}`,
+            code: 'PROFILE_NOT_FOUND',
+        });
+        return {
+            aes: [],
+            meta: {
+                errors,
+            },
+        };
+    }
+
+    const effectiveMode = options.effectiveMode ?? profile.coreDefaults?.mode;
+    const datatypePolicy = options.datatypePolicy ?? profile.coreDefaults?.datatypePolicy;
     const maxClarifierValues = options.maxClarifierValues ?? options.maxSeparatorDepth ?? 1;
     const ctx: CompileCtx = {
         strict,
+        ...(effectiveMode ? { effectiveMode } : {}),
         ...(datatypePolicy ? { datatypePolicy } : {}),
         maxAttributeDepth: options.maxAttributeDepth ?? 1,
         maxClarifierValues,
@@ -86,21 +103,6 @@ export function compile(input: unknown, options: CompileOptions): CompileResult 
             errors.push(normalizeDiagnostic('error', diag));
         },
     };
-
-    const profile = resolveProfile(options.profile, registry);
-    if (!profile) {
-        errors.push({
-            level: 'error',
-            message: `Unknown profile: ${String(options.profile ?? 'core')}`,
-            code: 'PROFILE_NOT_FOUND',
-        });
-        return {
-            aes: [],
-            meta: {
-                errors,
-            },
-        };
-    }
 
     const profileResult = profile.compile(input, ctx);
     let aes = Array.isArray(profileResult) ? profileResult : emitted;

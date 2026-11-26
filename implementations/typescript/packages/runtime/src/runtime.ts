@@ -22,6 +22,7 @@ import {
     resolveRefs,
     validateTelexRecords,
     type AssignmentEvent,
+    type Mode,
     type FilmDecodeOptions,
     type FilmStream,
     type ParsedTelex,
@@ -52,6 +53,8 @@ export type RuntimeOutput = 'json' | 'linked-json' | 'map' | 'node';
 
 export interface RuntimeOptions {
     readonly mode?: RuntimeMode;
+    /** Trusted AEON behavior mode, ahead of profile defaults and document headers. */
+    readonly effectiveMode?: Mode;
     /** Runtime preset alias. 'rich' maps to datatypePolicy=allow_custom unless explicitly overridden. */
     readonly preset?: 'rich';
     readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
@@ -281,7 +284,6 @@ function appendFinalizeDiagnostics(
 export function runRuntime(input: string, options: RuntimeOptions = {}): RuntimeResult {
     const mode = options.mode ?? 'strict';
     const output = options.output ?? 'json';
-    const datatypePolicy = options.datatypePolicy ?? (options.preset === 'rich' ? 'allow_custom' : 'reserved_only');
     const includeAnnotations = options.includeAnnotations ?? false;
     const scope = options.scope ?? 'payload';
     const maxInputBytes = options.maxInputBytes;
@@ -315,11 +317,17 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
         }));
     }
 
+    const effectiveMode = options.effectiveMode ?? profile.coreDefaults?.mode;
+    const legacyDefaults = profile.coreDefaults === undefined && options.effectiveMode === undefined;
+    const datatypePolicy = options.datatypePolicy
+        ?? (options.preset === 'rich' ? 'allow_custom' : profile.coreDefaults?.datatypePolicy)
+        ?? (legacyDefaults ? 'reserved_only' : undefined);
     const compileResult = compileProfile(input, {
         profile: stripProfileProcessors(profile),
         registry,
         mode,
-        datatypePolicy,
+        ...(effectiveMode ? { effectiveMode } : {}),
+        ...(datatypePolicy ? { datatypePolicy } : {}),
         ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
         maxAttributeDepth,
         maxClarifierValues,
@@ -332,7 +340,8 @@ export function runRuntime(input: string, options: RuntimeOptions = {}): Runtime
     const coreResult = needCoreMetadata
         ? compileCore(input, {
             recovery: mode === 'loose',
-            datatypePolicy,
+            ...(effectiveMode ? { mode: effectiveMode } : {}),
+            ...(datatypePolicy ? { datatypePolicy } : {}),
             ...(maxInputBytes !== undefined ? { maxInputBytes } : {}),
             maxAttributeDepth,
             maxClarifierValues,
@@ -702,6 +711,7 @@ export function runTypedRuntime<TDocument>(
     const mode = options.mode ?? 'strict';
     const runtimeOptions: RuntimeOptions = {
         mode,
+        ...(options.effectiveMode !== undefined ? { effectiveMode: options.effectiveMode } : {}),
         ...(options.preset !== undefined ? { preset: options.preset } : {}),
         ...(options.datatypePolicy !== undefined ? { datatypePolicy: options.datatypePolicy } : {}),
         schema: options.schema,

@@ -20,6 +20,7 @@ The runtime layer composes profile compilation, optional AEOS validation, refere
 ```ts
 interface RuntimeOptions {
   readonly mode?: 'strict' | 'loose';
+  readonly effectiveMode?: 'strict' | 'transport' | 'custom';
   readonly preset?: 'rich';
   readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
   readonly profile?: ProfileRef;
@@ -50,7 +51,8 @@ interface RuntimeResult {
 
 ## Behavior
 
-- `preset: 'rich'` maps to `datatypePolicy: 'allow_custom'` unless explicitly overridden.
+- `mode` controls diagnostic recovery. `effectiveMode` overrides the selected profile's AEON behavior mode.
+- The runtime uses the loaded profile's datatype policy default when neither `datatypePolicy` nor `preset: 'rich'` is supplied. The rich preset selects `allow_custom`. If the loaded profile omits its datatype policy default, Core infers it from the effective mode.
 - `schema` enables AEOS validation in the runtime flow.
 - `output` selects JSON, linked JSON, map, or node finalization output.
 - `includeAnnotations` adds structured annotations to the result.

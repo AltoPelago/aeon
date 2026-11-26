@@ -22,6 +22,7 @@ interface CompileOptions {
   readonly profile?: ProfileRef;
   readonly registry?: ProfileRegistry;
   readonly mode?: 'strict' | 'loose';
+  readonly effectiveMode?: 'strict' | 'transport' | 'custom';
   readonly datatypePolicy?: 'reserved_only' | 'allow_custom';
   readonly maxInputBytes?: number;
   readonly maxAttributeDepth?: number;
@@ -43,7 +44,8 @@ interface CompileOptions {
 
 - `profile` selects the compiler profile.
 - `registry` provides profile lookup when `profile` is a string id.
-- `mode`, `datatypePolicy`, and depth controls are forwarded into compilation context.
+- `mode` controls diagnostic recovery. `effectiveMode` selects the AEON behavior mode.
+- `datatypePolicy` and depth controls are forwarded into compilation context.
 - Profiles may define processors, although higher-level runtime flows may intentionally skip them to preserve phase ordering.
 - Profiles may expose contract metadata such as `modeDefault`, `datatypePolicyDefault`, `collections`, `containers`, `datatypeSemantics`, and `capabilities`.
 - `aeon.gp.profile.v1` allows generics on custom labels and the reserved
@@ -68,6 +70,37 @@ interface CompileOptions {
 - `aeonGpCoreProfile` (`aeon.gp.profile.v1`, with GP collection semantics for `list`/`tuple`, container semantics for `object`/`node`, closed datatype clarifier validation for radix, separator, and encoding families, and required processor capabilities)
 - `setToElevenProfile` (`set.to.eleven.v1`)
 - `jsonProfile`
+
+## Load a profile contract
+
+The caller reads a trusted `.aeon` artifact and supplies its source text to
+`loadProfileContract()`. The loader validates the Core v1 contract fields and
+returns an immutable `ProfilePolicy`. It requires a `generic_admission` record
+and reports malformed artifacts and unsupported rule fields as errors.
+`createProfile()` makes an executable profile from the policy. The same policy
+or profile can be reused across compilation calls.
+
+```ts
+import { compile, createProfile, loadProfileContract } from '@altopelago/aeon-profiles';
+
+const policy = loadProfileContract(trustedProfileSource);
+const profile = createProfile(policy);
+const result = compile(source, { profile });
+```
+
+The official `aeon.gp.profile.v1` artifact version `1.1.0` is supported.
+Loaded profiles apply their published behavior mode and datatype policy defaults.
+Explicit `effectiveMode` and `datatypePolicy` options override the respective defaults.
+When neither the caller nor the profile selects an effective mode, Core uses the
+document's declared mode or its transport default. Generic and clarifier rules come
+from the artifact. Core checks the declared literal family of admitted custom labels
+such as `separator`. Collection semantics and capabilities are exposed as metadata.
+
+Run `pnpm test:cts:gp:next` from `implementations/typescript` to test the
+official artifact alongside the built-in TypeScript and WASM profiles against
+the same draft cases. `AEONITE_SPECS_ROOT` and `AEONITE_CTS_ROOT` can select the
+local specs checkout and CTS manifest directory. The runner verifies the
+artifact against the specs registry before loading it.
 
 ## Example
 
