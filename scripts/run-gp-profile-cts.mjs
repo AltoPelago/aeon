@@ -16,6 +16,7 @@ assert.equal(profile, 'aeon.gp.profile.v1');
 
 const { compile } = await import('../implementations/typescript/packages/profiles/dist/index.js');
 const { formatPath } = await import('../implementations/typescript/packages/aes/dist/index.js');
+const { tokenize, TokenType } = await import('../implementations/typescript/packages/lexer/dist/index.js');
 const { loadAeonWasm } = await import('../implementations/typescript/packages/wasm/dist/index.js');
 const wasm = await loadAeonWasm(readFileSync(join(root, 'implementations/typescript/packages/wasm/pkg/aeon_wasm_bg.wasm')));
 const runtimes = {
@@ -43,6 +44,26 @@ const runtimes = {
   },
 };
 
+const openingTokens = new Set([TokenType.LeftBrace, TokenType.LeftBracket, TokenType.LeftParen, TokenType.LeftAngle]);
+const closingTokens = new Set([TokenType.RightBrace, TokenType.RightBracket, TokenType.RightParen, TokenType.RightAngle]);
+const runnerHeaderFields = new Set(['header', 'mode', 'profile']);
+
+function hasAuthoredRunnerHeader(source) {
+  const { tokens } = tokenize(source);
+  let depth = 0;
+  for (const [index, token] of tokens.entries()) {
+    if (openingTokens.has(token.type)) depth += 1;
+    if (closingTokens.has(token.type)) depth = Math.max(0, depth - 1);
+    if (depth !== 0 || token.type !== TokenType.Identifier || token.value !== 'aeon') continue;
+    const colon = tokens[index + 1];
+    const field = tokens[index + 2];
+    const equals = tokens[index + 3];
+    if (colon?.type === TokenType.Colon && field?.type === TokenType.Identifier
+      && runnerHeaderFields.has(field.value) && equals?.type === TokenType.Equals) return true;
+  }
+  return false;
+}
+
 let passed = 0;
 let failed = 0;
 for (const selection of manifest.suites) {
@@ -51,7 +72,7 @@ for (const selection of manifest.suites) {
   for (const vector of suite.tests) {
     if (excluded.has(vector.id)) continue;
     const { source, mode = 'transport' } = vector.input;
-    assert.doesNotMatch(source, /^\s*aeon:(?:header|mode|profile)\s*=/m, vector.id);
+    assert.equal(hasAuthoredRunnerHeader(source), false, `${vector.id} supplies a header owned by the runner`);
     for (const [name, run] of Object.entries(runtimes)) {
       const label = `${name} ${vector.id}`;
       try {

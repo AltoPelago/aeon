@@ -262,8 +262,18 @@ export function enforceMode(
         }
 
         // Indexed list/tuple element events are synthetic structural nodes.
-        // Strict typing is enforced on declared bindings and nested members.
+        // They still carry explicit annotations on authored anonymous values.
         if (isIndexedElementEvent(event)) {
+            const datatype = event.datatype;
+            if (datatype && datatypePolicy === 'allow_custom' && !expectedKindsForReservedDatatype(datatype)) {
+                const kinds = customDatatypeKinds?.(datatype);
+                if (kinds) {
+                    const kind = resolveDatatypeCheckKind(event.value, events, pathToIndex, datatype, terminalValues);
+                    if (kind !== 'CloneReference' && kind !== 'PointerReference' && !kinds.includes(kind)) {
+                        errors.push(new DatatypeLiteralMismatchError(event.span, formatPath(event.path), datatype, kind, kinds));
+                    }
+                }
+            }
             continue;
         }
 
@@ -322,8 +332,7 @@ export function enforceMode(
             events,
             pathToIndex,
             mode,
-            datatypePolicy,
-            customDatatypeKinds
+            datatypePolicy
         ));
         errors.push(...validateNodeHeadDatatypes(event.value, formatPath(event.path), event.span, mode));
     }
@@ -427,8 +436,7 @@ function validateAnonymousTypedValues(
     events: readonly AssignmentEvent[],
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
-    datatypePolicy: DatatypePolicy,
-    customDatatypeKinds: ModeEnforcementOptions['customDatatypeKinds']
+    datatypePolicy: DatatypePolicy
 ): readonly ModeEnforcementError[] {
     const errors: ModeEnforcementError[] = [];
 
@@ -447,36 +455,31 @@ function validateAnonymousTypedValues(
                     errors.push(new CustomToggleAliasNotAllowedError(value.span, ownerPath, datatype));
                 } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
                     errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
-                } else if (!expectedKinds) {
-                    const customExpectedKinds = customDatatypeKinds?.(datatype);
-                    if (customExpectedKinds && !customExpectedKinds.includes(actualKind)) {
-                        errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, customExpectedKinds));
-                    }
                 }
             }
         }
 
-        errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
+        errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy));
         return errors;
     }
 
     if (value.type === 'ObjectNode') {
         for (const binding of value.bindings) {
-            errors.push(...validateAnonymousTypedValues(binding.value, `${ownerPath}.${binding.key}`, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
+            errors.push(...validateAnonymousTypedValues(binding.value, `${ownerPath}.${binding.key}`, span, events, pathToIndex, mode, datatypePolicy));
         }
         return errors;
     }
 
     if (value.type === 'ListNode' || value.type === 'TupleLiteral') {
         for (let i = 0; i < value.elements.length; i++) {
-            errors.push(...validateAnonymousTypedValues(value.elements[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
+            errors.push(...validateAnonymousTypedValues(value.elements[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy));
         }
         return errors;
     }
 
     if (value.type === 'NodeLiteral') {
         for (let i = 0; i < value.children.length; i++) {
-            errors.push(...validateAnonymousTypedValues(value.children[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, customDatatypeKinds));
+            errors.push(...validateAnonymousTypedValues(value.children[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy));
         }
     }
 
