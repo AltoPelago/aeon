@@ -1,12 +1,16 @@
 // Preserve the in-progress editor when a successful workspace rebuild reloads modules.
 document.addEventListener('DOMContentLoaded', () => {
   const source = document.querySelector('[data-playground-source]');
+  const profile = document.querySelector('[data-playground-profile]');
   const badge = document.querySelector('[data-local-build]');
   let restored;
   try {
     restored = JSON.parse(sessionStorage.getItem('aeon:local-reload') ?? 'null');
     sessionStorage.removeItem('aeon:local-reload');
     if (typeof restored?.source === 'string') source.value = restored.source;
+    if (profile && Array.from(profile.options).some(option => option.value === restored?.profile)) {
+      profile.value = restored.profile;
+    }
   } catch { /* Storage can be unavailable; the editor remains usable. */ }
   window.addEventListener('aeon-playground-ready', () => {
     if (['transport', 'custom', 'strict'].includes(restored?.mode)) document.querySelector(`[data-mode="${restored.mode}"]`)?.click();
@@ -25,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (revision !== undefined && state.revision !== revision && !state.building && !state.error) {
         try {
           sessionStorage.setItem('aeon:local-reload', JSON.stringify({source:source.value,
+            profile:profile?.value,
             mode:document.querySelector('[data-mode].is-active')?.dataset.mode,
             view:document.querySelector('[data-output-view].is-active')?.dataset.outputView}));
           location.reload();

@@ -23,7 +23,7 @@ npm run playground
 Open <http://127.0.0.1:4175/tools/playground/>. The command builds the required
 browser packages before serving, then watches package sources and TypeScript
 configuration. A successful rebuild reloads the browser's modules, retaining the
-editor input and selected mode/view when session storage is available. Build
+editor input, profile, mode, and view when session storage is available. Build
 failures are marked in the header; partial module outputs are not served while
 building. UI asset edits appear on browser refresh. Restart after dependency,
 package manifest or workspace layout changes.
@@ -86,6 +86,14 @@ Highlighting delegates to the selected workspace `@altopelago/aeon-highlight`
 package. The editor/diagnostic adapter remains local; there are no copied token
 renderers or JSON/&ND helpers in this playground. The default build includes the
 highlight package, and its public exports are served through the workspace map.
+
+## Compare datatype profiles
+
+Select **Strict** and **AES**, then enter `duration:symbol<time>["minutes"] = |1min|`.
+**GP** reports `PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED`. Switch **Profile** to
+**set.to.eleven.v1** to see the same source pass validation and emit the symbol.
+The selector also applies to AEON Composer and takes precedence over a profile
+header in the editor.
 
 ## Highlight themes
 
