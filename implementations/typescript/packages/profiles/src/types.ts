@@ -39,6 +39,7 @@ export interface CompileOptions {
     readonly maxGenericDepth?: number;
     readonly maxGenericArguments?: number;
     readonly maxDatatypeComponents?: number;
+    readonly maxValueNestingDepth?: number;
 }
 
 export interface CompileCtx {
@@ -52,6 +53,7 @@ export interface CompileCtx {
     readonly maxGenericDepth: number;
     readonly maxGenericArguments: number;
     readonly maxDatatypeComponents: number;
+    readonly maxValueNestingDepth?: number;
     emit(event: AssignmentEvent): void;
     warn(diag: Omit<Diagnostic, 'level'>): void;
     error(diag: Omit<Diagnostic, 'level'>): void;

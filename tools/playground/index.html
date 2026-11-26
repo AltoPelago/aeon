@@ -5,25 +5,11 @@
 <script type="importmap">__PLAYGROUND_IMPORTS__</script>
 <script>window.AeonPlaygroundExamples = __PLAYGROUND_EXAMPLES__;</script>
 </head><body>
-<header class="local-header"><strong>AEON <span>Playground</span></strong><span class="local-source-badge" data-local-build role="status">Local TypeScript</span><div class="local-highlight-controls">
-<label class="local-theme-select">Highlight theme
-<select data-highlight-theme-select aria-label="Highlight theme">
-<option value="current">1 · Current</option>
-<option value="equal">2 · Equal lightness &amp; chroma</option>
-<option value="values">3 · More chroma for values</option>
-</select></label>
-<details class="local-theme-settings" data-highlight-settings hidden>
-<summary>Adjust OKLCH</summary>
-<div class="local-theme-settings-panel">
-<p>Hues stay fixed. Lightness is shared by all syntax colours.</p>
-<label for="highlight-lightness">Lightness <output aria-hidden="true" data-highlight-lightness-output for="highlight-lightness">78%</output>
-<input id="highlight-lightness" type="range" min="50" max="95" step="1" value="78" data-highlight-lightness></label>
-<label for="highlight-chroma">Chroma <output aria-hidden="true" data-highlight-chroma-output for="highlight-chroma">0.10</output>
-<input id="highlight-chroma" type="range" min="0" max="0.20" step="0.01" value="0.10" data-highlight-chroma></label>
-<label for="highlight-value-chroma" data-highlight-values-control hidden>Value chroma <output aria-hidden="true" data-highlight-value-chroma-output for="highlight-value-chroma">0.14</output>
-<input id="highlight-value-chroma" type="range" min="0.01" max="0.25" step="0.01" value="0.14" data-highlight-value-chroma></label>
-<button type="button" data-highlight-reset>Reset preset</button>
-</div></details></div><nav><a href="https://github.com/AltoPelago/aeon" target="_blank" rel="noopener">Repository ↗</a></nav></header>
+<header class="local-header">
+    <strong>AEON <span>Playground</span></strong>
+    <span class="local-source-badge" data-local-build role="status">Local TypeScript</span>
+    <button class="playground-examples-button local-settings-trigger" type="button" data-settings-open aria-controls="playground-settings-modal" aria-expanded="false">Settings</button>
+</header>
 <main class="page page--playground" id="main-content">
 <section class="playground-app-shell reveal-item" data-playground-shell>
         <h1 class="visually-hidden">AEON Playground</h1>
@@ -36,13 +22,8 @@
                     <button class="playground-toggle is-active" type="button" data-mode="transport" data-tooltip="Transport mode keeps the broader transport-friendly surface. AEOS schemas are not applied here." title="Transport mode keeps the broader transport-friendly surface. AEOS schemas are not applied here." aria-pressed="true">Transport</button>
                     <button class="playground-toggle" type="button" data-mode="custom" data-tooltip="Custom mode allows ecosystem-defined custom datatypes. AEOS schemas are not applied here." title="Custom mode allows ecosystem-defined custom datatypes. AEOS schemas are not applied here." aria-pressed="false">Custom</button>
                     <button class="playground-toggle" type="button" data-mode="strict" data-tooltip="Strict mode requires reserved datatypes." title="Strict mode requires reserved datatypes." aria-pressed="false">Strict</button>
+                    <span class="local-profile-mode" data-profile-mode-active hidden>Profile defaults</span>
                 </div>
-                <label class="local-profile-select">Profile
-                    <select data-playground-profile>
-                        <option value="aeon.gp.profile.v1">GP</option>
-                        <option value="set.to.eleven.v1">set.to.eleven.v1</option>
-                    </select>
-                </label>
             </div>
             <div class="playground-toggle-group playground-output-toggle-group" role="group" aria-label="Output view">
                 <button class="playground-toggle" type="button" data-output-view="aes" data-tooltip="Show the Assignment Event Stream emitted from the current source." title="Show the Assignment Event Stream emitted from the current source." aria-pressed="false">AES</button>
@@ -89,6 +70,86 @@ summary:prose = &gt;`
             </div>
             <pre class="playground-errors" data-playground-errors role="status" aria-live="polite" aria-atomic="true" aria-labelledby="playground-errors-title">No errors detected.</pre>
         </section>
+        <div class="playground-modal" id="playground-settings-modal" data-settings-modal hidden>
+            <div class="playground-modal-backdrop" data-settings-close aria-hidden="true"></div>
+            <section class="playground-modal-panel local-settings-panel" role="dialog" aria-modal="true" aria-labelledby="playground-settings-title" tabindex="-1">
+                <div class="playground-modal-head">
+                    <h2 id="playground-settings-title">Settings</h2>
+                    <button class="playground-modal-close" type="button" data-settings-close aria-label="Close settings"></button>
+                </div>
+
+                <section class="local-settings-section" aria-labelledby="playground-profile-settings-title">
+                    <h3 id="playground-profile-settings-title">Profile</h3>
+                    <label class="local-settings-field">Active profile
+                        <select data-playground-profile>
+                            <option value="aeon.gp.profile.v1">GP</option>
+                            <option value="set.to.eleven.v1">set.to.eleven.v1</option>
+                            <option value="loaded-profile" data-loaded-profile-option disabled hidden>Loaded profile</option>
+                        </select>
+                    </label>
+                    <div class="local-profile-actions">
+                        <button class="playground-examples-button" type="button" data-load-profile>Load .aeon profile</button>
+                        <input type="file" accept=".aeon" data-profile-file hidden>
+                        <button class="playground-examples-button" type="button" data-remove-profile aria-label="Remove loaded profile" hidden>Remove</button>
+                        <button class="playground-toggle" type="button" data-mode="profile" aria-pressed="false" hidden>Profile defaults</button>
+                    </div>
+                    <p class="local-profile-status" data-profile-status role="status" hidden></p>
+                </section>
+
+                <details class="local-settings-section local-parser-settings">
+                    <summary>Parser limits</summary>
+                    <form class="local-parser-limits" data-parser-limits>
+                        <div class="local-parser-limit-fields">
+                            <label class="local-settings-field">Generic nesting depth
+                                <input type="number" name="maxGenericDepth" min="0" max="64" step="1" value="1" required>
+                            </label>
+                            <label class="local-settings-field">Generic arguments per datatype
+                                <input type="number" name="maxGenericArguments" min="0" max="4096" step="1" value="32" required>
+                            </label>
+                            <label class="local-settings-field">Clarifier values per datatype
+                                <input type="number" name="maxClarifierValues" min="0" max="4096" step="1" value="1" required>
+                            </label>
+                            <label class="local-settings-field">Datatype components
+                                <input type="number" name="maxDatatypeComponents" min="0" max="4096" step="1" value="64" required>
+                            </label>
+                            <label class="local-settings-field">Attribute depth
+                                <input type="number" name="maxAttributeDepth" min="0" max="64" step="1" value="1" required>
+                            </label>
+                            <label class="local-settings-field">Value nesting depth
+                                <input type="number" name="maxValueNestingDepth" min="0" max="512" step="1" value="256" required>
+                            </label>
+                        </div>
+                        <button class="playground-examples-button" type="reset">Reset limits</button>
+                    </form>
+                </details>
+
+                <section class="local-settings-section" aria-labelledby="playground-highlight-settings-title">
+                    <h3 id="playground-highlight-settings-title">Highlighting</h3>
+                    <label class="local-settings-field">Highlight theme
+                        <select data-highlight-theme-select>
+                            <option value="current">Current</option>
+                            <option value="equal">Equal lightness &amp; chroma</option>
+                            <option value="values">More chroma for values</option>
+                        </select>
+                    </label>
+                    <details class="local-theme-settings" data-highlight-settings hidden>
+                        <summary>Adjust OKLCH</summary>
+                        <div class="local-theme-settings-panel">
+                            <label for="highlight-lightness">Lightness <output aria-hidden="true" data-highlight-lightness-output for="highlight-lightness">78%</output>
+                                <input id="highlight-lightness" type="range" min="50" max="95" step="1" value="78" data-highlight-lightness>
+                            </label>
+                            <label for="highlight-chroma">Chroma <output aria-hidden="true" data-highlight-chroma-output for="highlight-chroma">0.10</output>
+                                <input id="highlight-chroma" type="range" min="0" max="0.20" step="0.01" value="0.10" data-highlight-chroma>
+                            </label>
+                            <label for="highlight-value-chroma" data-highlight-values-control hidden>Value chroma <output aria-hidden="true" data-highlight-value-chroma-output for="highlight-value-chroma">0.14</output>
+                                <input id="highlight-value-chroma" type="range" min="0.01" max="0.25" step="0.01" value="0.14" data-highlight-value-chroma>
+                            </label>
+                            <button class="playground-examples-button" type="button" data-highlight-reset>Reset preset</button>
+                        </div>
+                    </details>
+                </section>
+            </section>
+        </div>
         <div class="playground-modal" id="playground-examples-modal" data-examples-modal hidden>
             <button class="playground-modal-backdrop" type="button" data-examples-close aria-label="Close examples"></button>
             <section class="playground-modal-panel" role="dialog" aria-modal="true" aria-labelledby="playground-examples-title" tabindex="-1">
@@ -150,5 +211,5 @@ summary:prose = &gt;`
 <script type="module" src="./aeon-highlight.js"></script>
 <script defer src="./walkthrough.js"></script>
 <script type="module" src="./aeon-source-composer.js"></script>
-<script defer src="./playground.js"></script>
+<script type="module" src="./playground.js"></script>
 </body></html>

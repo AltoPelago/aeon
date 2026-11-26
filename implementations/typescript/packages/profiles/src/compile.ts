@@ -93,6 +93,7 @@ export function compile(input: unknown, options: CompileOptions): CompileResult 
         maxGenericDepth: options.maxGenericDepth ?? 1,
         maxGenericArguments: options.maxGenericArguments ?? 32,
         maxDatatypeComponents: options.maxDatatypeComponents ?? 64,
+        ...(options.maxValueNestingDepth !== undefined ? { maxValueNestingDepth: options.maxValueNestingDepth } : {}),
         emit(event) {
             emitted.push(event);
         },

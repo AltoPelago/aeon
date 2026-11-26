@@ -46,6 +46,8 @@ export interface CanonicalizeOptions {
     readonly maxGenericArguments?: number;
     /** Maximum aggregate components in one recursive datatype. Default: 64. */
     readonly maxDatatypeComponents?: number;
+    /** Maximum nesting depth for value containers. Default: 256. */
+    readonly maxValueNestingDepth?: number;
 }
 
 export interface EmitObjectOptions {
@@ -117,6 +119,7 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
         maxGenericDepth: options.maxGenericDepth ?? 1,
         maxGenericArguments: options.maxGenericArguments ?? 32,
         maxDatatypeComponents: options.maxDatatypeComponents ?? 64,
+        ...(options.maxValueNestingDepth !== undefined ? { maxValueNestingDepth: options.maxValueNestingDepth } : {}),
     };
     const parsed = parse(lex.tokens, parserOptions);
     if (parsed.errors.length > 0 || !parsed.document) {

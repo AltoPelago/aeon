@@ -39,7 +39,7 @@ export function playgroundModules(repoRoot = defaultRoot) {
   }
   for (const [alias, name] of Object.entries(aliases)) imports[`@aeon/${alias}`] = imports[`@altopelago/${name}`];
   imports['@aeos/core'] = imports['@altopelago/aeos-core'];
-  for (const name of ['@aeon/runtime', '@aeon/canonical', '@altopelago/aeon-highlight', '@altopelago/sansa']) {
+  for (const name of ['@aeon/runtime', '@aeon/profiles', '@aeon/canonical', '@altopelago/aeon-highlight', '@altopelago/sansa']) {
     if (!imports[name]) throw new Error(`Missing browser entry point: ${name}`);
   }
   return {imports, roots, sansa:join(sansa, 'src')};

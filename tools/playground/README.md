@@ -90,14 +90,40 @@ highlight package, and its public exports are served through the workspace map.
 ## Compare datatype profiles
 
 Select **Strict** and **AES**, then enter `duration:symbol<time>["minutes"] = |1min|`.
-**GP** reports `PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED`. Switch **Profile** to
-**set.to.eleven.v1** to see the same source pass validation and emit the symbol.
-The selector also applies to AEON Composer and takes precedence over a profile
-header in the editor.
+**GP** reports `PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED`. Open **Settings → Profile**
+and set **Active profile** to **set.to.eleven.v1** to see the same source pass
+validation and emit the symbol. Choose **Load .aeon profile** to add a local
+[profile contract](../../docs/implementations/typescript/api/profiles.md#load-a-profile-contract)
+to the selector. The playground validates the file with the TypeScript loader,
+shows its profile ID and version, and selects it. Switch between the loaded
+profile, **GP**, and **set.to.eleven.v1** without changing the editor. The same
+selection applies to AEON Composer and overrides any profile hint in the document.
+
+Keep **Transport**, **Custom**, or **Strict** selected to compare all profiles
+under the same mode and datatype policy. Choose **Profile defaults** in
+**Settings → Profile** while the loaded profile is selected to test its declared
+settings. The playground passes the document as written and shows diagnostics at
+its original line numbers.
+
+The browser reads up to 256 KiB from a local file and keeps one loaded profile per
+tab when session storage is available. **Remove** clears it. If a replacement
+file fails validation, the previous profile and current document remain available.
+
+## Parser limits
+
+Open **Settings → Parser limits** to change generic nesting depth, generic
+arguments, clarifier values, datatype components, attribute depth, or value
+nesting depth. Changes apply across profiles and views, including Canonical and
+AEON Composer, and stay in the current browser tab. **Reset limits** restores
+the parser defaults.
+
+For example, with **set.to.eleven.v1** and **Custom** selected, set **Generic
+nesting depth** to `2` to validate `a:a<b<c<d[3]>[3]>[3]>[3] = |yes|`
+in the **AES** view.
 
 ## Highlight themes
 
-Use **Highlight theme** in the local header:
+Open **Settings → Highlighting** to choose a highlight theme.
 
 1. **Current** keeps the current palette, with blue node tag names (`#3DA2F3`) distinct from gold structural identities.
 2. **Equal lightness & chroma** keeps each role's hue, with OKLCH L=0.78 and C=0.10 for all syntax colours.

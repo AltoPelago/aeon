@@ -1,4 +1,7 @@
-document.addEventListener("DOMContentLoaded", () => {
+import { mountParserLimits } from "./parser-limits.mjs";
+import { mountProfileControls } from "./profile-controls.mjs";
+
+document.addEventListener("DOMContentLoaded", async () => {
   const shell = document.querySelector("[data-playground-shell]");
   if (!shell) {
     return;
@@ -9,7 +12,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const errors = shell.querySelector("[data-playground-errors]");
   const outputTitle = shell.querySelector("[data-playground-output-title]");
   const loading = shell.querySelector("[data-playground-loading]");
-  const profileSelect = shell.querySelector("[data-playground-profile]");
+  const profileDefaultsButton = shell.querySelector('[data-mode="profile"]');
+  const activeProfileMode = shell.querySelector("[data-profile-mode-active]");
+  const settingsOpen = document.querySelector("[data-settings-open]");
+  const settingsModal = shell.querySelector("[data-settings-modal]");
   const modeButtons = shell.querySelectorAll("[data-mode]");
   const viewButtons = shell.querySelectorAll("[data-output-view]");
   const examplesOpen = shell.querySelector("[data-examples-open]");
@@ -90,13 +96,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const state = {
     mode: "transport",
+    lastExplicitMode: "transport",
     view: "finalized",
     example: "transport",
     requestId: 0
   };
-  function selectedProfile() {
-    return profileSelect?.value || "aeon.gp.profile.v1";
-  }
+  const parserLimits = mountParserLimits(shell.querySelector("[data-parser-limits]"), () => render());
+  const profiles = mountProfileControls(shell, {
+    async loadContract(text) {
+      const { loadProfileContract, createProfile } = await import("@aeon/profiles");
+      return createProfile(loadProfileContract(text));
+    },
+    onChange() {
+      if (state.mode === "profile" && typeof profiles.selectedProfile() === "string") {
+        state.mode = state.lastExplicitMode;
+      }
+      render();
+    }
+  });
   try {
     const transferredSource = window.sessionStorage.getItem("aeon:playground-source");
     if (transferredSource) {
@@ -107,16 +124,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const runtimeReady = import("@aeon/runtime");
   const canonicalReady = import("@aeon/canonical");
-  function visibleDiagnosticLine(diagnostic, lineOffset = 0) {
+  function visibleDiagnosticLine(diagnostic) {
     const line = diagnostic?.span?.start?.line;
-    if (!Number.isInteger(line)) return null;
-    const visibleLine = line - lineOffset;
-    return visibleLine > 0 ? visibleLine : null;
+    return Number.isInteger(line) && line > 0 ? line : null;
   }
 
-  function diagnosticContext(diagnostic, lineOffset = 0) {
+  function diagnosticContext(diagnostic) {
     const parts = [];
-    const line = visibleDiagnosticLine(diagnostic, lineOffset);
+    const line = visibleDiagnosticLine(diagnostic);
     const column = diagnostic?.span?.start?.column;
     if (line !== null) {
       parts.push(Number.isInteger(column) ? `line ${line}, column ${column}` : `line ${line}`);
@@ -127,11 +142,11 @@ document.addEventListener("DOMContentLoaded", () => {
     return parts.length > 0 ? ` [${parts.join("; ")}]` : "";
   }
 
-  function formatDiagnostic(diag, level, lineOffset = 0) {
-    return `${level}${diagnosticContext(diag, lineOffset)} ${diag.code ? `${diag.code}: ` : ""}${diag.message}`;
+  function formatDiagnostic(diag, level) {
+    return `${level}${diagnosticContext(diag)} ${diag.code ? `${diag.code}: ` : ""}${diag.message}`;
   }
 
-  function appendDiagnosticGroup(lines, title, groupErrors, groupWarnings, lineOffset, emptyMessage) {
+  function appendDiagnosticGroup(lines, title, groupErrors, groupWarnings, emptyMessage) {
     if (groupErrors.length === 0 && groupWarnings.length === 0) {
       lines.push(`${title}: ${emptyMessage}`);
       return;
@@ -139,14 +154,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     lines.push(`${title}:`);
     for (const diag of groupErrors) {
-      lines.push(`  ${formatDiagnostic(diag, "error", lineOffset)}`);
+      lines.push(`  ${formatDiagnostic(diag, "error")}`);
     }
     for (const diag of groupWarnings) {
-      lines.push(`  ${formatDiagnostic(diag, "warning", lineOffset)}`);
+      lines.push(`  ${formatDiagnostic(diag, "warning")}`);
     }
   }
 
-  function formatDiagnostics(meta, lineOffset = 0, view = "finalized", canonicalErrors = []) {
+  function formatDiagnostics(meta, view = "finalized", canonicalErrors = []) {
     const errors = meta?.errors ?? [];
     const warnings = meta?.warnings ?? [];
     const sourceErrors = errors.filter((diag) => diag.phase !== 8);
@@ -155,7 +170,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const finalizationWarnings = warnings.filter((diag) => diag.phase === 8);
     const lines = [];
 
-    appendDiagnosticGroup(lines, "Source validation", sourceErrors, sourceWarnings, lineOffset, "valid.");
+    appendDiagnosticGroup(lines, "Source validation", sourceErrors, sourceWarnings, "valid.");
 
     if (view === "finalized") {
       lines.push("");
@@ -167,71 +182,41 @@ document.addEventListener("DOMContentLoaded", () => {
           "JSON projection",
           finalizationErrors,
           finalizationWarnings,
-          lineOffset,
           "compatible."
         );
       }
     } else if (view === "canonical") {
       lines.push("");
-      appendDiagnosticGroup(lines, "Canonical output", canonicalErrors, [], lineOffset, "valid.");
+      appendDiagnosticGroup(lines, "Canonical output", canonicalErrors, [], "valid.");
     }
 
     return lines;
   }
 
-  function mapMode(mode) {
-    if (mode === "transport") {
-      return {
-        runtimeMode: "loose",
-        datatypePolicy: "reserved_only"
-      };
-    }
-
-    if (mode === "custom") {
-      return {
-        runtimeMode: "strict",
-        datatypePolicy: "allow_custom"
-      };
-    }
-
+  function runtimeOptions(mode, output) {
+    const profile = profiles.selectedProfile();
+    const useProfileDefaults = mode === "profile";
+    const transport = mode === "transport" || (useProfileDefaults && profile.coreDefaults?.mode === "transport");
     return {
-      runtimeMode: "strict",
-      datatypePolicy: "reserved_only"
+      ...parserLimits.options,
+      profile,
+      mode: transport ? "loose" : "strict",
+      ...(!useProfileDefaults && {
+        effectiveMode: mode,
+        datatypePolicy: mode === "custom" ? "allow_custom" : "reserved_only"
+      }),
+      includeAnnotations: true,
+      output
     };
   }
 
-  function sourceForMode(text, mode) {
-    const sourceText = String(text ?? "");
-    if (mode === "transport" || /^\s*aeon\s*:\s*header\s*=/im.test(sourceText)) {
-      return sourceText;
-    }
-
-    const headerMode = mode === "custom" ? "custom" : "strict";
-    const withoutModeHeader = sourceText.replace(/^\s*aeon:mode\s*=\s*["'](?:transport|custom|strict)["']\s*(?:\r?\n)?/i, "");
-    return `aeon:mode = "${headerMode}"\n${withoutModeHeader}`;
-  }
-
-  function sourceDiagnosticLineOffset(text, mode) {
-    const sourceText = String(text ?? "");
-    if (mode === "transport"
-      || /^\s*aeon\s*:\s*header\s*=/im.test(sourceText)
-      || /^\s*aeon:mode\s*=\s*["'](?:transport|custom|strict)["']/i.test(sourceText)) {
-      return 0;
-    }
-    return 1;
-  }
-
-  function showFirstSourceError(meta, lineOffset = 0) {
-    const first = meta?.errors?.find((diagnostic) => visibleDiagnosticLine(diagnostic, lineOffset) !== null);
+  function showFirstSourceError(meta) {
+    const first = meta?.errors?.find((diagnostic) => visibleDiagnosticLine(diagnostic) !== null);
     window.AeonWebHighlight?.setEditorDiagnosticLine?.(
       source,
-      first ? visibleDiagnosticLine(first, lineOffset) : null,
+      first ? visibleDiagnosticLine(first) : null,
       first?.span?.start?.column
     );
-  }
-
-  function sourceForBuilderSeed(text) {
-    return String(text ?? "").replace(/^\s*aeon:mode\s*=\s*["'](?:transport|custom|strict)["']\s*(?:\r?\n)?/i, "");
   }
 
   const sharedSourceComposer = window.AeonSourceComposer?.mount({
@@ -245,20 +230,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const reason = composerUnsupportedReason(text, tokenize);
       if (reason) throw new Error(reason);
     },
-    getMode: () => state.mode,
-    runtimeConfig: (text, mode, relaxed = false) => {
-      if (relaxed) {
-        return {
-          text: sourceForBuilderSeed(text),
-          options: { profile: selectedProfile(), mode: "loose", datatypePolicy: "reserved_only", includeAnnotations: true, output: "map" }
-        };
-      }
-      const mapping = mapMode(mode);
-      return {
-        text: sourceForMode(text, mode),
-        options: { profile: selectedProfile(), mode: mapping.runtimeMode, datatypePolicy: mapping.datatypePolicy, includeAnnotations: true, output: "map" }
-      };
-    },
+    getMode: () => state.mode === "profile" ? profiles.selectedProfile().coreDefaults?.mode ?? "transport" : state.mode,
+    runtimeConfig: (text, _mode, relaxed = false) => ({
+      text,
+      options: runtimeOptions(relaxed ? "transport" : state.mode, "map")
+    }),
     onApply: () => render(),
     onError: (error) => {
       errors.textContent = error instanceof Error ? error.message : String(error);
@@ -466,6 +442,7 @@ document.addEventListener("DOMContentLoaded", () => {
       canonical: "Canonical"
     };
     outputTitle.textContent = titles[state.view] || "Data";
+    activeProfileMode.hidden = state.mode !== "profile";
 
     modeButtons.forEach((button) => {
       const isActive = button.dataset.mode === state.mode;
@@ -520,7 +497,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const loadExample = () => {
     const current = examples[state.example] || examples.transport;
     source.value = current.source;
-    state.mode = current.mode;
+    state.mode = state.lastExplicitMode = current.mode;
     source.dispatchEvent(new Event("input", { bubbles: true }));
     closeExamples();
   };
@@ -528,6 +505,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const render = async () => {
     const text = source.value;
     const requestId = ++state.requestId;
+    profileDefaultsButton.hidden = typeof profiles.selectedProfile() === "string";
     applyViewState();
 
     loading.hidden = false;
@@ -535,27 +513,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const { runRuntime } = await runtimeReady;
-      const mapping = mapMode(state.mode);
-      const runtimeSource = sourceForMode(text, state.mode);
-      const lineOffset = sourceDiagnosticLineOffset(text, state.mode);
-      const runtimeResult = runRuntime(runtimeSource, {
-        profile: selectedProfile(),
-        mode: mapping.runtimeMode,
-        datatypePolicy: mapping.datatypePolicy,
-        includeAnnotations: true,
-        output: "json"
-      });
+      const limits = parserLimits.options;
+      const runtimeResult = runRuntime(text, runtimeOptions(state.mode, "json"));
       const payload = formatRuntimeResult(runtimeResult, state.view);
       const sourceErrors = (runtimeResult.meta?.errors ?? []).filter((diag) => diag.phase !== 8);
       let relevantErrors = sourceErrors;
       if (state.view === "canonical") {
         const { canonicalize } = await canonicalReady;
-        const canonical = canonicalize(runtimeSource);
+        const canonical = canonicalize(text, limits);
         payload.canonical = canonical.text;
-        payload.errors = formatDiagnostics(runtimeResult.meta, lineOffset, state.view, canonical.errors);
+        payload.errors = formatDiagnostics(runtimeResult.meta, state.view, canonical.errors);
         if (relevantErrors.length === 0) relevantErrors = canonical.errors;
       } else {
-        payload.errors = formatDiagnostics(runtimeResult.meta, lineOffset, state.view);
+        payload.errors = formatDiagnostics(runtimeResult.meta, state.view);
         if (state.view === "finalized" && relevantErrors.length === 0) {
           relevantErrors = (runtimeResult.meta?.errors ?? []).filter((diag) => diag.phase === 8);
         }
@@ -565,7 +535,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       loading.hidden = true;
-      showFirstSourceError({ errors: relevantErrors }, lineOffset);
+      showFirstSourceError({ errors: relevantErrors });
       output.classList.toggle("is-aes-table", state.view === "aes");
       const jsonSource = state.view === "aes"
         ? payload.aes || "[]"
@@ -602,11 +572,10 @@ document.addEventListener("DOMContentLoaded", () => {
     render();
   });
 
-  profileSelect?.addEventListener("change", render);
-
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => {
       state.mode = button.dataset.mode || "transport";
+      if (state.mode !== "profile") state.lastExplicitMode = state.mode;
       render();
     });
   });
@@ -640,16 +609,23 @@ document.addEventListener("DOMContentLoaded", () => {
     exampleLoad.addEventListener("click", loadExample);
   }
 
+  const closeSettings = () => window.AeonAccessibility?.closeModal(settingsModal);
+  settingsOpen.addEventListener("click", () => window.AeonAccessibility?.openModal(settingsModal, settingsOpen));
+  settingsModal.querySelectorAll("[data-settings-close]").forEach((control) => {
+    control.addEventListener("click", closeSettings);
+  });
+
   examplesClose.forEach((button) => {
     button.addEventListener("click", closeExamples);
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && examplesModal && !examplesModal.hidden) {
-      closeExamples();
-    }
+    if (event.key !== "Escape") return;
+    if (!settingsModal.hidden) closeSettings();
+    else if (examplesModal && !examplesModal.hidden) closeExamples();
   });
 
+  await profiles.restore();
   render();
   window.dispatchEvent(new Event('aeon-playground-ready'));
 });
