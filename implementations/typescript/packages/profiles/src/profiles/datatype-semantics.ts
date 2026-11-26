@@ -1,22 +1,12 @@
 import { aeonRadixBaseFromNumber, formatPath, type AesNumberLiteral, type AssignmentEvent, type AttributeEntry, type TypeAnnotation } from '@altopelago/aeon-aes';
 import type { Span } from '@altopelago/aeon-lexer';
-import type { CompileCtx, DatatypeSemantics } from '../types.js';
-
-const GP_GENERIC_DATATYPES = new Set(['list', 'tuple', 'triple', 'object', 'node', 'null', 'nan', 'infinity', 'symbol']);
-const RESERVED_V1_DATATYPES = new Set([
-    'n', 'number', 'int', 'int8', 'int16', 'int32', 'int64',
-    'uint', 'uint8', 'uint16', 'uint32', 'uint64',
-    'float', 'float32', 'float64',
-    'string', 'trimtick', 'prose', 'boolean', 'bool', 'toggle', 'infinity', 'nan',
-    'hex', 'date', 'time', 'datetime', 'wtc',
-    'encoding', 'base64', 'embed', 'inline',
-    'radix', 'decimal', 'radix2', 'radix6', 'radix8', 'radix12', 'radix16',
-    'sep', 'kadot', 'symbol',
-    'sansa',
-    'tuple', 'triple', 'list', 'object', 'obj', 'envelope', 'o', 'node', 'null',
-]);
+import { isReservedDatatypeName } from '../reserved-datatypes.js';
+import type { CompileCtx, ProfilePolicy } from '../types.js';
 
 type DatatypePosition = 'binding' | 'node-head' | 'argument';
+type DatatypePolicy = Pick<ProfilePolicy, 'datatypeSemantics' | 'genericAdmission'> & {
+    readonly allowLegacyReservedClarifiers: boolean;
+};
 
 interface ParsedDatatype {
     readonly name: string;
@@ -26,16 +16,16 @@ interface ParsedDatatype {
 
 export function validateDatatypeSemantics(
     aes: readonly AssignmentEvent[],
-    semantics: Readonly<Record<string, DatatypeSemantics>>,
+    policy: DatatypePolicy,
     ctx: Pick<CompileCtx, 'error'>
 ): void {
     for (const event of aes) {
         if (event.datatype === undefined) continue;
         const parsed = parseDatatype(event.datatype);
         if (!parsed) continue;
-        validateParsedDatatype(parsed, semantics, ctx, formatPath(event.path), event.value.type);
+        validateParsedDatatype(parsed, policy, ctx, formatPath(event.path), event.value.type);
     }
-    validateUnprojectedClaims(aes, semantics, ctx);
+    validateUnprojectedClaims(aes, policy, ctx);
 }
 
 type Value = AssignmentEvent['value'];
@@ -53,7 +43,7 @@ function parsedAnnotation(annotation: TypeAnnotation | null): ParsedDatatype | n
 
 /** Payload descendants already have events; metadata and node-head claims do not.
  * Walk each authored body root once, independently of metadata projection. */
-function validateUnprojectedClaims(aes: readonly AssignmentEvent[], semantics: Readonly<Record<string, DatatypeSemantics>>, ctx: Pick<CompileCtx, 'error'>): void {
+function validateUnprojectedClaims(aes: readonly AssignmentEvent[], policy: DatatypePolicy, ctx: Pick<CompileCtx, 'error'>): void {
     interface Task {
         value: Value;
         path: string;
@@ -76,7 +66,7 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], semantics: R
     }
     function check(datatype: ParsedDatatype | null | undefined, value: Value, path: string, span?: Span, position: DatatypePosition = 'binding'): void {
         while (value.type === 'TypedValue') value = value.value;
-        if (datatype) validateParsedDatatype(datatype, semantics, { error: diagnostic => ctx.error({ ...diagnostic, ...(span ? { span } : {}) }) }, path, value.type, position);
+        if (datatype) validateParsedDatatype(datatype, policy, { error: diagnostic => ctx.error({ ...diagnostic, ...(span ? { span } : {}) }) }, path, value.type, position);
     }
     function attributes(entries: Attributes | undefined, path: string): void {
         for (const block of [...(entries ?? [])].reverse()) {
@@ -126,7 +116,7 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], semantics: R
 
 function validateParsedDatatype(
     datatype: ParsedDatatype,
-    semantics: Readonly<Record<string, DatatypeSemantics>>,
+    policy: DatatypePolicy,
     ctx: Pick<CompileCtx, 'error'>,
     path: string | undefined,
     literalFamily?: string,
@@ -135,13 +125,14 @@ function validateParsedDatatype(
     const { name, args, clarifiers } = datatype;
     const location = path === undefined ? {} : { path };
     if (args.length > 0) {
+        const admission = policy.genericAdmission;
         let message: string | undefined;
-        if (position === 'node-head' && name !== 'node') {
-            message = 'Profile only allows generic arguments on node head datatype :node';
+        if (position === 'node-head' && !admission.nodeHeadDatatypes.includes(name)) {
+            message = `Profile does not allow generic arguments on node head datatype ':${name}'`;
         } else if (position === 'binding' && name === 'node'
-            && args.some(arg => arg.name !== 'node' && RESERVED_V1_DATATYPES.has(arg.name))) {
-            message = 'Profile binding datatype :node accepts only node or custom datatype arguments';
-        } else if (RESERVED_V1_DATATYPES.has(name) && !GP_GENERIC_DATATYPES.has(name)) {
+            && args.some(arg => isReservedDatatypeName(arg.name) && !admission.bindingNodeReservedArguments.includes(arg.name))) {
+            message = 'Profile does not allow this reserved generic argument on binding datatype :node';
+        } else if (isReservedDatatypeName(name) ? !admission.reservedDatatypes.includes(name) : !admission.customLabels) {
             message = `Profile does not allow generic arguments on datatype ':${name}'`;
         }
         if (message) ctx.error({ code: 'PROFILE_DATATYPE_GENERIC_NOT_ALLOWED', message, ...location });
@@ -154,24 +145,26 @@ function validateParsedDatatype(
             ...location,
         });
     } else {
-        validateOwnClarifiers(datatype, semantics, ctx, path, literalFamily);
+        validateOwnClarifiers(datatype, policy, ctx, path, literalFamily);
     }
     for (const arg of args) {
-        validateParsedDatatype(arg, semantics, ctx, path, undefined, 'argument');
+        validateParsedDatatype(arg, policy, ctx, path, undefined, 'argument');
     }
 }
 
 function validateOwnClarifiers(
     datatype: ParsedDatatype,
-    semantics: Readonly<Record<string, DatatypeSemantics>>,
+    policy: DatatypePolicy,
     ctx: Pick<CompileCtx, 'error'>,
     path: string | undefined,
     literalFamily: string | undefined
 ): void {
     if (datatype.clarifiers.length === 0) return;
 
+    const semantics = policy.datatypeSemantics;
     const rule = Object.hasOwn(semantics, datatype.name) ? semantics[datatype.name] : undefined;
-    if (!rule && (literalFamily === 'SeparatorLiteral' || literalFamily === 'RadixLiteral')) {
+    if (!rule && (policy.allowLegacyReservedClarifiers || !isReservedDatatypeName(datatype.name))
+        && (literalFamily === 'SeparatorLiteral' || literalFamily === 'RadixLiteral')) {
         return;
     }
     if (!rule || rule.clarifiers === 'none') {

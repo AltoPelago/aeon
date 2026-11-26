@@ -8,6 +8,8 @@
 export { compile } from './compile.js';
 export { createDefaultRegistry } from './default-registry.js';
 export { createRegistry } from './registry.js';
+export { createProfile } from './create-profile.js';
+export { loadProfileContract } from './load-profile-contract.js';
 export { coreProfile } from './profiles/altopelago-core.js';
 export { aeonGpCoreProfile } from './profiles/aeon-gp-core.js';
 export { jsonProfile } from './profiles/json.js';
@@ -25,4 +27,6 @@ export type {
     Profile,
     ProfileRef,
     ProfileRegistry,
+    ProfilePolicy,
+    GenericAdmissionPolicy,
 } from './types.js';

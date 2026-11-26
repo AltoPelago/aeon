@@ -100,6 +100,13 @@ jobs:
           ref: d63e5713d77702b8d1738744ca66f917b3c22ffa # Draft generic admission targets
           path: aeonite-cts
 
+      - name: Checkout aeonite-specs for the GP profile contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: aeonite-org/aeonite-specs
+          ref: f236adf070f5ba351abc8d2454c6e7fb551d4db6 # Official GP profile artifact 1.1.0
+          path: aeonite-specs
+
       - name: CTS claim validation
         working-directory: .
         env:
@@ -157,6 +164,7 @@ jobs:
       - name: CTS development lanes and immutable snapshot audit
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+          AEONITE_SPECS_ROOT: ${{ github.workspace }}/aeonite-specs
         run: pnpm test:cts:all
 
       - name: Core escaped-path public CLI parity

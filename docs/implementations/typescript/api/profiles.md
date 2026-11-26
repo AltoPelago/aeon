@@ -69,6 +69,34 @@ interface CompileOptions {
 - `setToElevenProfile` (`set.to.eleven.v1`)
 - `jsonProfile`
 
+## Load a profile contract
+
+The caller reads a trusted `.aeon` artifact and supplies its source text to
+`loadProfileContract()`. The loader validates the Core v1 contract fields and
+returns an immutable `ProfilePolicy`. It requires a `generic_admission` record
+and reports malformed artifacts and unsupported rule fields as errors.
+`createProfile()` makes an executable profile from the policy. The same policy
+or profile can be reused across compilation calls.
+
+```ts
+import { compile, createProfile, loadProfileContract } from '@altopelago/aeon-profiles';
+
+const policy = loadProfileContract(trustedProfileSource);
+const profile = createProfile(policy);
+const result = compile(source, { profile });
+```
+
+The official `aeon.gp.profile.v1` artifact version `1.1.0` is supported.
+Loaded policies supply generic and clarifier rules and expose contract metadata
+such as default mode, collection semantics, and capabilities. The usual Core
+mode, datatype policy, and resource options still govern each compilation.
+
+Run `pnpm test:cts:gp:next` from `implementations/typescript` to test the
+official artifact alongside the built-in TypeScript and WASM profiles against
+the same draft cases. `AEONITE_SPECS_ROOT` and `AEONITE_CTS_ROOT` can select the
+local specs checkout and CTS manifest directory. The runner verifies the
+artifact against the specs registry before loading it.
+
 ## Example
 
 ```ts

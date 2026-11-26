@@ -114,6 +114,23 @@ export interface Profile {
     readonly processors?: readonly Processor[];
 }
 
+export interface GenericAdmissionPolicy {
+    readonly reservedDatatypes: readonly string[];
+    readonly customLabels: boolean;
+    readonly customValueKinds: readonly string[];
+    readonly nodeHeadDatatypes: readonly string[];
+    readonly bindingNodeReservedArguments: readonly string[];
+}
+
+/** Validated profile data, reusable across compilation calls. */
+export interface ProfilePolicy extends Omit<Profile, 'compile' | 'processors' | 'version'> {
+    readonly version: string;
+    readonly coreId: 'aeon.core.v1';
+    readonly description?: string;
+    readonly datatypeSemantics: Readonly<Record<string, DatatypeSemantics>>;
+    readonly genericAdmission: GenericAdmissionPolicy;
+}
+
 export type ProfileRef = string | Profile;
 
 export interface ProfileRegistry {
