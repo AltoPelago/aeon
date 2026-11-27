@@ -83,12 +83,8 @@ def _orders(document: Document, max_edges: int, resolved) -> dict[int, list[int]
             attributes(payload.attributes, path, membership, targetable)
             value(payload.value, path, membership, targetable)
             return
-        if isinstance(payload, (ObjectNode, ListNode, TupleLiteral)):
+        if isinstance(payload, (ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
             attributes(payload.attributes, path, membership, targetable)
-        elif isinstance(payload, NodeLiteral):
-            # Implicit node heads are not source-addressable, but references
-            # within their metadata still constrain enclosing sortable scopes.
-            attributes(payload.attributes, path, membership, False)
         if isinstance(payload, (CloneReference, PointerReference)):
             claims.append((tuple(payload.path), membership))
         if targetable:
@@ -208,8 +204,12 @@ class _Renderer:
         ordered = self.ordered(attributes, entries)
         if not ordered:
             return ""
-        return "@{" + ", ".join(f"{self.head(key, entry)} = {self.compact(entry.value)}"
-                                 for key, entry in ordered) + "}"
+        rendered = [
+            self.compact(entry.value) if isinstance(entry.value, NodeLiteral)
+            else f"{self.head(key, entry)} = {self.compact(entry.value)}"
+            for key, entry in ordered
+        ]
+        return "@{" + ", ".join(rendered) + "}"
 
     def binding(self, binding: Binding, indent: int) -> list[str]:
         key = self.head(binding.key, binding)
@@ -228,6 +228,7 @@ class _Renderer:
             lines = self.collection(payload.elements, indent, opening, closing)
         elif isinstance(payload, NodeLiteral):
             lines = self.node(payload, indent, False)
+            return [prefix + lines[0].lstrip(), *lines[1:]]
         else:
             lines = self.value(payload, indent, True)
         return [f"{prefix}{key} = {lines[0].lstrip()}", *lines[1:]]
@@ -281,8 +282,11 @@ class _Renderer:
             head = self.head(None, payload)
             return (head + " = " if head else "") + self.compact(payload.value)
         if isinstance(payload, ObjectNode):
-            entries = [f"{self.head(binding.key, binding)} = {self.compact(binding.value)}"
-                       for binding in self.ordered(payload.bindings, payload.bindings)]
+            entries = [
+                self.compact(binding.value) if isinstance(binding.value, NodeLiteral)
+                else f"{self.head(binding.key, binding)} = {self.compact(binding.value)}"
+                for binding in self.ordered(payload.bindings, payload.bindings)
+            ]
             return "{ " + ", ".join(entries) + " }"
         if isinstance(payload, (ListNode, TupleLiteral)):
             opening, closing = ("[", "]") if isinstance(payload, ListNode) else ("(", ")")

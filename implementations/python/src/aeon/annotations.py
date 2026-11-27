@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from bisect import bisect_left, bisect_right
+from dataclasses import field
 
 from ._compat import dataclass
+from .lexer import Token, tokenize
 from .spans import Position, Span, position_from_offset
 
 
@@ -152,10 +154,36 @@ class AnnotationResolver:
         return None
 
 
+_TOKEN_DELIMITERS = {
+    "LANGLE": "RANGLE", "LBRACE": "RBRACE", "LBRACKET": "RBRACKET", "LPAREN": "RPAREN",
+}
+
+
 @dataclass(slots=True)
 class PositionLookup:
     source: str
     line_starts: list[int]
+    node_values: dict[int, dict[str, object]] = field(default_factory=dict)
+    attribute_values: dict[int, dict[str, object]] = field(default_factory=dict)
+    metadata_bindings: list[tuple[dict[str, object], str, object]] = field(default_factory=list)
+    attribute_blocks: list[tuple[int, int, str]] = field(default_factory=list)
+    tokens: list[Token] = field(default_factory=list)
+    token_starts: list[int] = field(default_factory=list)
+    closing_tokens: dict[int, int] = field(default_factory=dict)
+
+    def index_tokens(self) -> None:
+        if self.tokens:
+            return
+        self.tokens = [token for token in tokenize(self.source).tokens if token.kind != "NEWLINE"]
+        self.token_starts = [token.span.start.offset for token in self.tokens]
+        stack = []
+        for index, token in enumerate(self.tokens):
+            closer = _TOKEN_DELIMITERS.get(token.kind)
+            if closer is not None:
+                stack.append((closer, index))
+            elif stack and token.kind == stack[-1][0]:
+                _, opening = stack.pop()
+                self.closing_tokens[opening] = index
 
     @classmethod
     def from_source(cls, source: str) -> PositionLookup:
@@ -212,6 +240,7 @@ def build_path_bindables(
     events: list[dict[str, object]],
     positions: PositionLookup,
 ) -> list[BindableRecord]:
+    index_annotation_values(events, positions)
     bindables: list[BindableRecord] = []
     for index, event in enumerate(events):
         span = parse_span(event["span"])
@@ -230,6 +259,16 @@ def build_path_bindables(
             )
         )
         bindables.extend(attribute_bindables(source, event, positions, index * 1000 + 1))
+    while positions.metadata_bindings or positions.attribute_blocks:
+        if positions.attribute_blocks:
+            at, end, owner = positions.attribute_blocks.pop()
+            _, entries, _ = scan_attribute_block(source, at, end, owner, positions, make_bindables=True)
+        else:
+            payload, path, binding_span = positions.metadata_bindings.pop()
+            entries = metadata_value_bindables(source, payload, path, positions, binding_span)
+        for entry in entries:
+            entry.order = len(bindables)
+            bindables.append(entry)
     return bindables
 
 
@@ -249,6 +288,55 @@ def sort_annotation_records(records: list[dict[str, object]]) -> list[dict[str, 
         )
 
     return sorted(records, key=key)
+
+
+def index_annotation_values(events: list[dict[str, object]], positions: PositionLookup) -> None:
+    seen = set()
+    pending = [(event.get("value"), event.get("annotations")) for event in events]
+    while pending:
+        value, annotations = pending.pop()
+        if isinstance(annotations, dict):
+            for entry in annotations.values():
+                if not isinstance(entry, dict):
+                    continue
+                entry_value = entry.get("value")
+                span = entry.get("span")
+                if isinstance(entry_value, dict) and isinstance(span, dict):
+                    positions.attribute_values[parse_span(span).start.offset] = entry_value
+                pending.append((entry_value, entry.get("annotations")))
+                for block in entry.get("attributes") or []:
+                    if isinstance(block, dict):
+                        pending.append((None, block.get("entries")))
+        if not isinstance(value, dict):
+            continue
+        kind = value.get("type")
+        if kind not in {"NodeLiteral", "ObjectNode", "ListNode", "TupleLiteral", "TypedValue"}:
+            continue
+        raw_span = value.get("span")
+        if not isinstance(raw_span, dict):
+            continue
+        offset = parse_span(raw_span).start.offset
+        occurrence = (kind, offset)
+        if occurrence in seen:
+            continue
+        seen.add(occurrence)
+        if kind == "NodeLiteral":
+            positions.node_values[offset] = value
+        for block in value.get("attributes") or []:
+            if isinstance(block, dict):
+                pending.append((None, block.get("entries")))
+        if kind == "ObjectNode":
+            pending.extend(
+                (binding.get("value"), entry_block.get("entries") if entry_block is not None else None)
+                for binding in value.get("bindings") or [] if isinstance(binding, dict)
+                for entry_block in binding.get("attributes") or [None]
+            )
+        elif kind == "TypedValue":
+            pending.append((value.get("value"), None))
+        else:
+            pending.extend(
+                (item, None) for item in value.get("children" if kind == "NodeLiteral" else "elements") or []
+            )
 
 
 def build_trailing_index(bindables: list[BindableRecord]) -> dict[int, tuple[list[BindableRecord], list[int]]]:
@@ -533,6 +621,8 @@ def binding_landmarks(
     if value_span is None:
         value_span = span
 
+    if event_value_type(event) == "NodeLiteral" and span.start.offset == value_span.start.offset:
+        return node_value_landmarks(source, value_span, positions)
     landmarks: list[PlacementLandmark] = []
     key_span = scan_key_span(source, span.start.offset, positions)
     if key_span is not None:
@@ -541,8 +631,8 @@ def binding_landmarks(
     else:
         head_start = span.start.offset
 
-    equals_offset = source.rfind("=", span.start.offset, value_span.start.offset)
-    head_end = equals_offset if equals_offset >= 0 else value_span.start.offset
+    equals_offset = find_top_level_char(source, "=", head_start, value_span.start.offset)
+    head_end = equals_offset if equals_offset is not None else value_span.start.offset
     attribute_marks = attribute_landmarks(source, head_start, head_end, positions)
     landmarks.extend(attribute_marks)
 
@@ -562,7 +652,7 @@ def binding_landmarks(
                 )
             )
 
-    if equals_offset >= 0:
+    if equals_offset is not None:
         landmarks.append(
             PlacementLandmark(
                 "equals",
@@ -586,12 +676,12 @@ def attribute_bindables(
     value_span = event_value_span(event) or span
     key_span = scan_key_span(source, span.start.offset, positions)
     head_start = key_span.end.offset if key_span is not None else span.start.offset
-    equals_offset = source.rfind("=", span.start.offset, value_span.start.offset)
-    head_end = equals_offset if equals_offset >= 0 else value_span.start.offset
+    equals_offset = find_top_level_char(source, "=", head_start, value_span.start.offset)
+    head_end = equals_offset if equals_offset is not None else value_span.start.offset
     path = str(event["path"])
     entries = attribute_entry_bindables(source, head_start, head_end, path, positions)
     if event_value_type(event) == "NodeLiteral":
-        entries.extend(node_head_attribute_entry_bindables(source, value_span, path, positions))
+        enqueue_node_attributes(value_span, path, positions)
     for index, entry in enumerate(entries):
         entry.order = order_start + index
     return entries
@@ -634,34 +724,21 @@ def attribute_entry_bindables(
     return entries
 
 
-def node_head_attribute_entry_bindables(
-    source: str,
+def enqueue_node_attributes(
     value_span: Span,
     owner_path: str,
     positions: PositionLookup,
-) -> list[BindableRecord]:
-    entries: list[BindableRecord] = []
-    offset = value_span.start.offset
-    end = value_span.end.offset
-    if offset >= end or source[offset] != "<":
-        return entries
-    offset += 1
-    offset = skip_head_trivia(source, offset, end)
-    key_span = scan_key_span(source, offset, positions)
-    if key_span is None:
-        return entries
-    offset = key_span.end.offset
-    while offset < end:
-        offset = skip_head_trivia(source, offset, end)
-        if offset >= end or source[offset] in {"(", ">"}:
-            break
-        if source[offset] == "@":
-            _landmarks, block_entries, next_offset = scan_attribute_block(source, offset, end, owner_path, positions, make_bindables=True)
-            entries.extend(block_entries)
-            offset = max(offset + 1, next_offset)
-            continue
-        offset += 1
-    return entries
+) -> None:
+    positions.index_tokens()
+    start = bisect_left(positions.token_starts, value_span.start.offset)
+    close = positions.closing_tokens.get(start)
+    if close is None or close <= start + 2:
+        return
+    cursor = start + 2
+    if positions.tokens[cursor].kind == "STRUCTURAL_IDENTITY":
+        cursor += 1
+    if positions.tokens[cursor].kind == "AT":
+        positions.attribute_blocks.append((positions.token_starts[cursor], value_span.end.offset, owner_path))
 
 
 def scan_attribute_block(
@@ -675,13 +752,13 @@ def scan_attribute_block(
 ) -> tuple[list[PlacementLandmark], list[BindableRecord], int]:
     landmarks = [PlacementLandmark("attribute-marker", Span(positions.position_at(at), positions.position_at(at + 1)))]
     entries: list[BindableRecord] = []
-    open_offset = skip_head_trivia(source, at + 1, end)
+    open_offset = skip_node_layout(source, at + 1, end)
     if open_offset >= end or source[open_offset] != "{":
         return landmarks, entries, open_offset
     landmarks.append(PlacementLandmark("attribute-open", Span(positions.position_at(open_offset), positions.position_at(open_offset + 1))))
     offset = open_offset + 1
     while offset < end:
-        offset = skip_head_trivia(source, offset, end)
+        offset = skip_node_layout(source, offset, end)
         if offset >= end:
             break
         if source[offset] == "}":
@@ -691,11 +768,10 @@ def scan_attribute_block(
         if entry is None:
             offset += 1
             continue
-        entry_landmarks, bindable, offset = entry
+        entry_landmarks, entry_bindables, offset = entry
         landmarks.extend(entry_landmarks)
-        if bindable is not None:
-            entries.append(bindable)
-        offset = skip_head_trivia(source, offset, end)
+        entries.extend(entry_bindables)
+        offset = skip_node_layout(source, offset, end)
         if offset < end and source[offset] == ",":
             landmarks.append(PlacementLandmark("attribute-separator", Span(positions.position_at(offset), positions.position_at(offset + 1))))
             offset += 1
@@ -710,22 +786,53 @@ def scan_attribute_entry(
     positions: PositionLookup,
     *,
     make_bindables: bool,
-) -> tuple[list[PlacementLandmark], BindableRecord | None, int] | None:
+) -> tuple[list[PlacementLandmark], list[BindableRecord], int] | None:
+    if source[offset] == "<":
+        positions.index_tokens()
+        opening = bisect_left(positions.token_starts, offset)
+        closing = positions.closing_tokens.get(opening)
+        if closing is None:
+            return None
+        value_end = positions.tokens[closing].span.end.offset
+        if value_end > end:
+            return None
+        tag = positions.tokens[opening + 1].value
+        value_span = Span(positions.position_at(offset), positions.position_at(value_end))
+        if not make_bindables:
+            return [PlacementLandmark("attribute-value", value_span)], [], value_end
+        landmarks = node_value_landmarks(source, value_span, positions)
+        path = format_attribute_path(owner_path, tag)
+        entries = [BindableRecord(
+            span=value_span, order=0, path=path, value_span=value_span,
+            value_type="NodeLiteral", kind="attribute", landmarks=landmarks,
+        )]
+        enqueue_node_attributes(value_span, path, positions)
+        node = positions.node_values.get(offset, {})
+        enqueue_metadata_children(node, path, positions)
+        return landmarks, entries, value_end
     key_span = scan_key_span(source, offset, positions)
     if key_span is None:
         return None
-    key = source[key_span.start.offset:key_span.end.offset]
-    if key.startswith(('"', "'")) and len(key) >= 2:
-        key = key[1:-1]
+    key = decode_key(source[key_span.start.offset:key_span.end.offset])
+    path = format_attribute_path(owner_path, key)
     landmarks = [PlacementLandmark("attribute-key", key_span)]
+    entries = []
+    payload = positions.attribute_values.get(key_span.start.offset)
     scan = key_span.end.offset
     entry_end = scan
     value_span = key_span
     while scan < end:
-        scan = skip_head_trivia(source, scan, end)
+        scan = skip_node_layout(source, scan, end)
         if scan >= end or source[scan] in {",", "}"}:
             entry_end = scan
             break
+        if source[scan] == "@":
+            at = scan
+            attr_marks, scan = nested_attribute_landmarks(source, at, end, positions)
+            landmarks.extend(attr_marks)
+            if make_bindables and attr_marks:
+                positions.attribute_blocks.append((at, scan, path))
+            continue
         if source[scan] == ":":
             landmarks.append(PlacementLandmark("attribute-datatype-colon", Span(positions.position_at(scan), positions.position_at(scan + 1))))
             dtype_start = skip_head_trivia(source, scan + 1, end)
@@ -736,26 +843,90 @@ def scan_attribute_entry(
             continue
         if source[scan] == "=":
             landmarks.append(PlacementLandmark("attribute-equals", Span(positions.position_at(scan), positions.position_at(scan + 1))))
-            value_start = skip_head_trivia(source, scan + 1, end)
-            value_end = scan_attribute_value_end(source, value_start, end)
-            if value_start < value_end:
+            authored_span = event_value_span({"value": payload})
+            if authored_span is not None and authored_span.end.offset <= end:
+                value_span = authored_span
+            else:
+                value_start = skip_node_layout(source, scan + 1, end)
+                value_end = scan_attribute_value_end(source, value_start, end)
                 value_span = Span(positions.position_at(value_start), positions.position_at(value_end))
+            if value_span.start.offset < value_span.end.offset:
                 landmarks.append(PlacementLandmark("attribute-value", value_span))
-            scan = value_end
-            continue
+            entry_end = skip_head_trivia(source, value_span.end.offset, end)
+            break
         scan += 1
-    bindable = None
     if make_bindables:
-        bindable = BindableRecord(
+        entries.insert(0, BindableRecord(
             span=Span(key_span.start, positions.position_at(entry_end)),
             order=0,
-            path=format_attribute_path(owner_path, key),
+            path=path,
             value_span=value_span,
-            value_type=None,
+            value_type=event_value_type({"value": payload}),
             kind="attribute",
             landmarks=landmarks,
-        )
-    return landmarks, bindable, entry_end
+        ))
+        if payload is not None:
+            enqueue_metadata_children(payload, path, positions)
+    return landmarks, entries, entry_end
+
+
+def decode_key(raw: str) -> str:
+    if raw.startswith(('"', "'")):
+        tokens = tokenize(raw).tokens
+        if tokens and tokens[0].kind == "STRING":
+            return tokens[0].value
+    return raw
+
+
+def nested_attribute_landmarks(
+    source: str, at: int, end: int, positions: PositionLookup,
+) -> tuple[list[PlacementLandmark], int]:
+    positions.index_tokens()
+    opening_offset = skip_node_layout(source, at + 1, end)
+    if opening_offset >= end or source[opening_offset] != "{":
+        return [], opening_offset
+    opening = bisect_left(positions.token_starts, opening_offset)
+    closing = positions.closing_tokens.get(opening)
+    if closing is None or positions.tokens[closing].span.end.offset > end:
+        return [], opening_offset
+    return [
+        PlacementLandmark("attribute-marker", Span(positions.position_at(at), positions.position_at(at + 1))),
+        PlacementLandmark("attribute-open", positions.tokens[opening].span),
+        PlacementLandmark("attribute-close", positions.tokens[closing].span),
+    ], positions.tokens[closing].span.end.offset
+
+
+def metadata_value_bindables(
+    source: str, payload: dict[str, object], path: str, positions: PositionLookup,
+    binding_span: object,
+) -> list[BindableRecord]:
+    raw_span = binding_span or payload.get("span")
+    if not isinstance(raw_span, dict):
+        return []
+    span = parse_span(raw_span)
+    value = payload["value"] if payload.get("type") == "TypedValue" else payload
+    event = {"path": path, "span": raw_span, "value": value}
+    result = [BindableRecord(
+        span=span, order=0, path=path, value_span=event_value_span(event),
+        value_type=event_value_type(event), kind="binding",
+        landmarks=binding_landmarks(source, event, positions),
+    )]
+    result.extend(attribute_bindables(source, event, positions, 0))
+    enqueue_metadata_children(value, path, positions)
+    return result
+
+
+def enqueue_metadata_children(value: dict[str, object], path: str, positions: PositionLookup) -> None:
+    kind = value.get("type")
+    if kind == "ObjectNode":
+        for binding in reversed(value.get("bindings") or []):
+            key = binding["key"]
+            member = key if is_ascii_identifier(key) else f"[{json.dumps(key, ensure_ascii=False)}]"
+            positions.metadata_bindings.append((binding["value"], f"{path}.{member}", binding.get("span")))
+    elif kind in {"NodeLiteral", "ListNode", "TupleLiteral"}:
+        children = value.get("children" if kind == "NodeLiteral" else "elements") or []
+        for index in range(len(children) - 1, -1, -1):
+            positions.metadata_bindings.append((children[index], f"{path}[{index}]", None))
 
 
 def scan_attribute_value_end(source: str, start: int, end: int) -> int:
@@ -796,89 +967,57 @@ def is_ascii_identifier(value: str) -> bool:
 
 
 def node_value_landmarks(source: str, value_span: Span, positions: PositionLookup) -> list[PlacementLandmark]:
-    tokens = node_value_tokens(source, value_span, positions)
-    landmarks: list[PlacementLandmark] = []
-    angle_depth = 0
-    paren_depth = 0
-    state = "open"
+    positions.index_tokens()
+    tokens = positions.tokens
+    start = bisect_left(positions.token_starts, value_span.start.offset)
+    stop = positions.closing_tokens.get(start)
+    if stop is None or stop - start < 2:
+        return [PlacementLandmark("value", value_span)]
 
-    for kind, span in tokens:
-        if kind == "<" and angle_depth == 0:
-            landmarks.append(PlacementLandmark("node-open", span))
-            angle_depth = 1
-            state = "tag"
-            continue
-        if kind == ">" and angle_depth == 1 and paren_depth == 0:
-            landmarks.append(PlacementLandmark("node-close", span))
-            state = "done"
-            continue
-        if state == "tag" and kind == "semantic":
-            landmarks.append(PlacementLandmark("node-tag", span))
-            state = "open"
-            continue
-        if angle_depth == 1 and paren_depth == 0 and kind == ":":
-            landmarks.append(PlacementLandmark("node-datatype-colon", span))
-            state = "datatype"
-            continue
-        if state == "datatype" and kind == "semantic":
-            landmarks.append(PlacementLandmark("node-datatype", span))
-            continue
-        if angle_depth == 1 and kind == "(":
-            paren_depth += 1
-            landmarks.append(PlacementLandmark("node-children-open" if paren_depth == 1 else "value", span))
-            state = "children"
-            continue
-        if angle_depth == 1 and kind == ")":
-            if paren_depth == 1:
-                landmarks.append(PlacementLandmark("node-children-close", span))
-            paren_depth = max(0, paren_depth - 1)
-            continue
-        if angle_depth == 1 and paren_depth == 1 and kind == ",":
-            landmarks.append(PlacementLandmark("node-child-separator", span))
-            continue
-        if angle_depth == 1 and paren_depth == 1 and kind == "semantic":
-            landmarks.append(PlacementLandmark("node-child-value", span))
+    landmarks = [
+        PlacementLandmark("node-open", tokens[start].span),
+        PlacementLandmark("node-tag", tokens[start + 1].span),
+    ]
+    cursor = start + 2
+    if tokens[cursor].kind == "STRUCTURAL_IDENTITY":
+        cursor += 1
+    if tokens[cursor].kind == "AT":
+        at = tokens[cursor].span.start.offset
+        marks, _, attribute_end = scan_attribute_block(
+            source, at, value_span.end.offset, "", positions, make_bindables=False,
+        )
+        landmarks.extend(marks)
+        cursor = bisect_left(positions.token_starts, attribute_end, lo=cursor + 1)
 
-    return landmarks or [PlacementLandmark("value", value_span)]
+    if cursor < stop and tokens[cursor].kind == "COLON":
+        landmarks.append(PlacementLandmark("node-datatype-colon", tokens[cursor].span))
+        cursor += 1
+        datatype_start = cursor
+        while cursor < stop and tokens[cursor].kind != "LPAREN":
+            cursor = positions.closing_tokens.get(cursor, cursor) + 1
+        if cursor > datatype_start:
+            landmarks.append(PlacementLandmark(
+                "node-datatype", Span(tokens[datatype_start].span.start, tokens[cursor - 1].span.end),
+            ))
 
+    if cursor < stop and tokens[cursor].kind == "LPAREN":
+        close = positions.closing_tokens.get(cursor)
+        if close is not None:
+            landmarks.append(PlacementLandmark("node-children-open", tokens[cursor].span))
+            raw_node = positions.node_values.get(value_span.start.offset, {})
+            nodes = raw_node.get("children") or []
+            last = cursor
+            for child in nodes:
+                span = parse_span(child["span"])
+                child_start = bisect_left(positions.token_starts, span.start.offset, lo=last + 1)
+                if tokens[last + 1].kind == "COMMA" and last + 1 < child_start:
+                    landmarks.append(PlacementLandmark("node-child-separator", tokens[last + 1].span))
+                landmarks.append(PlacementLandmark("node-child-value", span))
+                last = bisect_left(positions.token_starts, span.end.offset, lo=child_start + 1) - 1
+            landmarks.append(PlacementLandmark("node-children-close", tokens[close].span))
 
-def node_value_tokens(
-    source: str,
-    value_span: Span,
-    positions: PositionLookup,
-) -> list[tuple[str, Span]]:
-    tokens: list[tuple[str, Span]] = []
-    offset = value_span.start.offset
-    end = value_span.end.offset
-    while offset < end:
-        char = source[offset]
-        if char in {" ", "\t", "\n", "\r"}:
-            offset += 1
-            continue
-        if starts_comment(source, offset):
-            if starts_line_comment(source, offset):
-                offset = skip_line_comment(source, offset, end)
-            else:
-                offset = skip_block_comment(source, offset, end)
-            continue
-        if char in {'"', "'", "`"}:
-            token_end = skip_string(source, offset, char)
-            tokens.append(("semantic", Span(positions.position_at(offset), positions.position_at(token_end))))
-            offset = token_end
-            continue
-        if char in {"<", ">", "(", ")", ",", ":"}:
-            tokens.append((char, Span(positions.position_at(offset), positions.position_at(offset + 1))))
-            offset += 1
-            continue
-        token_end = offset + 1
-        while token_end < end:
-            next_char = source[token_end]
-            if next_char in {" ", "\t", "\n", "\r", "<", ">", "(", ")", ",", ":"} or starts_comment(source, token_end):
-                break
-            token_end += 1
-        tokens.append(("semantic", Span(positions.position_at(offset), positions.position_at(token_end))))
-        offset = token_end
-    return tokens
+    landmarks.append(PlacementLandmark("node-close", tokens[stop].span))
+    return landmarks
 
 
 def event_value_span(event: dict[str, object]) -> Span | None:
@@ -908,7 +1047,7 @@ def scan_key_span(
     start = skip_horizontal_space(source, offset, len(source))
     if start >= len(source):
         return None
-    if source[start] == '"':
+    if source[start] in {'"', "'"}:
         end = start + 1
         while end < len(source):
             char = source[end]
@@ -916,7 +1055,7 @@ def scan_key_span(
             if char == "\\" and end < len(source):
                 end += 1
                 continue
-            if char == '"':
+            if char == source[start]:
                 return Span(positions.position_at(start), positions.position_at(end))
         return Span(positions.position_at(start), positions.position_at(end))
 
@@ -924,7 +1063,7 @@ def scan_key_span(
     while end < len(source):
         if starts_comment(source, end):
             break
-        if source[end] in {":", "@", "=", " ", "\t", "\n", "\r", ",", "}", "]", "(", ">"}:
+        if source[end] in {":", "@", "=", "\\", " ", "\t", "\n", "\r", ",", "}", "]", "(", ">"}:
             break
         end += 1
     if end == start:
@@ -1012,6 +1151,13 @@ def skip_head_trivia(source: str, start: int, end: int) -> int:
             continue
         break
     return start
+
+
+def skip_node_layout(source: str, start: int, end: int) -> int:
+    offset = skip_head_trivia(source, start, end)
+    while offset < end and source[offset] in "\r\n":
+        offset = skip_head_trivia(source, offset + 1, end)
+    return offset
 
 
 def scan_datatype_end(source: str, start: int, end: int) -> int:

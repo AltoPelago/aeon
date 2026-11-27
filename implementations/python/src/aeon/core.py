@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import field, fields, is_dataclass
+from dataclasses import field, fields, is_dataclass, replace
 import json
 import re
 
@@ -40,7 +40,7 @@ from .errors import (
     DatatypeLiteralMismatchError,
     DuplicateCanonicalPathError,
     ForwardReferenceError,
-    InvalidNodeHeadDatatypeError,
+    InvalidNodeDatatypeError,
     MissingReferenceTargetError,
     SelfReferenceError,
     SyntaxError,
@@ -500,12 +500,16 @@ def validate_gp_datatypes(
         surface = parse_gp_datatype_surface(binding.datatype)
         if surface is None:
             continue
+        is_node = isinstance(binding.value, NodeLiteral)
+        if is_node and gp_custom_datatype_kinds(binding.datatype) and expected_kinds_for_reserved_datatype(binding.datatype) is None:
+            continue
         validate_gp_datatype_surface(
             surface,
             format_path(binding.path),
             binding.span,
             errors,
             value_kind(binding.value),
+            position="node_head" if is_node else "binding",
         )
     mode = normalize_mode(options.mode) if options.mode is not None else extract_mode(document)
     allow_custom = effective_datatype_policy(mode, options.datatype_policy) == "allow_custom"
@@ -517,7 +521,7 @@ def validate_gp_datatypes(
 def validate_gp_unprojected_claims(
     bindings: list[Binding], errors: list[AeonError], lookup: dict[str, ResolvedBinding] | None,
 ) -> None:
-    # Metadata and node-head claims have no separate AssignmentEvents. Keep
+    # Metadata claims have no separate AssignmentEvents. Keep
     # traversal iterative and visit authored nodes, not materialized copies.
     tasks = []
     terminal_values: dict[int, Value] = {}
@@ -527,12 +531,12 @@ def validate_gp_unprojected_claims(
         return path + (f".{key}" if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) else f".[{json.dumps(key, ensure_ascii=False)}]")
 
     def push_binding(binding: Binding, parent: str, metadata: bool) -> None:
-        tasks.append((binding.value, member(parent, binding.key), metadata, binding.datatype, binding.attributes, binding.span, False))
+        tasks.append((binding.value, member(parent, binding.key), metadata, binding.datatype, binding.attributes, binding.span))
 
     def attributes(blocks: list[Attribute], path: str) -> None:
         for block in reversed(blocks):
             for key, entry in reversed(list(block.entries.items())):
-                tasks.append((entry.value, member(path + ".@", key), True, entry.datatype, entry.attributes, entry.span or entry.value.span, False))
+                tasks.append((entry.value, member(path + ".@", key), True, entry.datatype, entry.attributes, entry.span or entry.value.span))
 
     def check(datatype: TypeAnnotation | None, value: Value, path: str, span: Span, *, node_head: bool = False) -> None:
         if datatype is not None:
@@ -552,15 +556,16 @@ def validate_gp_unprojected_claims(
     for binding in reversed(bindings):
         push_binding(binding, "$", False)
     while tasks:
-        value, path, metadata, datatype, attrs, span, check_only = tasks.pop()
+        value, path, metadata, datatype, attrs, span = tasks.pop()
         if metadata:
-            check(datatype, value, path, span, node_head=check_only)
-        if check_only:
-            continue
+            if isinstance(value, NodeLiteral):
+                check(value.datatype, value, path, value.span or span, node_head=True)
+            else:
+                check(datatype, value, path, span)
         if isinstance(value, TypedValue):
             if metadata:
                 check(value.datatype, value.value, path, value.span)
-            tasks.append((value.value, path, metadata, None, [], value.span, False))
+            tasks.append((value.value, path, metadata, None, [], value.span))
             attributes(value.attributes, path)
         elif isinstance(value, ObjectNode):
             for binding in reversed(value.bindings):
@@ -569,17 +574,13 @@ def validate_gp_unprojected_claims(
         elif isinstance(value, (ListNode, TupleLiteral)):
             for index in range(len(value.elements) - 1, -1, -1):
                 child = value.elements[index]
-                tasks.append((child, f"{path}[{index}]", metadata, None, [], child.span, False))
+                tasks.append((child, f"{path}[{index}]", metadata, None, [], child.span))
             attributes(value.attributes, path)
         elif isinstance(value, NodeLiteral):
-            head = path + "[0]"
             for index in range(len(value.children) - 1, -1, -1):
                 child = value.children[index]
-                tasks.append((child, f"{head}[{index}]", metadata, None, [], child.span, False))
-            attributes(value.attributes, head)
-            # Owning key attributes precede the tag claim; tag attributes and
-            # children follow it. A check-only task avoids revisiting the node.
-            tasks.append((value, head, True, value.datatype, [], value.span, True))
+                tasks.append((child, f"{path}[{index}]", metadata, None, [], child.span))
+            attributes(value.attributes, path)
         attributes(attrs, path)
     errors[:0] = value_errors
 
@@ -787,13 +788,9 @@ def resolve_paths(document: Document) -> tuple[list[ResolvedBinding], list[AeonE
 
     if document.header is not None:
         for binding in document.header.bindings:
-            synthetic = Binding(
-                key=f"aeon:{binding.key}",
-                value=binding.value,
-                datatype=binding.datatype,
-                attributes=binding.attributes,
-                span=binding.span,
-            )
+            key = f"aeon:{binding.key}"
+            value = replace(binding.value, tag=key) if isinstance(binding.value, NodeLiteral) else binding.value
+            synthetic = replace(binding, key=key, value=value)
             resolve_binding(synthetic, root, bindings, errors, seen, "header")
 
     for binding in document.bindings:
@@ -822,9 +819,9 @@ def resolve_binding(
             key=binding.key,
             value=binding.value,
             span=binding.span,
-            datatype=format_datatype(binding.datatype),
+            datatype=format_datatype(binding.value.datatype if isinstance(binding.value, NodeLiteral) else binding.datatype),
             annotations=build_annotations(binding.attributes),
-            structural_id=binding.structural_id,
+            structural_id=binding.value.structural_id if isinstance(binding.value, NodeLiteral) else binding.structural_id,
             source_plane=source_plane,
         )
     )
@@ -842,11 +839,11 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
             local_keys.add(binding.key)
             resolve_binding(binding, parent, bindings, errors, seen, source_plane)
         return
-    if isinstance(value, (ListNode, TupleLiteral)):
-        elements = value.elements
+    if isinstance(value, (ListNode, TupleLiteral, NodeLiteral)):
+        elements = value.children if isinstance(value, NodeLiteral) else value.elements
         for index, element in enumerate(elements):
             element_value = unwrap_typed_value(element)
-            element_datatype = format_datatype(element.datatype) if isinstance(element, TypedValue) else None
+            element_datatype = format_datatype(element.datatype) if isinstance(element, (TypedValue, NodeLiteral)) else None
             element_annotations = build_annotations(element.attributes) if isinstance(element, TypedValue) else None
             element_path = extend_index(parent, index)
             path_str = format_path(element_path)
@@ -863,38 +860,12 @@ def resolve_value(value: Value, parent: CanonicalPath, bindings: list[ResolvedBi
                     span=element.span,
                     datatype=element_datatype,
                     annotations=element_annotations,
-                    structural_id=element.structural_id if isinstance(element, TypedValue) else None,
+                    structural_id=element.structural_id if isinstance(element, (TypedValue, NodeLiteral)) else None,
                     source_plane=source_plane,
                 )
             )
             resolve_value(element_value, element_path, bindings, errors, seen, source_plane)
         return
-    if isinstance(value, NodeLiteral):
-        for index, child in enumerate(value.children):
-            child_value = unwrap_typed_value(child)
-            child_datatype = format_datatype(child.datatype) if isinstance(child, TypedValue) else None
-            child_annotations = build_annotations(child.attributes) if isinstance(child, TypedValue) else None
-            child_path = extend_index(parent, index)
-            path_str = format_path(child_path)
-            registry_key = (source_plane, path_str)
-            if registry_key in seen:
-                errors.append(DuplicateCanonicalPathError(path_str, child.span))
-                continue
-            seen.add(registry_key)
-            bindings.append(
-                ResolvedBinding(
-                    path=child_path,
-                    key=str(index),
-                    value=child_value,
-                    span=child.span,
-                    datatype=child_datatype,
-                    annotations=child_annotations,
-                    structural_id=child.structural_id if isinstance(child, TypedValue) else None,
-                    source_plane=source_plane,
-                )
-            )
-            resolve_value(child_value, child_path, bindings, errors, seen, source_plane)
-
 
 def build_annotations(attributes: list[Attribute]) -> dict[str, dict[str, object]] | None:
     if not attributes:
@@ -1027,11 +998,20 @@ def enforce_mode(
     for binding in bindings:
         if should_skip_header_binding_for_mode(document, binding):
             continue
-        last_segment = binding.path.segments[-1]
-        if last_segment.type == "index" and binding.datatype is None:
-            continue
+        path = format_path(binding.path)
+        is_node = isinstance(binding.value, NodeLiteral)
+        errors.extend(validate_annotation_entries(
+            binding.annotations, path, binding.span, lookup, mode, effective_policy, terminal_values,
+        ))
+        if is_node:
+            errors.extend(validate_annotation_entries(
+                build_annotations(binding.value.attributes), path, binding.span, lookup, mode, effective_policy, terminal_values,
+            ))
+            if mode == "strict" and binding.datatype is not None and datatype_base(binding.datatype) != "node":
+                errors.append(InvalidNodeDatatypeError(path, binding.datatype, binding.span))
+                continue
         if binding.datatype is None:
-            if mode in {"strict", "custom"}:
+            if not is_node and binding.path.segments[-1].type != "index" and mode in {"strict", "custom"}:
                 if mode == "strict" and value_kind(binding.value) == "ToggleLiteral":
                     errors.append(UntypedToggleLiteralError(format_path(binding.path), binding.span))
                 else:
@@ -1076,85 +1056,6 @@ def enforce_mode(
                     binding.span,
                 )
             )
-        errors.extend(
-            validate_annotation_entries(
-                binding.annotations,
-                format_path(binding.path),
-                binding.span,
-                lookup,
-                mode,
-                effective_policy,
-                terminal_values,
-            )
-        )
-        errors.extend(validate_node_head_datatypes(binding.value, format_path(binding.path), binding.span, mode))
-        errors.extend(validate_anonymous_typed_values(binding.value, format_path(binding.path), binding.span, lookup, mode, effective_policy, custom_datatype_kinds))
-    return errors
-
-
-def validate_anonymous_typed_values(
-    value: Value,
-    owner_path: str,
-    span: Span,
-    lookup: dict[str, ResolvedBinding],
-    mode: str,
-    effective_policy: str,
-    custom_datatype_kinds: Callable[[str], tuple[str, ...] | None] | None,
-) -> list[AeonError]:
-    errors: list[AeonError] = []
-    if isinstance(value, TypedValue):
-        datatype = format_datatype(value.datatype)
-        if datatype is not None and value.value is not None:
-            expected = expected_kinds_for_reserved_datatype(datatype)
-            actual_value = resolve_reference_value(value.value, lookup) or value.value
-            actual_kind = datatype_value_kind(datatype, actual_value)
-            if datatype_base(datatype) == "switch" and actual_kind == "ToggleLiteral":
-                errors.append(CustomToggleAliasNotAllowedError(owner_path, datatype, value.span or span))
-            elif mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
-                errors.append(CustomDatatypeNotAllowedError(owner_path, datatype, value.span or span))
-            else:
-                if mode == "strict" and expected is None and actual_kind == "ToggleLiteral":
-                    errors.append(CustomToggleAliasNotAllowedError(owner_path, datatype, value.span or span))
-                elif expected is not None and actual_kind not in expected:
-                    errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, expected, value.span or span))
-                elif expected is None and custom_datatype_kinds:
-                    custom_expected = custom_datatype_kinds(datatype)
-                    if custom_expected is not None and actual_kind not in custom_expected:
-                        errors.append(DatatypeLiteralMismatchError(owner_path, datatype, actual_kind, custom_expected, value.span or span))
-        if value.value is not None:
-            errors.extend(validate_anonymous_typed_values(value.value, owner_path, span, lookup, mode, effective_policy, custom_datatype_kinds))
-        return errors
-    if isinstance(value, ObjectNode):
-        for binding in value.bindings:
-            errors.extend(validate_anonymous_typed_values(binding.value, f"{owner_path}.{binding.key}", span, lookup, mode, effective_policy, custom_datatype_kinds))
-        return errors
-    if isinstance(value, (ListNode, TupleLiteral)):
-        for index, element in enumerate(value.elements):
-            errors.extend(validate_anonymous_typed_values(element, f"{owner_path}[{index}]", span, lookup, mode, effective_policy, custom_datatype_kinds))
-        return errors
-    if isinstance(value, NodeLiteral):
-        for index, child in enumerate(value.children):
-            errors.extend(validate_anonymous_typed_values(child, f"{owner_path}[{index}]", span, lookup, mode, effective_policy, custom_datatype_kinds))
-    return errors
-
-
-def validate_node_head_datatypes(value: Value, owner_path: str, span: Span, mode: str) -> list[AeonError]:
-    value = unwrap_typed_value(value)
-    errors: list[AeonError] = []
-    if isinstance(value, NodeLiteral):
-        head_datatype = format_datatype(value.datatype)
-        if mode == "strict" and head_datatype is not None and value.datatype is not None and value.datatype.name != "node":
-            errors.append(InvalidNodeHeadDatatypeError(owner_path, head_datatype, span))
-        for index, child in enumerate(value.children):
-            errors.extend(validate_node_head_datatypes(child, f"{owner_path}[{index}]", span, mode))
-        return errors
-    if isinstance(value, ObjectNode):
-        for binding in value.bindings:
-            errors.extend(validate_node_head_datatypes(binding.value, f"{owner_path}.{binding.key}", span, mode))
-        return errors
-    if isinstance(value, (ListNode, TupleLiteral)):
-        for index, element in enumerate(value.elements):
-            errors.extend(validate_node_head_datatypes(element, f"{owner_path}[{index}]", span, mode))
     return errors
 
 
@@ -1176,6 +1077,7 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
     candidates: dict[tuple[str, str], tuple[int, list[object], int]] = {}
     payloads: dict[str, tuple[str, int]] = {}
     claims: list[tuple[CloneReference | PointerReference, list[object], int]] = []
+    errors: list[AeonError] = []
     ordinal = 0
     plane = "body"
     event_index = 0
@@ -1204,8 +1106,7 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
         if isinstance(value, (ObjectNode, ListNode, TupleLiteral)):
             raw_attributes(value.attributes, path, targetable, owner)
         elif isinstance(value, NodeLiteral):
-            # The implicit node head is not source-addressable in AEON v1.
-            raw_attributes(value.attributes, path, False, owner)
+            raw_attributes(value.attributes, path, targetable, owner)
         if isinstance(value, (CloneReference, PointerReference)):
             claims.append((value, path if targetable else owner, ordinal))
             ordinal += 1
@@ -1215,12 +1116,15 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
         if not descend:
             return
         if isinstance(value, ObjectNode):
-            seen: set[str] = set()
+            seen: dict[str, Binding] = {}
             for binding in value.bindings:
-                if binding.key in seen:
-                    continue
-                seen.add(binding.key)
                 child = [*path, binding.key]
+                first = seen.get(binding.key)
+                if first is not None:
+                    if isinstance(first.value, NodeLiteral) or isinstance(binding.value, NodeLiteral):
+                        errors.append(DuplicateCanonicalPathError(format_reference_target_path(child), binding.span))
+                    continue
+                seen[binding.key] = binding
                 raw_attributes(binding.attributes, child, targetable, child if targetable else owner)
                 headed(binding.value, child, targetable=targetable, owner=child if targetable else owner)
         elif isinstance(value, (ListNode, TupleLiteral, NodeLiteral)):
@@ -1255,7 +1159,6 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
                 targets[key] = target_ordinal
             break
 
-    errors: list[AeonError] = []
     for reference, path, source_index in claims:
         source_path = format_reference_target_path(path)
         target_path = format_reference_target_path(reference.path)
@@ -1322,34 +1225,66 @@ def validate_annotation_entries(
     effective_policy: str,
     terminal_values: dict[int, Value],
 ) -> list[AeonError]:
-    if annotations is None:
-        return []
     errors: list[AeonError] = []
-    for key, entry in annotations.items():
-        attr_path = f"{owner_path}.@.{key}"
-        datatype = entry.get("datatype")
-        value = entry.get("value")
-        if not isinstance(datatype, str) and mode in {"strict", "custom"} and value is not None and hasattr(value, "type"):
-            actual_kind = value_kind(resolve_reference_value(value, lookup) or value)
-            if mode == "strict" and actual_kind == "ToggleLiteral":
-                errors.append(UntypedToggleLiteralError(attr_path, span))
-            else:
-                errors.append(UntypedValueInStrictModeError(attr_path, span))
-        elif isinstance(datatype, str):
-            expected = expected_kinds_for_reserved_datatype(datatype)
-            if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
-                errors.append(CustomDatatypeNotAllowedError(attr_path, datatype, span))
-            else:
-                if expected is not None and value is not None and hasattr(value, "type"):
-                    actual_kind = datatype_check_kind(value, lookup, datatype, terminal_values)
-                    if actual_kind not in expected:
-                        errors.append(DatatypeLiteralMismatchError(attr_path, datatype, actual_kind, expected, span))
-        value = entry.get("value")
-        if isinstance(value, (ObjectNode, ListNode, TupleLiteral, NodeLiteral)):
-            errors.extend(validate_node_head_datatypes(value, attr_path, span, mode))
-        nested = entry.get("annotations")
-        if isinstance(nested, dict):
-            errors.extend(validate_annotation_entries(nested, attr_path, span, lookup, mode, effective_policy, terminal_values))
+
+    def claim(value: Value, datatype: str | None, path: str, location: Span, *, named: bool) -> None:
+        if isinstance(value, NodeLiteral):
+            datatype = format_datatype(value.datatype)
+            if datatype is not None and mode == "strict" and datatype_base(datatype) != "node":
+                errors.append(InvalidNodeDatatypeError(path, datatype, location))
+                return
+        if datatype is None:
+            if named and not isinstance(value, NodeLiteral) and mode in {"strict", "custom"}:
+                if mode == "strict" and value_kind(value) == "ToggleLiteral":
+                    errors.append(UntypedToggleLiteralError(path, location))
+                else:
+                    errors.append(UntypedValueInStrictModeError(path, location))
+            return
+        expected = expected_kinds_for_reserved_datatype(datatype)
+        if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
+            errors.append(CustomDatatypeNotAllowedError(path, datatype, location))
+        elif expected is not None:
+            actual = datatype_check_kind(value, lookup, datatype, terminal_values)
+            if actual not in expected:
+                errors.append(DatatypeLiteralMismatchError(path, datatype, actual, expected, location))
+
+    def entries(items: dict[str, dict[str, object]] | None, owner: str, location: Span) -> None:
+        for key, entry in (items or {}).items():
+            path = owner + ".@" + format_reference_target_path([key])[1:]
+            value = entry["value"]
+            entry_span = entry.get("span") or location
+            claim(value, entry.get("datatype"), path, entry_span, named=True)
+            walk(value, path, entry_span, node_payload=False)
+            entries(entry.get("annotations"), path, entry_span)
+
+    def walk(value: Value, path: str, location: Span, *, node_payload: bool) -> None:
+        if isinstance(value, TypedValue):
+            if node_payload:
+                claim(value.value, format_datatype(value.datatype), path, value.span or location, named=False)
+            entries(build_annotations(value.attributes), path, location)
+            walk(value.value, path, location, node_payload=node_payload)
+        elif isinstance(value, NodeLiteral):
+            entries(build_annotations(value.attributes), path, location)
+            for index, child in enumerate(value.children):
+                child_path = f"{path}[{index}]"
+                if isinstance(child, NodeLiteral):
+                    claim(child, None, child_path, child.span or location, named=False)
+                walk(child, child_path, child.span or location, node_payload=True)
+        elif isinstance(value, ObjectNode):
+            for binding in value.bindings:
+                member = path + format_reference_target_path([binding.key])[1:]
+                if node_payload or isinstance(binding.value, NodeLiteral):
+                    claim(binding.value, format_datatype(binding.datatype), member, binding.span, named=node_payload)
+                entries(build_annotations(binding.attributes), member, binding.span)
+                walk(binding.value, member, binding.span, node_payload=node_payload)
+        elif isinstance(value, (ListNode, TupleLiteral)):
+            for index, child in enumerate(value.elements):
+                child_path = f"{path}[{index}]"
+                if isinstance(child, NodeLiteral):
+                    claim(child, None, child_path, child.span or location, named=False)
+                walk(child, child_path, child.span or location, node_payload=node_payload)
+
+    entries(annotations, owner_path, span)
     return errors
 
 
@@ -1390,8 +1325,8 @@ def resolve_reference_subpath(
     remainder: list[object],
     lookup: dict[str, ResolvedBinding],
 ) -> Value | None:
+    context_annotations = select_annotations(annotations, value)
     context_value = unwrap_typed_value(value)
-    context_annotations = select_annotations(annotations, context_value)
     for segment in remainder:
         if isinstance(segment, AttributePathSegment):
             if context_annotations is None or segment.key not in context_annotations:
@@ -1418,8 +1353,8 @@ def resolve_reference_subpath(
                 return None
             if segment < 0 or segment >= len(elements):
                 return None
+            context_annotations = select_annotations(None, elements[segment])
             context_value = unwrap_typed_value(elements[segment])
-            context_annotations = select_annotations(None, context_value)
             continue
         return None
     return context_value
@@ -1864,7 +1799,7 @@ def reference_path_to_json(path: list[object]) -> list[object]:
 
 
 def is_identifier_safe(value: str) -> bool:
-    if not value:
+    if not value or not value.isascii():
         return False
     if not (value[0].isalpha() or value[0] == "_"):
         return False

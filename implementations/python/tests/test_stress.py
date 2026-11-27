@@ -29,6 +29,12 @@ class TestAlgorithmicStress(unittest.TestCase):
         self.assertEqual([], result.events)
         self.assertEqual(["NESTING_DEPTH_EXCEEDED"], [error.code for error in result.errors])
 
+    def test_named_object_nesting_reaches_the_default_limit(self):
+        for depth, expected in ((256, []), (257, ["NESTING_DEPTH_EXCEEDED"])):
+            source = "child={" * depth + "leaf=1" + "}" * depth
+            result = compile_source(source)
+            self.assertEqual(expected, [error.code for error in result.errors])
+
     def test_parse_rejects_unsafe_requested_max_nesting_depth(self):
         depth = 1200
         source = f"k = {'[' * depth}0{']' * depth}"

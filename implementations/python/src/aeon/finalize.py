@@ -8,6 +8,8 @@ from typing import Iterable
 from ._compat import dataclass
 from ._numbers import format_clarifier
 from ._radix import radix_digit_value, resolve_radix_base_from_datatype
+from .portable import format_reference_target
+from .telex import parse_canonical_path
 MAX_SAFE_INTEGER = 9007199254740991
 RESERVED_OBJECT_KEYS = {"@", "$", "$node", "$children", "__proto__", "constructor", "prototype"}
 
@@ -31,8 +33,8 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
     projection = Projection(opts.materialization, opts.include_paths)
     errors: list[dict[str, object]] = []
     warnings: list[dict[str, object]] = []
-    path_values = {
-        event["path"]: event["value"]
+    path_events = {
+        event["path"]: event
         for event in aes
         if isinstance(event, dict)
         and isinstance(event.get("path"), str)
@@ -43,7 +45,7 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
         projection=projection,
         errors=errors,
         warnings=warnings,
-        path_values=path_values,
+        path_events=path_events,
         max_materialized_weight=opts.max_materialized_weight,
         max_reference_depth=opts.max_reference_depth,
         materialized_weight=0,
@@ -130,7 +132,7 @@ class JsonContext:
     projection: Projection
     errors: list[dict[str, object]]
     warnings: list[dict[str, object]]
-    path_values: dict[str, dict[str, object]]
+    path_events: dict[str, dict[str, object]]
     max_materialized_weight: int | None
     max_reference_depth: int | None
     materialized_weight: int
@@ -420,13 +422,13 @@ def object_to_json(bindings: list[object], ctx: JsonContext, base_path: str) -> 
 
 def node_to_json(node: dict[str, object], ctx: JsonContext, path: str) -> dict[str, object]:
     result = {"$node": node.get("tag")}
-    attr_json = attributes_to_json(node.get("attributes"), ctx, path + ".@")
+    attr_json = attributes_to_json(node.get("attributes"), ctx, path)
     if attr_json:
         result["@"] = attr_json
     children = node.get("children")
     if isinstance(children, list):
         result["$children"] = [
-            value_to_json(child, ctx, f"{path}<{index}>")
+            value_to_json(child, ctx, f"{path}[{index}]")
             for index, child in enumerate(children)
         ]
     else:
@@ -490,14 +492,77 @@ def reference_to_json(prefix: str, value: dict[str, object], ctx: JsonContext, p
 
 def resolve_clone_reference(value: dict[str, object], ctx: JsonContext) -> tuple[str, dict[str, object]] | None:
     target_path = reference_target_path(value.get("path"))
-    resolved = ctx.path_values.get(target_path)
-    if not isinstance(resolved, dict):
+    resolved = reference_target_value(target_path, ctx)
+    return (target_path, resolved) if resolved is not None else None
+
+
+def reference_target_value(path: str, ctx: JsonContext) -> dict[str, object] | None:
+    event = ctx.path_events.get(path)
+    if event is not None:
+        return event["value"]
+    if ".@." not in path:
         return None
-    return target_path, resolved
+    try:
+        details = parse_canonical_path(path)
+    except ValueError:
+        return None
+    for index in range(len(details.prefixes) - 2, -1, -1):
+        event = ctx.path_events.get(details.prefixes[index])
+        if event is not None:
+            return descend_value(event, details.segments[index + 1:])
+    return None
+
+
+def descend_value(carrier: dict[str, object], segments: list[tuple[str, str | int]]) -> dict[str, object] | None:
+    value = carrier.get("value")
+    for role, key in segments:
+        if not isinstance(value, dict):
+            return None
+        if role == "attribute":
+            entry = raw_attribute_entry(carrier, key) or raw_attribute_entry(value, key)
+            if entry is None:
+                return None
+            carrier = entry
+            value = entry.get("value")
+            continue
+        if value.get("type") == "TypedValue":
+            value = value.get("value")
+            if not isinstance(value, dict):
+                return None
+        if role == "index":
+            children = value.get("children" if value.get("type") == "NodeLiteral" else "elements")
+            if not isinstance(children, list) or not isinstance(key, int) or key >= len(children):
+                return None
+            value = children[key]
+            carrier = {}
+        else:
+            bindings = value.get("bindings")
+            member = next(
+                (binding for binding in bindings if isinstance(binding, dict) and binding.get("key") == key),
+                None,
+            ) if isinstance(bindings, list) else None
+            if member is None:
+                return None
+            carrier = member
+            value = member.get("value")
+    return value if isinstance(value, dict) else None
+
+
+def raw_attribute_entry(owner: dict[str, object], key: str | int) -> dict[str, object] | None:
+    annotations = owner.get("annotations")
+    if isinstance(annotations, dict) and isinstance(annotations.get(key), dict):
+        return annotations[key]
+    attributes = owner.get("attributes")
+    if isinstance(attributes, list):
+        for block in attributes:
+            entries = block.get("entries") if isinstance(block, dict) else None
+            if isinstance(entries, dict) and isinstance(entries.get(key), dict):
+                return entries[key]
+    return None
 
 
 def reference_target_path(path: object) -> str:
-    return "$" + ("." + format_reference_path(path) if format_reference_path(path) else "")
+    return format_reference_target(path)
 
 
 def consume_clone_budget(
@@ -561,7 +626,7 @@ def measure_materialized_weight(
         cached = ctx.materialized_weight_cache.get(target_path)
         if cached is not None:
             return cached
-        resolved = ctx.path_values.get(target_path)
+        resolved = reference_target_value(target_path, ctx)
         if not isinstance(resolved, dict):
             return 1
         next_stack = set(stack)
@@ -597,7 +662,7 @@ def measure_materialized_weight(
         children_weight = 0
         if isinstance(children, list):
             children_weight = sum(
-                measure_materialized_weight(child, ctx, f"{current_path}<{index}>", stack)
+                measure_materialized_weight(child, ctx, f"{current_path}[{index}]", stack)
                 for index, child in enumerate(children)
                 if isinstance(child, dict)
             )
@@ -719,7 +784,7 @@ def escape_string(value: str) -> str:
 
 
 def is_identifier_safe(value: str) -> bool:
-    if not value:
+    if not value or not value.isascii():
         return False
     if not (value[0].isalpha() or value[0] == "_"):
         return False

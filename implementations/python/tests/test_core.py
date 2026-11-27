@@ -34,14 +34,14 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
 
     def test_structural_identity_is_preserved_on_attribute_entry_and_node_heads(self) -> None:
-        result = compile_source('value@{source\\META\\:string = "user"} = <tag\\HEAD\\>')
+        result = compile_source('<value\\HEAD\\@{source\\META\\:string = "user"}>')
         self.assertEqual([], result.errors)
         event = result.internal_events[0]
-        self.assertEqual("META", event["annotations"]["source"]["structuralId"])
+        self.assertEqual("META", event["value"]["attributes"][0]["entries"]["source"]["structuralId"])
         self.assertEqual("HEAD", event["value"]["structuralId"])
 
     def test_structural_identity_must_be_unique_across_attribute_and_node_heads(self) -> None:
-        result = compile_source('value@{source\\same\\ = "user"} = <tag\\same\\>')
+        result = compile_source('<value\\same\\@{source\\same\\ = "user"}>')
         self.assertEqual(["DUPLICATE_STRUCTURAL_IDENTITY"], [error.code for error in result.errors])
 
     def test_structural_identity_rejects_invalid_characters_and_wrong_order(self) -> None:
@@ -62,12 +62,21 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual('$.["a.b"]', result.events[0]["path"])
 
+    def test_node_and_ordinary_keys_collide_in_metadata_objects(self) -> None:
+        for members in ("<doc>, doc=1", "doc=1, <doc>"):
+            result = compile_source("owner@{meta={" + members + "}}=0")
+            self.assertEqual([], result.events)
+            self.assertEqual(
+                [("DUPLICATE_KEY", "$.owner.@.meta.doc")],
+                [(error.code, error.path) for error in result.errors],
+            )
+
     def test_literal_words_parse_as_keys_in_key_contexts(self) -> None:
         result = compile_source(
             'yes:string = "top"\n'
             'copy:string = ~yes\n'
             'true@{no:string = "attr"}:string = "named true"\n'
-            'node:node = <on(off)>\n'
+            '<on:node(off)>\n'
             'group:object = {\n'
             '  false:boolean = true\n'
             '  off:toggle = yes\n'
@@ -79,7 +88,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertIn("$.copy", by_path)
         self.assertIn("$.true", by_path)
         self.assertIn("no", by_path["$.true"]["annotations"])
-        self.assertEqual("NodeLiteral", by_path["$.node"]["value"]["type"])
+        self.assertEqual("NodeLiteral", by_path["$.on"]["value"]["type"])
         self.assertIn("$.group.false", by_path)
         self.assertIn("$.group.off", by_path)
 
@@ -112,7 +121,7 @@ class CoreCompileTests(unittest.TestCase):
             "a:sansa = $.name/* block */\n"
             "b:sansa = $.name// line\n"
             "c:list = [$.name]\n"
-            "d:node = <tag($.name)>\n"
+            "<d:node($.name)>\n"
             "e:tuple = ($.name)\n"
             'f:sansa = $.items.("item_*")'
         )
@@ -184,7 +193,7 @@ class CoreCompileTests(unittest.TestCase):
         result = compile_source(
             'values:list = [:int32 = 3, :string = "4"]\n'
             'pair:tuple = (:float64 = 10.5, :float64 = 2.0)\n'
-            'page:node = <page(:string = "hello", <tag>, :int32 = 3)>'
+            '<page:node(:string = "hello", <tag>, :int32 = 3)>'
         )
         self.assertEqual([], result.errors)
         by_path = {event["path"]: event for event in result.events}
@@ -198,7 +207,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("int32", by_path["$.page[2]"]["datatype"])
 
     def test_node_children_emit_indexed_paths_and_descendants(self) -> None:
-        result = compile_source('page:node = <page({a:n = 1, b:n = 2}, "hello")>')
+        result = compile_source('<page:node({a:n = 1, b:n = 2}, "hello")>')
         self.assertEqual([], result.errors)
         by_path = {event["path"]: event for event in result.events}
         self.assertIn("$.page", by_path)
@@ -208,12 +217,12 @@ class CoreCompileTests(unittest.TestCase):
         self.assertIn("$.page[1]", by_path)
 
     def test_references_resolve_through_node_child_indexes(self) -> None:
-        result = compile_source('page:node = <page({a:n = 1})>\ncopy:n = ~page[0].a')
+        result = compile_source('<page:node({a:n = 1})>\ncopy:n = ~page[0].a')
         self.assertEqual([], result.errors)
         self.assertIn("$.copy", {event["path"] for event in result.events})
 
     def test_anonymous_attributed_values_emit_indexed_annotations(self) -> None:
-        result = compile_source('page:node = <page(@{unit:string="cm"}:int32 = 3)>\nvalues:list = [@{unit:string="cm"} = 4]')
+        result = compile_source('<page:node(@{unit:string="cm"}:int32 = 3)>\nvalues:list = [@{unit:string="cm"} = 4]')
         self.assertEqual([], result.errors)
         by_path = {event["path"]: event for event in result.events}
         self.assertEqual("int32", by_path["$.page[0]"]["datatype"])
@@ -241,7 +250,7 @@ class CoreCompileTests(unittest.TestCase):
             ":n = 3",
             "a:n = :n = 3",
             "a:list = [:n = :n = 3]",
-            "a:node = <tag(:n = :n = 3)>",
+            "<a:node(:n = :n = 3)>",
             "a:object = { :n = 3 }",
             "a:list[ :n = :n = 3 ]",
             "a:list[ n = 3 ]",
@@ -256,7 +265,7 @@ class CoreCompileTests(unittest.TestCase):
     def test_rejects_repeated_head_attribute_blocks(self) -> None:
         for source in [
             "a@{unit:n=3}@{precision:n=2}:n = 3",
-            "n:node = <a@{unit:n=3}@{precision:n=2}:node>",
+            "<n@{unit:n=3}@{precision:n=2}:node>",
         ]:
             with self.subTest(source=source):
                 result = compile_source(source)
@@ -401,6 +410,8 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_profiles_own_datatype_adornment_rules(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[3] / "test-fixtures/gp-datatype-generics.json").read_text())
+        revised = {case["id"]: case for case in json.loads((Path(__file__).resolve().parents[3] / "test-fixtures/gp-datatype-generics-tagged-nodes.json").read_text())}
+        fixtures = [revised.get(case["id"], case) for case in fixtures]
         for fixture in fixtures:
             source = fixture["source"]
             with self.subTest(source=source):
@@ -419,14 +430,14 @@ class CoreCompileTests(unittest.TestCase):
     def test_gp_checks_unicode_names_in_nested_datatype_descriptors(self) -> None:
         options = CompileOptions(profile="aeon.gp.profile.v1")
         for label in ("French", "Français", "Étage_٢"):
-            for source, path in (
-                (f'a:string<{label}> = "hello"', "$.a"),
-                (f'a:node = <tag:pair<{label}>>', "$.a[0]"),
+            for source, code in (
+                (f'a:string<{label}> = "hello"', "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED"),
+                (f'<a:pair<{label}>>', "DATATYPE_LITERAL_MISMATCH"),
             ):
                 with self.subTest(source=source):
                     self.assertEqual([], compile_source(source).errors)
                     self.assertEqual(
-                        [("PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", path)],
+                        [(code, "$.a")],
                         [(error.code, error.path) for error in compile_source(source, options).errors],
                     )
             self.assertEqual([], compile_source(f'duration:symbol<{label}> = |1min|', options).errors)
@@ -453,7 +464,7 @@ class CoreCompileTests(unittest.TestCase):
 
     def test_parameterized_object_and_node_claims_are_preserved(self) -> None:
         result = compile_source(
-            'scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity'
+            'scores:object<number> = { alice:number = 10 }\n<doc:node<html>>\n<child:node<node>>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity'
         )
         self.assertEqual([], result.errors)
         self.assertEqual("object<number>", result.events[0]["datatype"])
@@ -464,7 +475,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual("infinity<speedofmass>", result.events[6]["datatype"])
 
     def test_core_preserves_reserved_child_datatypes_in_binding_node_claims(self) -> None:
-        result = compile_source("tag:node<string> = <tag>")
+        result = compile_source("<tag:node<string>>")
         self.assertEqual([], result.errors)
         self.assertEqual("node<string>", result.events[0]["datatype"])
 
@@ -742,11 +753,11 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual(["INVALID_DATETIME"], [error.code for error in result.errors])
 
     def test_strict_mode_rejects_non_node_inline_node_head_datatypes(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>')
-        self.assertEqual(["INVALID_NODE_HEAD_DATATYPE"], [error.code for error in result.errors])
+        result = compile_source('aeon:mode = "strict"\n<widget:contact("x")>')
+        self.assertEqual(["INVALID_NODE_DATATYPE"], [error.code for error in result.errors])
 
     def test_strict_mode_allows_node_inline_node_head_datatype(self) -> None:
-        result = compile_source('aeon:mode = "strict"\nwidget:node = <tag:node("x")>')
+        result = compile_source('aeon:mode = "strict"\n<widget:node("x")>')
         self.assertEqual([], result.errors)
 
     def test_strict_mode_accepts_embed_and_inline_as_reserved_encoding_aliases(self) -> None:
@@ -756,16 +767,16 @@ class CoreCompileTests(unittest.TestCase):
                 self.assertEqual([], result.errors)
 
     def test_transport_mode_allows_custom_inline_node_head_datatype(self) -> None:
-        result = compile_source('aeon:mode = "transport"\nwidget:node = <tag:pair("x", "y")>')
+        result = compile_source('aeon:mode = "transport"\n<widget:pair("x", "y")>')
         self.assertEqual([], result.errors)
 
     def test_custom_mode_allows_custom_inline_node_head_datatype(self) -> None:
-        result = compile_source('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>')
+        result = compile_source('aeon:mode = "custom"\n<widget:pair("x", "y")>')
         self.assertEqual([], result.errors)
 
     def test_parameterized_node_head_claims_are_preserved_without_core_enforcement(self) -> None:
         result = compile_source(
-            'aeon:mode = "strict"\ntitle:node = <title:node<string>(<span("hello")>)>'
+            'aeon:mode = "strict"\n<title:node<string>(<span("hello")>)>'
         )
         self.assertEqual([], result.errors)
         node_value = result.events[0]["value"]
@@ -773,7 +784,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual(["string"], node_value["datatype"]["genericArgs"])
 
     def test_core_preserves_generic_inline_node_head_datatypes(self) -> None:
-        result = compile_source('widget:node = <tag:pair<int32,string>["x"]("x")>')
+        result = compile_source('<widget:pair<int32,string>["x"]("x")>')
         self.assertEqual([], result.errors)
         datatype = result.events[0]["value"]["datatype"]
         self.assertEqual("pair", datatype["name"])
@@ -1128,7 +1139,7 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual('"hello world"|"this, [is] fine"', result.events[0]["value"]["value"])
 
     def test_separator_literals_reject_raw_spaces(self) -> None:
-        result = compile_source("n:node = <b(^aaa bbb)>")
+        result = compile_source("<n:node(^aaa bbb)>")
         self.assertEqual(["SYNTAX_ERROR"], [error.code for error in result.errors])
 
     def test_separator_literals_reject_raw_slashes(self) -> None:

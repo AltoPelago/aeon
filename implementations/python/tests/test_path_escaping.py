@@ -80,12 +80,12 @@ class PathEscapingTests(unittest.TestCase):
             with self.subTest(key=repr(key)):
                 quoted = json.dumps(key, ensure_ascii=False)
                 path = f"$.[{quoted}]"
-                source = f'{quoted}=<outer(<inner("leaf")>)>\ncopy=~[{quoted}][0][0]'
+                source = f'<{quoted}(<inner("leaf")>)>\ncopy=~[{quoted}][0][0]'
                 compiled = self.compile(source)
                 converted = adapt_python_assignment_events_to_portable_aes(compiled.events, source_bytes=source.encode("utf-8"))
                 records = converted["events"]
-                self.assertEqual(f"{path}[0][0][0][0]", records[-1]["value"])
-                self.assertIn(f"{path}[0][0][0][0]", [event["path"] for event in records])
+                self.assertEqual(f"{path}[0][0]", records[-1]["value"])
+                self.assertIn(f"{path}[0][0]", [event["path"] for event in records])
                 encoded = export_telex(compiled.events, source_bytes=source.encode("utf-8"))
                 self.assertTrue(validate_telex(encoded)["valid"])
                 self.assertEqual(records, parse_telex(encoded).records)
@@ -119,8 +119,8 @@ class PathEscapingTests(unittest.TestCase):
                 self.assertEqual(["MAX_PATH_CHARACTERS_EXCEEDED"], [error.code for error in rejected.errors])
                 self.assertEqual([], rejected.events)
 
-    def test_existing_identifier_unicode_and_ordinary_quoted_paths_stay_stable(self):
-        for key, expected in (("name", "$.name"), ("café", "$.café"), ("a.b", '$.["a.b"]')):
+    def test_native_and_portable_share_canonical_member_spelling(self):
+        for key, expected in (("name", "$.name"), ("café", '$.["café"]'), ("a.b", '$.["a.b"]')):
             with self.subTest(key=key):
                 compiled = self.compile(f"{json.dumps(key)}=1")
                 self.assertEqual(expected, compiled.events[0]["path"])

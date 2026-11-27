@@ -29,7 +29,7 @@ class NumericClarifierTests(unittest.TestCase):
 
     def test_generic_arguments_are_types_not_numeric_or_string_literals(self) -> None:
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/datatype-generic-arguments.json").read_text())
-        fixtures += json.loads((ROOT.parents[1] / "test-fixtures/node-binding-generics.json").read_text())
+        fixtures += json.loads((ROOT.parents[1] / "test-fixtures/node-binding-generics-tagged-nodes.json").read_text())
         for fixture in fixtures:
             source = fixture["source"]
             with self.subTest(source=source):
@@ -83,7 +83,7 @@ class NumericClarifierTests(unittest.TestCase):
                 f"x@{{n:custom[{raw}]={raw}}}=0",
                 f"x=[:custom[{raw}]={raw}]",
                 f"x=(:custom[{raw}]={raw})",
-                f"x=<tag(:custom[{raw}]={raw})>",
+                f"<x(:custom[{raw}]={raw})>",
                 f"x:list<custom[{raw}]>=[{raw}]",
                 f"aeon:header={{x:custom[{raw}]={raw}}}",
             ]

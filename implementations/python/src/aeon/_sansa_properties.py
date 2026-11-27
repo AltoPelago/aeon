@@ -5,7 +5,6 @@ property capabilities. No frame, counter or mutable session is returned.
 """
 from types import MappingProxyType
 import math
-from inspect import getattr_static
 
 MAX_SELECTORS = 256
 MAX_ARGUMENT_SCALARS = 4096
@@ -89,11 +88,11 @@ def prepare(namespace, selectors):
         property = selector["property"]
         if type(facet) is not dict or not callable(facet.get("scope")):
             return None, error("SANSA_RESOLVE_UNSUPPORTED_PROPERTY_SCOPE", index, property)
-        required = ["key"] if property == "key" else ["nodeKind", "nodeTag", "nodeHeads"]
+        required = ["key"] if property == "key" else ["nodeKind", "nodeTag"]
         if any(not callable(facet.get(name)) for name in required):
             return None, error("SANSA_RESOLVE_UNSUPPORTED_KEY" if property == "key" else "SANSA_RESOLVE_UNSUPPORTED_TAG", index, property)
     # Hold the selected callbacks, not a mutable caller-owned facet lookup table.
-    return {name: facet.get(name) for name in ["scope", "key", "nodeKind", "nodeTag", "nodeHeads"]}, None
+    return {name: facet.get(name) for name in ["scope", "key", "nodeKind", "nodeTag"]}, None
 
 
 def _charge(budget, index, property):
@@ -115,18 +114,8 @@ def _authorize(binding, context, facet, index, property):
     return role, None
 
 
-def _tag(binding, context, facet, index, property):
-    kind = facet["nodeKind"](binding, context)
-    if type(kind) is not str or kind not in {"NodeLiteral", "NodeHead", "Other"}:
-        return None, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
-    return kind, None
-
-
 def select(binding, context, facet, selector, index, budget):
     property, expected = selector["property"], selector["value"]
-    iterator = None
-    exhausted = False
-    result = (False, None)
     try:
         issue = _charge(budget, index, property)
         if issue is not None:
@@ -138,65 +127,20 @@ def select(binding, context, facet, selector, index, budget):
             if role == "root":
                 return False, None
             value = facet["key"](binding, context)
-            if value is not None and not scalar(value):
+        else:
+            kind = facet["nodeKind"](binding, context)
+            if type(kind) is not str or kind not in {"NodeLiteral", "Other"}:
                 return False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
-            return value == expected, None
-        kind, issue = _tag(binding, context, facet, index, property)
-        if issue is not None or kind == "Other":
-            return False, issue
-        if property == "headTag":
-            if kind != "NodeHead":
+            if kind == "Other":
                 return False, None
             value = facet["nodeTag"](binding, context)
-            if value is not None and not scalar(value):
+            if not scalar(value) or not value:
                 return False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
-            return value == expected, None
-        if kind != "NodeLiteral":
-            return False, None
-        heads = facet["nodeHeads"](binding, context)
-        try:
-            iterator = iter(heads)
-        except TypeError:
-            if getattr_static(type(heads), "__iter__", None) is None and getattr_static(type(heads), "__getitem__", None) is None:
-                return False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
-            raise
-        head_context = MappingProxyType({**context, "directHeadOf": binding})
-        while True:
-            try:
-                head = next(iterator)
-            except StopIteration:
-                exhausted = True
-                break
-            issue = _charge(budget, index, property)
-            if issue is not None:
-                result = False, issue
-                break
-            _, issue = _authorize(head, head_context, facet, index, property)
-            if issue is not None:
-                result = False, issue
-                break
-            head_kind, issue = _tag(head, head_context, facet, index, property)
-            if issue is not None or head_kind != "NodeHead":
-                result = False, issue or error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
-                break
-            value = facet["nodeTag"](head, head_context)
-            if value is not None and not scalar(value):
-                result = False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
-                break
-            if value == expected:
-                result = True, None
-                break
+        if value is not None and not scalar(value):
+            return False, error("SANSA_RESOLVE_INVALID_PROPERTY_METADATA", index, property)
+        return value == expected, None
     except Exception as cause:
-        result = False, fault(cause, index, property)
-    finally:
-        if iterator is not None and not exhausted:
-            try:
-                close = getattr(iterator, "close", None)
-                if callable(close):
-                    close()
-            except Exception as cause:
-                result = False, fault(cause, index, property)
-    return result
+        return False, fault(cause, index, property)
 
 
 def resolve(address, namespace, root, facet, policy, limit):

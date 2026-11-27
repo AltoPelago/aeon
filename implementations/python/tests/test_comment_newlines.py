@@ -10,7 +10,7 @@ CHANNELS = [("/*", "*/"), ("/#", "#/"), ("/@", "@/"), ("/?", "?/"),
             ("/{", "}/"), ("/[", "]/"), ("/(", ")/")]
 CONTEXTS = [lambda c: f'a=3e3 {c}b=399', lambda c: f'o={{a=3e3 {c}b=399}}',
             lambda c: f'v=[3e3 {c}399]', lambda c: f'v=(3e3 {c}399)',
-            lambda c: f'v=<n(3e3 {c}399)>', lambda c: f'a@{{x=3e3 {c}y=399}}=0',
+            lambda c: f'<v(3e3 {c}399)>', lambda c: f'a@{{x=3e3 {c}y=399}}=0',
             lambda c: f'aeon:version="1.0" {c}aeon:mode="transport"\na=1']
 
 

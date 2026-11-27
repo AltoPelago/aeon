@@ -19,20 +19,20 @@ DATATYPE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 NUMBER = re.compile(r"^[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][+-]?[0-9]+)?$")
 FIELD_ORDER = {
     name: index
-    for index, name in enumerate(("header", "path", "kind", "datatype", "identity", "value", "origin", "span"))
+    for index, name in enumerate(("header", "path", "kind", "tag", "datatype", "identity", "value", "origin", "span"))
 }
 CORE_FIELDS = {
-    "header", "path", "kind", "datatype", "generics", "clarifiers", "identity", "value", "origin", "span"
+    "header", "path", "kind", "tag", "datatype", "generics", "clarifiers", "identity", "value", "origin", "span"
 }
 VALUE_KINDS = {
     "StringLiteral", "NumberLiteral", "InfinityLiteral", "NaNLiteral", "NullLiteral",
     "BooleanLiteral", "ToggleLiteral", "HexLiteral", "RadixLiteral", "EncodingLiteral",
     "SeparatorLiteral", "SymbolicLiteral", "SansaAddressLiteral", "DateLiteral", "TimeLiteral", "DateTimeLiteral",
-    "WTCDateTimeLiteral", "ObjectNode", "ListNode", "TupleLiteral", "NodeLiteral", "NodeHead",
+    "WTCDateTimeLiteral", "ObjectNode", "ListNode", "TupleLiteral", "NodeLiteral",
     "CloneReference", "PointerReference",
 }
 VALUELESS_KINDS = {"ObjectNode", "ListNode", "TupleLiteral", "NodeLiteral"}
-INDEX_CONTAINER_KINDS = {"ListNode", "TupleLiteral", "NodeHead"}
+INDEX_CONTAINER_KINDS = {"ListNode", "TupleLiteral", "NodeLiteral"}
 EXACT_VALUES = {
     "InfinityLiteral": {"Infinity", "-Infinity"},
     "NaNLiteral": {"NaN", "-NaN"},
@@ -643,7 +643,7 @@ def validate_telex_records(
         if isinstance(address, str):
             context["path"] = address
         for name, payload in event.items():
-            if name not in {"generics", "clarifiers"} and not isinstance(payload, str):
+            if name not in {"generics", "clarifiers", "tag"} and not isinstance(payload, str):
                 diagnostics.append(_diagnostic("AES_INVALID_PAYLOAD", f"Field '{name}' must have a string payload", **context, field=name))
             if name not in CORE_FIELDS and name not in registered:
                 diagnostics.append(_diagnostic("AES_UNKNOWN_FIELD", f"Field '{name}' is not registered by profile '{profile}'", **context, field=name))
@@ -680,6 +680,7 @@ def validate_telex_records(
         if isinstance(kind, str) and not known_kind:
             diagnostics.append(_diagnostic("AES_UNKNOWN_KIND", f"Unknown AES value kind: {kind}", **context, field="kind"))
         if known_kind:
+            _validate_node_tag(event, path_details, diagnostics, opts, context)
             _validate_event_value(event, index, diagnostics, opts)
         _validate_optional_fields(event, index, diagnostics, opts)
         candidates.append(_Candidate(event, index, address_field, address if isinstance(address, str) else None, path_details))
@@ -802,6 +803,29 @@ def _encode_wire_record(
     ]
 
 
+def _validate_node_tag(
+    event: dict[str, object],
+    details: _PathDetails | None,
+    diagnostics: list[dict[str, object]],
+    limits: TelexLimits,
+    context: Mapping[str, object],
+) -> None:
+    kind = event.get("kind")
+    tag = event.get("tag")
+    if kind != "NodeLiteral":
+        if "tag" in event:
+            diagnostics.append(_diagnostic("AES_UNEXPECTED_TAG", f"Kind '{kind}' must not carry 'tag'", **context, field="tag"))
+        return
+    if not isinstance(tag, str) or not tag or any(0xD800 <= ord(char) <= 0xDFFF for char in tag):
+        diagnostics.append(_diagnostic("AES_INVALID_TAG", "Kind 'NodeLiteral' requires a non-empty Unicode scalar 'tag'", **context, field="tag"))
+        return
+    _validate_codepoint_limit("max_key_segment_codepoints", tag, limits.max_key_segment_codepoints, diagnostics, context, "tag")
+    if details is not None and details.segments:
+        role, key = details.segments[-1]
+        if role != "index" and key != tag:
+            diagnostics.append(_diagnostic("AES_INVALID_TAG", "A named node's tag must equal the terminal address key", **context, field="tag"))
+
+
 def _validate_event_value(event: dict[str, object], index: int, diagnostics: list[dict[str, object]], limits: TelexLimits) -> None:
     context = _event_context(event, index)
     kind = event.get("kind")
@@ -821,10 +845,6 @@ def _validate_event_value(event: dict[str, object], index: int, diagnostics: lis
         diagnostics.append(_diagnostic("AES_INVALID_VALUE", f"Invalid '{kind}' payload: {value}", **context, field="value"))
     if kind == "HexLiteral" and re.fullmatch(r"[0-9a-f]+", value) is None:
         diagnostics.append(_diagnostic("AES_INVALID_VALUE", "Hex payloads require one or more lowercase hexadecimal digits", **context, field="value"))
-    if kind == "NodeHead" and not value:
-        diagnostics.append(_diagnostic("AES_INVALID_VALUE", "Node tags must not be empty", **context, field="value"))
-    if kind == "NodeHead":
-        _validate_codepoint_limit("max_key_segment_codepoints", value, limits.max_key_segment_codepoints, diagnostics, context, "value")
     if kind == "WTCDateTimeLiteral" and "&" in value:
         reference = value.rsplit("&", 1)[1]
         if reference.lower() == "local" and reference != "local":
@@ -884,12 +904,9 @@ def _validate_complete_stream(events: list[_Candidate], diagnostics: list[dict[s
         details = candidate.path_details
         if details is None or candidate.address is None:
             continue
-        kind = candidate.event.get("kind")
         if len(details.segments) == 1:
             if details.segments[0][0] != "member":
                 diagnostics.append(_diagnostic("AES_MISSING_PARENT", "Only a member event can be a direct child of the unrepresented '$' root", record=candidate.index, path=candidate.address, requiredPath="$"))
-            if kind == "NodeHead":
-                diagnostics.append(_invalid_node_head(candidate))
             continue
         segment_kind = details.segments[-1][0]
         parent_path = details.prefixes[-2]
@@ -900,13 +917,8 @@ def _validate_complete_stream(events: list[_Candidate], diagnostics: list[dict[s
         parent_kind = parent.event.get("kind")
         if segment_kind == "member" and parent_kind != "ObjectNode":
             diagnostics.append(_incompatible_parent(candidate, parent_path, str(parent_kind), "ObjectNode"))
-        elif segment_kind == "index":
-            if parent_kind == "NodeLiteral" and kind != "NodeHead":
-                diagnostics.append(_incompatible_parent(candidate, parent_path, "NodeLiteral", "NodeHead child"))
-            elif parent_kind != "NodeLiteral" and parent_kind not in INDEX_CONTAINER_KINDS:
-                diagnostics.append(_incompatible_parent(candidate, parent_path, str(parent_kind), "ListNode, TupleLiteral, NodeLiteral, or NodeHead"))
-        if kind == "NodeHead" and (segment_kind != "index" or parent_kind != "NodeLiteral"):
-            diagnostics.append(_invalid_node_head(candidate))
+        elif segment_kind == "index" and parent_kind not in INDEX_CONTAINER_KINDS:
+            diagnostics.append(_incompatible_parent(candidate, parent_path, str(parent_kind), "ListNode, TupleLiteral, or NodeLiteral"))
 
 
 def _validate_reference_targets(reference_events: list[_Candidate], body_events: list[_Candidate], diagnostics: list[dict[str, object]]) -> None:
@@ -959,10 +971,6 @@ def _is_aeon_header_path(path: str, details: _PathDetails) -> bool:
 
 def _incompatible_parent(candidate: _Candidate, parent: str, actual: str, expected: str) -> dict[str, object]:
     return _diagnostic("AES_INCOMPATIBLE_PARENT", f"Parent '{parent}' has kind '{actual}'; expected {expected}", record=candidate.index, path=candidate.address, requiredPath=parent)
-
-
-def _invalid_node_head(candidate: _Candidate) -> dict[str, object]:
-    return _diagnostic("AES_INVALID_NODE_HEAD", "A 'NodeHead' must be an indexed direct child of a 'NodeLiteral'", record=candidate.index, path=candidate.address)
 
 
 def _validate_path_limits(path: str, details: _PathDetails, limits: TelexLimits, diagnostics: list[dict[str, object]], context: Mapping[str, object], field_name: str) -> None:

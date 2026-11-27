@@ -226,9 +226,6 @@ def _materialize_record(
         token = _reference_token("~>", value)
         ctx.report("FINALIZE_UNRESOLVED_REFERENCE", f"Pointer reference remains symbolic during JSON materialization: {token}", output_path)
         return token
-    if kind == "NodeHead":
-        ctx.report("FINALIZE_ORPHAN_NODE_HEAD", "NodeHead can only be materialized through its owning NodeLiteral", output_path, True)
-        return value
     ctx.report("FINALIZE_UNSUPPORTED_AES_KIND", f"Unsupported portable AES kind '{kind}'", output_path, True)
     return None
 
@@ -265,19 +262,11 @@ def _materialize_indexed(indexed: _IndexedRecord, ctx: _Context, output_path: st
 
 
 def _materialize_node(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> object:
-    heads = [item for item in _structural_children(_plane_for(indexed, ctx), indexed.address) if item.segment[0] == "index"]
-    heads.sort(key=lambda item: int(item.segment[1]))
-    valid = len(heads) == 1 and heads[0].segment[1] == 0 and ctx.records[heads[0].record].get("kind") == "NodeHead"
-    if not valid:
-        ctx.report("FINALIZE_UNREPRESENTABLE_NODE_HEADS", "The JSON output profile requires exactly one NodeHead at index 0", output_path, True)
-        return None
-    head = heads[0]
-    result: dict[str, object] = {"$node": ctx.records[head.record].get("value", "")}
-    head_path = _descendant_path(indexed, head, output_path)
-    attributes = _attributes_to_json(head, ctx, head_path)
+    result: dict[str, object] = {"$node": ctx.records[indexed.record]["tag"]}
+    attributes = _attributes_to_json(indexed, ctx, output_path)
     if attributes is not None:
         result["@"] = attributes
-    result["$children"] = _materialize_indexed(head, ctx, head_path)
+    result["$children"] = _materialize_indexed(indexed, ctx, output_path)
     return result
 
 
@@ -324,7 +313,7 @@ def _measure_weight(indexed: _IndexedRecord, ctx: _Context, stack: set[str]) -> 
     if kind in {"ObjectNode", "ListNode", "TupleLiteral"}:
         weight = sum(_measure_weight(item, ctx, stack) for item in _plane_children(indexed, ctx))
     elif kind == "NodeLiteral":
-        weight = sum(1 + sum(_measure_weight(child, ctx, stack) for child in _plane_children(head, ctx)) for head in _plane_children(indexed, ctx))
+        weight = 1 + sum(_measure_weight(item, ctx, stack) for item in _plane_children(indexed, ctx))
     elif kind == "CloneReference":
         target = ctx.body.by_address.get(str(ctx.records[indexed.record].get("value", "")))
         weight = 1 if target is None else _measure_weight(target, ctx, stack)
@@ -336,7 +325,7 @@ def _measure_weight(indexed: _IndexedRecord, ctx: _Context, stack: set[str]) -> 
 
 
 def _record_metadata(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> object | None:
-    own = _attributes_to_json(indexed, ctx, output_path)
+    own = None if ctx.records[indexed.record].get("kind") == "NodeLiteral" else _attributes_to_json(indexed, ctx, output_path)
     items = _indexed_item_attributes(indexed, ctx, output_path)
     if own is not None and items is not None:
         own["@items"] = items
@@ -367,15 +356,15 @@ def _attributes_to_json(indexed: _IndexedRecord, ctx: _Context, output_path: str
 
 def _indexed_item_attributes(indexed: _IndexedRecord, ctx: _Context, output_path: str) -> dict[str, object] | None:
     kind = ctx.records[indexed.record].get("kind")
-    if kind == "NodeLiteral":
-        owners = [child for head in _structural_children(_plane_for(indexed, ctx), indexed.address) for child in _structural_children(_plane_for(head, ctx), head.address)]
-    elif kind in {"ListNode", "TupleLiteral"}:
+    if kind in {"ListNode", "TupleLiteral", "NodeLiteral"}:
         owners = _structural_children(_plane_for(indexed, ctx), indexed.address)
     else:
         owners = []
     result: dict[str, object] = {}
     for owner in owners:
         if owner.segment[0] != "index":
+            continue
+        if ctx.records[owner.record].get("kind") == "NodeLiteral":
             continue
         attributes = _attributes_to_json(owner, ctx, _descendant_path(indexed, owner, output_path))
         if attributes is not None:

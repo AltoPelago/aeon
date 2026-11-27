@@ -158,12 +158,21 @@ jobs:
         working-directory: legacy-node-baseline
         run: npm --prefix stress-tests/tools/aeon-52-cards run cards-pairs -- --check-detector
 
-      - name: Pure-Python reference tests and transport conformance
-        working-directory: .
+      - name: Pure-Python tests against the frozen node baseline
+        working-directory: legacy-node-baseline
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
           AES_ROOT: ${{ github.workspace }}/aes
         run: python3 -m unittest discover -s implementations/python/tests -p 'test_*.py'
+
+      - name: Pure-Python revised node model and transport regression tests
+        working-directory: .
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
+          AES_ROOT: ${{ github.workspace }}/aes
+        run: |
+          python3 -m unittest discover -s implementations/python/tests -p 'test_*.py'
+          python3 implementations/python/tools/run_cts.py
 
       - name: Install pure-Python package build tools
         run: python3 -m pip install setuptools==82.0.0 wheel==0.45.1
