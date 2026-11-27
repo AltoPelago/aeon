@@ -92,6 +92,10 @@ function checkRead(read, vector, codec) {
         assert.deepEqual(streamForCts(stream), vector.input.stream);
     } else if (vector.operation === 'transcode') {
         assert.deepEqual(streamForCts(stream), streamForCts(codec.parseTelex(vector.input.telex)));
+        assert.equal(codec.encodeTelex(stream.records, {
+            ...(stream.profileExplicit ? { profile: stream.profile } : {}),
+            ...(stream.projectionExplicit ? { projection: stream.projection } : {}),
+        }), vector.expected.telex);
     }
     return stream;
 }
