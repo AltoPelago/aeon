@@ -2607,6 +2607,11 @@ mod tests {
                 Some(("CUSTOM_DATATYPE_NOT_ALLOWED", "$.a.@.m")),
             ),
             (
+                r#"a@{outer = {"m.dot":Label<number> = {}}} = 1"#,
+                Some(crate::DatatypePolicy::ReservedOnly),
+                Some(("CUSTOM_DATATYPE_NOT_ALLOWED", r#"$.a.@.outer.["m.dot"]"#)),
+            ),
+            (
                 "a@{m:object = {}} = 1",
                 Some(crate::DatatypePolicy::ReservedOnly),
                 None,

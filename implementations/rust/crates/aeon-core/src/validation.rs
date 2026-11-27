@@ -989,7 +989,7 @@ pub(crate) fn collect_attribute_datatype_checks(
 ) {
     validate_attribute_datatypes_in_scope(
         bindings,
-        &CanonicalPath::root(),
+        "$",
         mode,
         effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
@@ -2795,7 +2795,7 @@ fn validate_resolved_attribute_datatypes(
 
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
-    parent: &CanonicalPath,
+    parent: &str,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2803,11 +2803,11 @@ fn validate_attribute_datatypes_in_scope(
     checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     for binding in bindings {
-        let path = parent.member(binding.key.clone());
+        let path = render_child_member_path(parent, &binding.key);
         validate_attribute_datatype_map(
             &binding.attributes,
             &binding.attribute_order,
-            &path,
+            format_args!("{path}.@"),
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2828,7 +2828,7 @@ fn validate_attribute_datatypes_in_scope(
 
 fn validate_value_attribute_datatypes(
     value: &Value,
-    path: &CanonicalPath,
+    path: &str,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2849,7 +2849,7 @@ fn validate_value_attribute_datatypes(
             for (index, item) in items.iter().enumerate() {
                 validate_value_attribute_datatypes(
                     item,
-                    &path.index(index),
+                    &render_child_index_path(path, index),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2868,7 +2868,7 @@ fn validate_value_attribute_datatypes(
                 validate_attribute_datatype_map(
                     attribute,
                     &attribute_order,
-                    path,
+                    format_args!("{path}.@"),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2879,7 +2879,7 @@ fn validate_value_attribute_datatypes(
             for (index, child) in children.iter().enumerate() {
                 validate_value_attribute_datatypes(
                     child,
-                    &path.index(index),
+                    &render_child_index_path(path, index),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2895,18 +2895,22 @@ fn validate_value_attribute_datatypes(
 fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
-    owner_path: &CanonicalPath,
+    parent_path: std::fmt::Arguments<'_>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
     checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
+    if attribute_order.is_empty() {
+        return;
+    }
+    let parent_path = parent_path.to_string();
     for key in attribute_order {
         let Some(entry) = attributes.get(key) else {
             continue;
         };
-        let attr_path = format!("{}.@.{}", format_path(owner_path), key);
+        let attr_path = render_child_member_path(&parent_path, key);
         if entry.datatype.is_none()
             && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
             && let Some(value) = &entry.value
@@ -2971,7 +2975,7 @@ fn validate_attribute_datatype_map(
                 Value::CloneReference { .. } | Value::PointerReference { .. }
             ) {
                 checks.push(AttributeDatatypeCheck::Reference {
-                    path: attr_path,
+                    path: attr_path.clone(),
                     datatype: datatype.clone(),
                     value: value.clone(),
                     profile_custom: false,
@@ -2989,7 +2993,7 @@ fn validate_attribute_datatype_map(
         validate_attribute_datatype_map(
             &entry.nested_attrs,
             &entry.nested_attr_order,
-            owner_path,
+            format_args!("{attr_path}.@"),
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2999,7 +3003,7 @@ fn validate_attribute_datatype_map(
         validate_attribute_datatype_map(
             &entry.object_members,
             &entry.object_member_order,
-            owner_path,
+            format_args!("{attr_path}"),
             mode,
             datatype_policy,
             max_separator_depth,
@@ -3009,7 +3013,7 @@ fn validate_attribute_datatype_map(
         if let Some(value) = &entry.value {
             validate_value_attribute_datatypes(
                 value,
-                owner_path,
+                &attr_path,
                 mode,
                 datatype_policy,
                 max_separator_depth,
