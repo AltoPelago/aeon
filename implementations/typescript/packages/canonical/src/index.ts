@@ -1,5 +1,5 @@
 import { tokenize, type LexerError } from '@altopelago/aeon-lexer';
-import { normalizeNumberLiteral, parse, type ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
+import { normalizeNumberLiteral, parse, ParserError, type Document, type Binding, type Value, type TypeAnnotation, type Attribute, type AttributeValue } from '@altopelago/aeon-parser';
 import { formatReferencePath } from './reference-path.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 import { emitEvents, resolvePaths, validateReferences, type EventEmissionError, type PathResolutionError, type ReferenceValidationError } from '@altopelago/aeon-aes';
@@ -21,6 +21,10 @@ const referenceSafeFormatter: ReferenceFormatter = Object.freeze({
     format: (path: Parameters<typeof formatReferencePath>[0]) => formatReferencePath(path, formatString),
     referenceSafe: true,
 });
+const startOfInput = {
+    start: { line: 1, column: 1, offset: 0 },
+    end: { line: 1, column: 1, offset: 0 },
+};
 
 export type CanonicalError = LexerError | ParserError | EventEmissionError | PathResolutionError | ReferenceValidationError | CanonicalOrderingError;
 
@@ -107,6 +111,18 @@ function compareKeys(a: string, b: string): number {
 }
 
 export function canonicalize(input: string, options: CanonicalizeOptions = {}): CanonicalResult {
+    try {
+        return canonicalizeSource(input, options);
+    } catch (error) {
+        if (!(error instanceof RangeError) || !error.message.includes('call stack')) throw error;
+        return {
+            text: '',
+            errors: [new ParserError('Canonicalization exceeded the available JavaScript stack', startOfInput, 'UNSAFE_MAX_NESTING_DEPTH')],
+        };
+    }
+}
+
+function canonicalizeSource(input: string, options: CanonicalizeOptions): CanonicalResult {
     input = stripLeadingBom(input);
     const lex = tokenize(input);
     if (lex.errors.length > 0) {
@@ -122,8 +138,14 @@ export function canonicalize(input: string, options: CanonicalizeOptions = {}): 
         ...(options.maxValueNestingDepth !== undefined ? { maxValueNestingDepth: options.maxValueNestingDepth } : {}),
     };
     const parsed = parse(lex.tokens, parserOptions);
-    if (parsed.errors.length > 0 || !parsed.document) {
+    if (parsed.errors.length > 0) {
         return { text: '', errors: parsed.errors };
+    }
+    if (!parsed.document) {
+        return {
+            text: '',
+            errors: [new ParserError('Canonical parser could not produce a document', lex.tokens[0]?.span ?? startOfInput, 'CANONICAL_INPUT_PARSE_FAILED')],
+        };
     }
 
     const ordering = options.ordering ?? 'reference-safe-v1';

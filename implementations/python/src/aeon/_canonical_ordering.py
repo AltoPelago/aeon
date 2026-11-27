@@ -334,6 +334,7 @@ def canonicalize_document(document: Document, options: CanonicalizeOptions) -> C
         text, lexed.tokens, max_attribute_depth=options.max_attribute_depth,
         max_clarifier_values=options.max_clarifier_values, max_generic_depth=options.max_generic_depth,
         max_generic_arguments=options.max_generic_arguments, max_datatype_components=options.max_datatype_components,
+        max_value_nesting_depth=options.max_value_nesting_depth,
     )
     valid = not lexed.errors and not emitted.errors and emitted.document is not None
     if valid:

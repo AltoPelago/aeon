@@ -14,6 +14,17 @@ if str(SRC) not in sys.path:
 
 
 class CliTests(unittest.TestCase):
+    def test_fmt_rejects_invalid_value_nesting_limit(self) -> None:
+        result = subprocess.run(
+            [str(ROOT / "bin" / "aeon-python"), "fmt", "--max-value-nesting-depth", "²"],
+            input="x = 0",
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertEqual("", result.stdout)
+        self.assertIn("Invalid value for --max-value-nesting-depth", result.stderr)
+
     def test_property_address_json_export_is_bounded_and_portable_output_remains_available(self) -> None:
         from contextlib import redirect_stdout, redirect_stderr
         from io import StringIO

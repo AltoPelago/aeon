@@ -6,7 +6,7 @@ import sys
 
 from .aeos import validate_cts_payload
 from .annotations import build_annotation_stream, sort_annotation_records
-from .canonical import canonicalize
+from .canonical import CanonicalizeOptions, canonicalize
 from .core import CompileOptions, compile_source
 from .finalize import FinalizeOptions, finalize_json, finalize_map
 from .limits import aeon_compile_limits, finalization_limits, load_aeonic_limits, telex_limits
@@ -322,6 +322,13 @@ def fmt(args: list[str]) -> int:
     if max_input_bytes is None and "--max-input-bytes" in args:
         print("Error: Invalid value for --max-input-bytes (expected a non-negative integer)", file=sys.stderr)
         return 2
+    max_value_nesting_depth = numeric_flag_value(args, "--max-value-nesting-depth")
+    options = CanonicalizeOptions()
+    if max_value_nesting_depth is not None:
+        options.max_value_nesting_depth = max_value_nesting_depth
+    elif "--max-value-nesting-depth" in args:
+        print("Error: Invalid value for --max-value-nesting-depth (expected a non-negative integer)", file=sys.stderr)
+        return 2
     file_arg = first_non_flag(args)
     if write_output and file_arg is None:
         print("Error: --write requires a file path", file=sys.stderr)
@@ -334,7 +341,7 @@ def fmt(args: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
-    result = canonicalize(source)
+    result = canonicalize(source, options)
     if result.errors:
         for error in result.errors:
             print(f"[{error.code}] {error.message}")
@@ -484,16 +491,17 @@ def first_non_flag(args: list[str]) -> str | None:
 
 def numeric_flag_value(args: list[str], flag: str) -> int | None:
     value = flag_value(args, flag)
-    if value is None:
+    if value is None or not value.isdecimal():
         return None
-    if not value.isdigit():
+    try:
+        return int(value)
+    except ValueError:
         return None
-    return int(value)
 
 
 def print_help() -> None:
     print(
-        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] | aeon-python inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] | aeon-python --cts-validate"
+        "Usage: aeon-python fmt [file] [--write] [--max-input-bytes <n>] [--max-value-nesting-depth <n>] | aeon-python inspect <file> [--json|--telex] [--portable-aes] [--source-provenance] [--include-headers] [--recovery] [--annotations] [--annotations-only] [--sort-annotations] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-attribute-depth <n>] [--max-clarifier-values <n>] [--max-generic-depth <n>] [--max-generic-arguments <n>] [--max-datatype-components <n>] [--max-value-nesting-depth <n>] [--max-input-bytes <n>] [--max-events <n>] | aeon-python finalize <file> [--json] [--recovery] [--strict|--loose] [--scope <payload|header|full>] [--projected --include-path <$.path>] [--datatype-policy <reserved_only|allow_custom>] [--limits-file <path>] [--max-input-bytes <n>] [--max-materialized-weight <n>] [--max-reference-depth <n>] | aeon-python telex <decode|canonicalize|materialize> <file> [--scope <payload|header|full>] [--strict|--loose] [--limits-file <path>] | aeon-python --cts-validate"
     )
 
 

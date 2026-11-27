@@ -32,9 +32,9 @@ const baselineContractsSampleText = () => [
 
 const normalize = (text: string) => text.replace(/\r\n/g, '\n').trimEnd();
 
-async function runCli(args: string[], env: NodeJS.ProcessEnv = {}) {
+async function runCli(args: string[], env: NodeJS.ProcessEnv = {}, nodeArgs: string[] = []) {
     try {
-        const { stdout, stderr } = await execFileAsync(process.execPath, [cliPath, ...args], {
+        const { stdout, stderr } = await execFileAsync(process.execPath, [...nodeArgs, cliPath, ...args], {
             env: {
                 ...process.env,
                 ...env,
@@ -509,6 +509,24 @@ describe('AEON CLI output contract', () => {
             assert.strictEqual(code, 1);
             assert.strictEqual(stdout, '');
             assert.ok(stderr.includes('exceeds configured limit'));
+        });
+
+        it('preserves the source file when formatting stops at the JavaScript stack limit', async (t) => {
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-fmt-stack-'));
+            t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+            const file = path.join(tmpDir, 'source.aeon');
+            const depth = 400;
+            const source = 'x = ' + '{ x = '.repeat(depth) + '0' + ' }'.repeat(depth);
+            fs.writeFileSync(file, source, 'utf-8');
+
+            const { code, stdout } = await runCli(
+                ['fmt', file, '--write', '--max-value-nesting-depth', '512'],
+                {},
+                ['--stack-size=256', '--jitless'],
+            );
+            assert.strictEqual(code, 1);
+            assert.match(stdout, /\[(CANONICAL_INPUT_PARSE_FAILED|UNSAFE_MAX_NESTING_DEPTH)\]/u);
+            assert.strictEqual(fs.readFileSync(file, 'utf-8'), source);
         });
 
         it('fails closed on invalid input', async () => {

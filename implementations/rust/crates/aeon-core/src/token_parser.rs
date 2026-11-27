@@ -559,7 +559,7 @@ impl<'a> TokenParser<'a> {
             if self.check(TokenKind::Colon) {
                 return Err(self.error_at_current("Expected key"));
             }
-            match self.parse_binding() {
+            match self.parse_binding(true) {
                 Ok(binding) => bindings.push(binding),
                 Err(error) if error.code == "SYNTAX_ERROR" && error.message == "Expected key" => {
                     if self.synchronize_to_next_binding() {
@@ -581,7 +581,7 @@ impl<'a> TokenParser<'a> {
         let mut errors = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() {
-            match self.parse_binding() {
+            match self.parse_binding(true) {
                 Ok(binding) => bindings.push(binding),
                 Err(error) => {
                     errors.push(error);
@@ -603,7 +603,7 @@ impl<'a> TokenParser<'a> {
         ParseRecoveryResult { bindings, errors }
     }
 
-    fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
+    fn parse_binding(&mut self, at_document_root: bool) -> Result<Binding, Diagnostic> {
         let start = self.peek().span.start;
         let (key, is_header) = self.parse_key()?;
         self.skip_newlines();
@@ -638,7 +638,15 @@ impl<'a> TokenParser<'a> {
         let equals_message = format!("Expected '=' after key '{key}'");
         self.consume(TokenKind::Equals, &equals_message)?;
         self.skip_newlines();
-        let value = self.parse_value()?;
+        let value = if at_document_root
+            && is_header
+            && key == "aeon:header"
+            && self.check(TokenKind::LeftBrace)
+        {
+            self.parse_object()?
+        } else {
+            self.parse_value()?
+        };
         let end = self.previous().span.end;
         Ok(Binding {
             key,
@@ -1564,7 +1572,7 @@ impl<'a> TokenParser<'a> {
         let mut bindings = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
-            bindings.push(self.parse_binding()?);
+            bindings.push(self.parse_binding(false)?);
             self.consume_member_delimiter(terminator, delimiter_message)?;
         }
         Ok(bindings)
@@ -2298,6 +2306,35 @@ mod tests {
             ),
             "recovery parser drift for input:\n{input}",
         );
+    }
+
+    #[test]
+    fn structured_header_depth_starts_at_each_field() {
+        for (source, depth, accepted) in [
+            ("aeon:header = { mode = \"transport\" }\nx = 0", 0, true),
+            ("aeon:header = { meta = [1] }\nx = 0", 1, true),
+            ("aeon:meta = [1]\nx = 0", 1, true),
+            ("aeon:header = { meta = [1] }\nx = 0", 0, false),
+            ("\"aeon:header\" = {}", 0, false),
+            ("outer = { aeon:header = {} }", 1, false),
+        ] {
+            let limits = ParserLimits::new(depth, 8, 8, 8, 32, 64);
+            assert_parser_parity_with_limits(source, limits);
+            let result = parse_document_from_tokens_with_implementation(
+                source,
+                limits,
+                ParserImplementation::Sofia,
+            );
+            if accepted {
+                assert!(result.is_ok(), "{source}: {result:?}");
+            } else {
+                assert_eq!(
+                    result.unwrap_err().code,
+                    "NESTING_DEPTH_EXCEEDED",
+                    "{source}"
+                );
+            }
+        }
     }
 
     #[test]

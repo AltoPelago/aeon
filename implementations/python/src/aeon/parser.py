@@ -221,7 +221,8 @@ class Parser:
             self.skip_separators()
             self.consume("EQUALS", "Expected '=' in header")
             self.skip_layout()
-            value = self.parse_value()
+            # The structured header groups fields without adding a value nesting level.
+            value = self.parse_object() if field_name == "header" and self.check("LBRACE") else self.parse_value()
             end = self.previous().span.end
             if field_name == "header" and isinstance(value, ObjectNode):
                 has_structured = True
