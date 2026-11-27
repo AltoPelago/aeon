@@ -395,6 +395,15 @@ describe('Core - compile()', () => {
             ]);
         });
 
+        it('uses structural paths for comments on inline attribute nodes and their children', () => {
+            const result = compile('host@{<tag /# node #/ (1, "value" /# child #/)>} = 0');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.tag' },
+                { kind: 'path', path: '$.host.@.tag[1]' },
+            ]);
+        });
+
         it('should allow disabling annotation stream emission', () => {
             const result = compile('//# doc\na = 1', { emitAnnotations: false });
             assert.strictEqual(result.annotations, undefined);
@@ -1250,6 +1259,18 @@ describe('Core - compile()', () => {
             const result = compile('aeon:mode = "strict"\nvalue:duration = "P1D"');
             assert.strictEqual(result.events.length, 0);
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
+        });
+
+        it('validates built-in datatypes on unprojected nested node attributes', () => {
+            const result = compile('<outer@{nest:object = {<inner@{a:number = "bad"}>}}>', { mode: 'strict' });
+            assert.deepEqual(result.errors.map(error => [error.code, (error as { path?: string }).path]), [
+                ['DATATYPE_LITERAL_MISMATCH', '$.outer.@.nest.inner.@.a'],
+            ]);
+        });
+
+        it('reports typed descendant errors once for quoted node paths', () => {
+            const result = compile('<outer({<"inner key"(:number = "bad")>})>', { mode: 'strict' });
+            assert.equal(result.errors.filter(error => error.code === 'DATATYPE_LITERAL_MISMATCH').length, 1);
         });
 
         it('should fail-closed with INVALID_NODE_DATATYPE and aligned messaging', () => {

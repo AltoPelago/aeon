@@ -175,8 +175,9 @@ explicitly.
 - Prefer this package for simple application examples.
 - Use `@altopelago/aeon-core` when you only need compile-only behavior.
 - Use `@altopelago/aeon-runtime` when you need the full orchestrated runtime pipeline.
-- Film is reader-only. This package deliberately exposes no Film writer or
-  AEON-to-Film conversion helper.
+- Film is reader-only. Revised tagged nodes use the Telex carrier in this
+  TypeScript development slice. Checked Film node reads require the revised
+  Film kind and fixture work tracked for the next slice.
 - `aeonicLimits` contributes its shared AES structural and processing values to
   Film. Select Film-local byte ceilings separately with `filmLimits`.
 

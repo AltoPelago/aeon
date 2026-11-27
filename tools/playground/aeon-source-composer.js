@@ -306,6 +306,7 @@ function sourceTypeForAeonValue(value) {
 
 function sourceTypeForEvent(event) {
   const value = event?.value ?? {};
+  if (value.type === "NodeLiteral") return "NodeLiteral";
   return sourceTypeForDatatype(event?.datatype)
     ?? sourceTypeByValueType.get(value.valueType ?? value.type ?? event?.valueType ?? event?.type)
     ?? "StringLiteral";
@@ -361,12 +362,14 @@ function addSourceAttributeRows(attributes, ownerPath, rows, seen) {
   for (const [key, entry] of attributeEntries(attributes)) {
     const path = joinSourcePath(ownerPath, key, "attribute");
     if (seen.has(path)) continue;
-    const type = sourceTypeForDatatype(datatypeName(entry?.datatype)) ?? sourceTypeForAeonValue(entry?.value);
+    const metadata = entry?.value?.type === "NodeLiteral" ? entry.value : entry;
+    const datatype = datatypeName(metadata?.datatype);
+    const type = entry?.value?.type === "NodeLiteral" ? "NodeLiteral" : sourceTypeForDatatype(datatype) ?? sourceTypeForAeonValue(entry?.value);
     rows.push({
       path,
       type,
-      datatype: datatypeName(entry?.datatype) || "",
-      identity: entry?.structuralId ?? entry?.identity,
+      datatype,
+      identity: metadata?.structuralId ?? metadata?.identity,
       value: sourceUiValueForAeonValue(entry?.value, type),
       open: true
     });
@@ -378,9 +381,11 @@ function addSourceAttributeRows(attributes, ownerPath, rows, seen) {
 
 function addSourceValueRow(value, path, metadata, rows, seen) {
   if (!seen.has(path)) {
-    const datatype = datatypeName(metadata?.datatype);
-    const type = sourceTypeForDatatype(datatype) ?? sourceTypeForAeonValue(value);
-    rows.push({path, type, datatype, identity:metadata?.structuralId,
+    const node = value?.type === "NodeLiteral";
+    const owner = node ? value : metadata;
+    const datatype = datatypeName(owner?.datatype);
+    const type = node ? "NodeLiteral" : sourceTypeForDatatype(datatype) ?? sourceTypeForAeonValue(value);
+    rows.push({path, type, datatype, identity:owner?.structuralId,
       value:sourceUiValueForAeonValue(value, type), open:true});
     seen.add(path);
   }
@@ -598,7 +603,6 @@ function aeonScalarValue(row) {
   if (row.type === "ObjectNode") return "{}";
   if (row.type === "ListNode") return "[]";
   if (row.type === "TupleNode") return "()";
-  if (row.type === "NodeLiteral") return `<${aeonKey(value || "node")}()>`;
   return value || sourceDefaultValue(row.type);
 }
 
@@ -648,6 +652,7 @@ function mountAeonSourceComposer(options) {
     const attrs = sourceChildren(row.path, rows).filter((child) => sourcePathIsAttribute(child.path));
     if (attrs.length === 0) return "";
     const values = attrs.map((attr) => {
+      if (attr.type === "NodeLiteral") return renderSourceBuilderValue(attr, rows);
       const key = sourcePathName(attr.path).replace(/^@/, "");
       const datatype = attr.datatype ? `:${attr.datatype}` : "";
       return `${aeonKey(key)}${sourceIdentity(attr)}${renderSourceBuilderAttributes(attr, rows)}${datatype} = ${renderSourceBuilderValue(attr, rows)}`;
@@ -666,6 +671,9 @@ function mountAeonSourceComposer(options) {
   }
 
   function renderSourceBuilderElement(row, rows, depth) {
+    if (row.type === "NodeLiteral") {
+      return `${"  ".repeat(depth)}${renderSourceBuilderValue(row, rows, depth)}`;
+    }
     const datatype = row.datatype ? `:${row.datatype}` : "";
     const header = `${sourceIdentity(row)}${renderSourceBuilderAttributes(row, rows)}${datatype}`;
     return `${"  ".repeat(depth)}${header}${header ? " = " : ""}${renderSourceBuilderValue(row, rows, depth)}`;
@@ -687,18 +695,26 @@ function mountAeonSourceComposer(options) {
       return `{\n${values.join("\n")}\n${"  ".repeat(depth)}}`;
     }
     if (row.type === "NodeLiteral") {
-      if (children.length === 0) return aeonScalarValue(row);
+      const kind = composerPaths.describe(row.path).kind;
+      const tag = kind === "index" ? row.value || "node" : sourcePathName(row.path).slice(kind === "attribute" ? 1 : 0);
+      const datatype = row.datatype ? `:${row.datatype}` : "";
+      const head = `${tag === "aeon" ? '"aeon"' : aeonKey(tag)}${sourceIdentity(row)}${renderSourceBuilderAttributes(row, rows)}${datatype}`;
+      if (children.length === 0) return `<${head}>`;
       const values = children.map((child) => renderSourceBuilderElement(child, rows, depth + 1));
-      return `<${aeonKey(row.value || "node")}(\n${values.join("\n")}\n${"  ".repeat(depth)})>`;
+      return `<${head}(\n${values.join("\n")}\n${"  ".repeat(depth)})>`;
     }
     return aeonScalarValue(row);
   }
 
   function renderSourceBuilderBinding(row, rows, depth = 0) {
+    const comments = renderSourceBuilderComments(row, rows, depth);
+    if (row.type === "NodeLiteral") {
+      const node = `${"  ".repeat(depth)}${renderSourceBuilderValue(row, rows, depth)}`;
+      return [comments, node].filter(Boolean).join("\n");
+    }
     const name = sourcePathName(row.path);
     const datatype = row.datatype ? `:${row.datatype}` : "";
     const attrs = renderSourceBuilderAttributes(row, rows);
-    const comments = renderSourceBuilderComments(row, rows, depth);
     const binding = `${"  ".repeat(depth)}${aeonKey(name)}${sourceIdentity(row)}${attrs}${datatype} = ${renderSourceBuilderValue(row, rows, depth)}`;
     return [comments, binding].filter(Boolean).join("\n");
   }
@@ -756,6 +772,8 @@ function mountAeonSourceComposer(options) {
       return;
     }
     const hasChildren = sourceValueChildren(selected.path, rows).length > 0;
+    const isIndexed = composerPaths.describe(selected.path).kind === "index";
+    const isNamedNode = selected.type === "NodeLiteral" && !isIndexed;
     const valueDisabled = selected.type !== "NodeLiteral" && (sourceTypeAllowsChildren(selected.type) || hasChildren) ? " disabled" : "";
     const valueLabel = selected.type === "NodeLiteral" ? "Tag" : "Value";
     const valuePrefix = valuePrefixForSourceType(selected.type);
@@ -772,8 +790,8 @@ function mountAeonSourceComposer(options) {
     }
     detail.innerHTML = `
       <label>
-        <span>Key</span>
-        <input name="name" type="text" value="${escapeHtml(isAttribute ? sourcePathName(selected.path).slice(1) : sourcePathName(selected.path))}" ${composerPaths.describe(selected.path).kind === "index" ? "disabled" : ""} />
+        <span>${isNamedNode ? "Tag" : "Key"}</span>
+        <input name="name" type="text" value="${escapeHtml(isAttribute ? sourcePathName(selected.path).slice(1) : sourcePathName(selected.path))}" ${isIndexed ? "disabled" : ""} />
       </label>
       <label>
         <span>Type</span>
@@ -785,7 +803,7 @@ function mountAeonSourceComposer(options) {
         <span>Datatype</span>
         <input name="datatype" type="text" value="${escapeHtml(selected.datatype ?? datatypeForSourceType(selected.type))}" />
       </label>
-      ${selected.type === "NullLiteral" ? `
+      ${isNamedNode ? "" : selected.type === "NullLiteral" ? `
         <label>
           <span>Value !</span>
           <select name="nullMode">

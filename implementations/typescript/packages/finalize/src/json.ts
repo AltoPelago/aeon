@@ -19,6 +19,7 @@ import { formatReferencePath, type ReferencePathPart } from './reference-path.js
 import { createProjectionState, shouldIncludeProjectedPath } from './projection.js';
 import { formatDatatypeAnnotation } from './datatype.js';
 
+type Span = AssignmentEvent['span'];
 type Value = AssignmentEvent['value'];
 type ObjectValue = Extract<Value, { type: 'ObjectNode'; bindings: readonly unknown[] }>;
 type Binding = ObjectValue['bindings'][number];
@@ -60,6 +61,7 @@ type JsonContext = {
     maxReferenceDepth?: number;
     materializedWeight: number;
     materializedWeightCache: Map<string, number>;
+    projection: ProjectionState;
     activeClonePaths: string[];
 };
 
@@ -113,6 +115,7 @@ function finalizeJsonInternal(
     const errors = mapResult.meta?.errors?.slice() ?? [];
     const warnings = mapResult.meta?.warnings?.slice() ?? [];
 
+    const projection = createProjectionState(options.includePaths, options.materialization);
     const ctx: JsonContext = {
         strict,
         errors,
@@ -124,9 +127,9 @@ function finalizeJsonInternal(
         ...(options.maxReferenceDepth !== undefined ? { maxReferenceDepth: options.maxReferenceDepth } : {}),
         materializedWeight: 0,
         materializedWeightCache: new Map<string, number>(),
+        projection,
         activeClonePaths: [],
     };
-    const projection = createProjectionState(options.includePaths, options.materialization);
     const payload = payloadToJson(aes, ctx, projection, scope, options.header);
     const header = headerToJson(options.header, ctx, projection, scope);
     const document = scopeToJsonDocument(scope, header, payload);
@@ -182,7 +185,7 @@ function payloadToJson(
         }
         document[key] = valueToJson(event.value, ctx, eventPath, projection, event.datatype);
         const attrJson = mergeAttributeJsonObjects(
-            event.value.type === 'NodeLiteral' ? null : annotationsToJson(event.annotations, ctx, eventPath, projection),
+            ownsNodeAnnotations(event.value, event.span) ? null : annotationsToJson(event.annotations, ctx, eventPath, projection),
             indexedChildAnnotationsToJson(event.value, ctx, eventPath, projection),
         );
         if (attrJson) {
@@ -563,7 +566,7 @@ function consumeCloneBudget(
         return true;
     }
 
-    const weight = measureMaterializedWeight(value, ctx, targetPath, new Set<string>());
+    const weight = measureMaterializedWeight(value, ctx, targetPath, new Set<string>(), path);
     const nextWeight = ctx.materializedWeight + weight;
     if (nextWeight <= ctx.maxMaterializedWeight) {
         ctx.materializedWeight = nextWeight;
@@ -584,7 +587,8 @@ function measureMaterializedWeight(
     value: Value,
     ctx: JsonContext,
     currentPath: string,
-    stack: Set<string>
+    stack: Set<string>,
+    projectedPath: string,
 ): number {
     if (stack.has(currentPath)) {
         return 1;
@@ -592,7 +596,7 @@ function measureMaterializedWeight(
 
     switch (value.type) {
         case 'TypedValue':
-            return measureMaterializedWeight(value.value, ctx, currentPath, stack);
+            return measureMaterializedWeight(value.value, ctx, currentPath, stack, projectedPath);
         case 'StringLiteral':
         case 'NumberLiteral':
         case 'InfinityLiteral':
@@ -616,34 +620,42 @@ function measureMaterializedWeight(
             if (!resolved) {
                 return 1;
             }
-            if (ctx.materializedWeightCache.has(resolved.targetPath)) {
+            if (!ctx.projection.projected && ctx.materializedWeightCache.has(resolved.targetPath)) {
                 return ctx.materializedWeightCache.get(resolved.targetPath)!;
             }
             const nextStack = new Set(stack);
             nextStack.add(currentPath);
-            const weight = measureMaterializedWeight(resolved.value, ctx, resolved.targetPath, nextStack);
-            ctx.materializedWeightCache.set(resolved.targetPath, weight);
+            const weight = measureMaterializedWeight(resolved.value, ctx, resolved.targetPath, nextStack, projectedPath);
+            if (!ctx.projection.projected) ctx.materializedWeightCache.set(resolved.targetPath, weight);
             return weight;
         }
         case 'ObjectNode':
             return value.bindings.reduce((sum, binding) => {
                 const childPath = appendMemberPath(currentPath, binding.key);
+                const childProjectionPath = appendMemberPath(projectedPath, binding.key);
+                if (!shouldIncludeProjectedPath(childProjectionPath, ctx.projection)) return sum;
                 return sum
-                    + measureMaterializedWeight(binding.value, ctx, childPath, stack)
-                    + measureAttributeWeight(binding.attributes, ctx, childPath, stack);
+                    + measureMaterializedWeight(binding.value, ctx, childPath, stack, childProjectionPath)
+                    + measureAttributeWeight(binding.attributes, ctx, childPath, stack, childProjectionPath);
             }, 0);
         case 'ListNode':
         case 'TupleLiteral':
             return value.elements.reduce((sum, element, index) => {
                 const childPath = `${currentPath}[${index}]`;
-                return sum + measureMaterializedWeight(element, ctx, childPath, stack);
-            }, 0) + measureAttributeWeight(value.attributes, ctx, currentPath, stack);
+                const childProjectionPath = `${projectedPath}[${index}]`;
+                return shouldIncludeProjectedPath(childProjectionPath, ctx.projection)
+                    ? sum + measureMaterializedWeight(element, ctx, childPath, stack, childProjectionPath)
+                    : sum;
+            }, 0) + measureAttributeWeight(value.attributes, ctx, currentPath, stack, projectedPath);
         case 'NodeLiteral':
             return 1
-                + measureAttributeWeight(value.attributes, ctx, currentPath, stack)
+                + measureAttributeWeight(value.attributes, ctx, currentPath, stack, projectedPath)
                 + value.children.reduce((sum, child, index) => {
                     const childPath = `${currentPath}[${index}]`;
-                    return sum + measureMaterializedWeight(child, ctx, childPath, stack);
+                    const childProjectionPath = `${projectedPath}[${index}]`;
+                    return shouldIncludeProjectedPath(childProjectionPath, ctx.projection)
+                        ? sum + measureMaterializedWeight(child, ctx, childPath, stack, childProjectionPath)
+                        : sum;
                 }, 0);
         default:
             return 1;
@@ -651,31 +663,22 @@ function measureMaterializedWeight(
 }
 
 function measureAttributeWeight(
-    attributes: readonly Attribute[] | AssignmentEvent['annotations'] | undefined,
+    attributes: readonly Attribute[] | undefined,
     ctx: JsonContext,
     currentPath: string,
-    stack: Set<string>
+    stack: Set<string>,
+    projectedPath: string,
 ): number {
     if (!attributes) return 0;
 
-    if (Array.isArray(attributes)) {
-        let total = 0;
-        for (const attr of attributes) {
-            for (const [key, entry] of attr.entries) {
-                const entryPath = appendAttributePath(currentPath, key);
-                total += measureMaterializedWeight(entry.value, ctx, entryPath, stack);
-                total += measureAttributeWeight(entry.attributes, ctx, entryPath, stack);
-            }
-        }
-        return total;
-    }
-
     let total = 0;
-    for (const [key, entry] of attributes.entries() as IterableIterator<[string, AttributeEntry]>) {
-        const entryPath = appendAttributePath(currentPath, key);
-        total += measureMaterializedWeight(entry.value, ctx, entryPath, stack);
-        if (entry.value.type !== 'NodeLiteral') {
-            total += measureAttributeWeight(entry.annotations, ctx, entryPath, stack);
+    for (const attr of attributes) {
+        for (const [key, entry] of attr.entries) {
+            const entryPath = appendAttributePath(currentPath, key);
+            const entryProjectionPath = appendAttributePath(projectedPath, key);
+            if (!shouldIncludeProjectedPath(entryProjectionPath, ctx.projection)) continue;
+            total += measureMaterializedWeight(entry.value, ctx, entryPath, stack, entryProjectionPath);
+            total += measureAttributeWeight(entry.attributes, ctx, entryPath, stack, entryProjectionPath);
         }
     }
     return total;
@@ -795,6 +798,10 @@ function exceedsDeclaredRadix(value: string, base: number): boolean {
     return false;
 }
 
+function ownsNodeAnnotations(value: Value, span: Span | undefined): boolean {
+    return value.type === 'NodeLiteral' && (span === undefined || span.start.offset === value.span.start.offset);
+}
+
 function annotationsToJson(
     annotations: AssignmentEvent['annotations'],
     ctx: JsonContext,
@@ -814,7 +821,10 @@ function annotationsToJson(
             continue;
         }
         obj[key] = valueToJson(entry.value, ctx, entryPath, projection, entry.datatype);
-        const nested = entry.value.type === 'NodeLiteral' ? null : annotationsToJson(entry.annotations, ctx, entryPath, projection);
+        const nested = mergeAttributeJsonObjects(
+            ownsNodeAnnotations(entry.value, entry.span) ? null : annotationsToJson(entry.annotations, ctx, entryPath, projection),
+            indexedChildAnnotationsToJson(entry.value, ctx, entryPath, projection),
+        );
         if (nested) {
             nestedAttrEntries[key] = nested;
         }
@@ -937,9 +947,7 @@ function endpointFromCanonicalPath(
     if (!last || last.type === 'root') return null;
     const owner = traverseCanonicalSegments(root, parentSegments);
     if (!owner) return null;
-    return last.type === 'member'
-        ? { owner, key: last.key }
-        : { owner, key: last.index };
+    return locateJsonEndpoint(owner, last.type === 'member' ? last.key : last.index);
 }
 
 function endpointFromReferencePath(
@@ -952,12 +960,8 @@ function endpointFromReferencePath(
     if (last === undefined || typeof last === 'object') {
         return null;
     }
-    if (typeof last === 'string' && PROTOTYPE_POLLUTING_KEYS.has(last)) {
-        return null;
-    }
     const owner = traverseReferenceParts(root, parentParts);
-    if (!owner) return null;
-    return { owner, key: last };
+    return owner ? locateJsonEndpoint(owner, last) : null;
 }
 
 function traverseCanonicalSegments(
@@ -998,12 +1002,18 @@ function isContainer(value: JsonValue | undefined): value is JsonContainer {
     return Array.isArray(value) || (!!value && typeof value === 'object');
 }
 
+function locateJsonEndpoint(owner: JsonContainer, key: string | number): { owner: JsonContainer; key: string | number } | null {
+    if (typeof key === 'string') {
+        return hasSafeOwnProperty(owner as JsonObject, key) ? { owner, key } : null;
+    }
+    const items = Array.isArray(owner) ? owner : owner.$children;
+    return Array.isArray(items) && Object.hasOwn(items, key) ? { owner: items, key } : null;
+}
+
 function readContainerValue(container: JsonContainer, key: string | number): JsonValue | undefined {
-    return typeof key === 'number'
-        ? (container as JsonValue[])[key]
-        : hasSafeOwnProperty(container as JsonObject, key)
-            ? (container as JsonObject)[key]
-            : undefined;
+    const endpoint = locateJsonEndpoint(container, key);
+    if (!endpoint) return undefined;
+    return typeof key === 'number' ? (endpoint.owner as JsonValue[])[key] : (endpoint.owner as JsonObject)[key];
 }
 
 function writeContainerValue(container: JsonContainer, key: string | number, value: JsonValue): void {

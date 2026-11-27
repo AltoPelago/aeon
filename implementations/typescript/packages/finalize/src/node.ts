@@ -1,4 +1,4 @@
-import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import { buildAnnotations, type AssignmentEvent } from '@altopelago/aeon-aes';
 import type {
     Diagnostic,
     FinalizeHeader,
@@ -20,7 +20,6 @@ type Span = AssignmentEvent['span'];
 type Value = AssignmentEvent['value'];
 type ObjectValue = Extract<Value, { type: 'ObjectNode'; bindings: readonly unknown[] }>;
 type Binding = ObjectValue['bindings'][number];
-type Attribute = Binding['attributes'][number];
 type AnnotationMap = NonNullable<AssignmentEvent['annotations']>;
 type AnnotationEntry = AnnotationMap extends ReadonlyMap<string, infer T>
     ? T
@@ -291,7 +290,7 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                     attributes: [],
                     span: value.span,
                 },
-            ], nodeMeta, ctx, path, projection, { allowReservedKeys: true });
+            ], nodeMeta, ctx, path, projection, { nodeWrapper: true });
         }
         default:
             return scalarNode('String', '', '', meta);
@@ -350,16 +349,16 @@ function objectNode(
     ctx: NodeContext,
     basePath: string,
     projection: ProjectionState,
-    options: { allowReservedKeys?: boolean } = {}
+    options: { nodeWrapper?: boolean } = {}
 ): FinalizedObjectNode {
     const entries = new Map<string, FinalizedNode>();
     for (const binding of bindings) {
         const key = binding.key;
-        const entryPath = `${basePath}.${key}`;
-        if (!shouldIncludeProjectedPath(entryPath, projection)) {
+        const entryPath = options.nodeWrapper && key === '$children' ? basePath : `${basePath}.${key}`;
+        if (!(options.nodeWrapper && key === '$node') && !shouldIncludeProjectedPath(entryPath, projection)) {
             continue;
         }
-        if (!options.allowReservedKeys && isReservedObjectKey(key)) {
+        if (!options.nodeWrapper && isReservedObjectKey(key)) {
             ctx.errors.push(reservedKeyDiagnostic(key, entryPath, binding.span));
             continue;
         }
@@ -419,22 +418,6 @@ function listNode(
         ...(meta.datatype ? { datatype: meta.datatype } : {}),
         ...(meta.annotations ? { annotations: meta.annotations } : {}),
     };
-}
-
-function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string, AnnotationEntry> {
-    const result = new Map<string, AnnotationEntry>();
-    for (const attr of attributes) {
-        for (const [key, entry] of attr.entries) {
-            const nested = buildAnnotations(entry.attributes);
-            result.set(key, {
-                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
-                value: entry.value,
-                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
-                ...(nested.size > 0 ? { annotations: nested } : {}),
-            });
-        }
-    }
-    return result;
 }
 
 function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', key: string): string {

@@ -163,12 +163,18 @@ function createEvent(cb: CanonicalBinding): AssignmentEvent {
 /**
  * Build annotations map from attributes
  */
-export function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string, AttributeEntry> {
+export function buildAnnotations(
+    attributes: readonly Attribute[],
+    authoredAttributes = attributes,
+): ReadonlyMap<string, AttributeEntry> {
     const result = new Map<string, AttributeEntry>();
 
-    for (const attr of attributes) {
+    for (const [index, attr] of attributes.entries()) {
         for (const [key, entry] of attr.entries) {
-            const metadata = entry.value.type === 'NodeLiteral' ? entry.value : entry;
+            const authored = authoredAttributes[index]?.entries.get(key) ?? entry;
+            const directNode = authored.value.type === 'NodeLiteral' && entry.value.type === 'NodeLiteral';
+            const metadata = directNode ? entry.value : entry;
+            const authoredMetadata = directNode && authored.value.type === 'NodeLiteral' ? authored.value : authored;
             const attrEntry: AttributeEntry = {
                 ...(metadata.structuralId !== null ? { structuralId: metadata.structuralId } : {}),
                 value: entry.value,
@@ -177,7 +183,7 @@ export function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<
             if (metadata.datatype) {
                 (attrEntry as { datatype: string }).datatype = formatDatatypeAnnotation(metadata.datatype);
             }
-            const nestedAnnotations = buildAnnotations(metadata.attributes);
+            const nestedAnnotations = buildAnnotations(metadata.attributes, authoredMetadata.attributes);
             if (nestedAnnotations.size > 0) {
                 (attrEntry as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nestedAnnotations;
             }

@@ -1,4 +1,4 @@
-import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
+import { buildAnnotations, formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
 import { tokenize, type CommentMetadata, type Span, type Token, TokenType } from '@altopelago/aeon-lexer';
 
 export type AnnotationKind = 'doc' | 'annotation' | 'hint' | 'reserved';
@@ -452,10 +452,68 @@ function attributeBindables(
         entries.push(...findNodeHeadAttributeEntryBindables(eventTokens, ownerPath, valueSpan));
     }
 
-    return entries.map((entry, index): Bindable => ({
+    const intrinsic = new Map<number, AttributeEntryBindable>();
+    const nodeDescendants: AttributeEntryBindable[] = [];
+    type Value = AssignmentEvent['value'];
+
+    function visitAnnotations(annotations: AssignmentEvent['annotations'], path: string): void {
+        for (const [key, entry] of annotations ?? []) {
+            const attributePath = formatAttributePath(path, key);
+            if (entry.value.type === 'NodeLiteral') {
+                visitNode(entry.value, attributePath, true);
+            } else {
+                visitValue(entry.value, attributePath, false);
+                visitAnnotations(entry.annotations, attributePath);
+            }
+        }
+    }
+
+    function visitNode(value: Extract<Value, { type: 'NodeLiteral' }>, path: string, namedAttribute = false): void {
+        const entry = { path, span: value.span, valueSpan: value.span,
+            valueType: value.type, landmarks: findNodeValueLandmarks(eventTokens, value.span) };
+        if (namedAttribute) intrinsic.set(value.span.start.offset, entry);
+        else nodeDescendants.push(entry);
+        if (value.attributes.length > 0) {
+            entries.push(...findNodeHeadAttributeEntryBindables(eventTokens, path, value.span));
+            visitAnnotations(buildAnnotations(value.attributes), path);
+        }
+        for (const [index, child] of value.children.entries()) visitValue(child, `${path}[${index}]`, true);
+    }
+
+    function visitValue(value: Value, path: string, insideNode: boolean): void {
+        if (value.type === 'NodeLiteral') {
+            visitNode(value, path);
+            return;
+        }
+        if (insideNode) {
+            nodeDescendants.push({ path, span: value.span, valueSpan: value.span,
+                valueType: value.type, landmarks: [{ part: 'value', span: value.span }] });
+        }
+        switch (value.type) {
+            case 'TypedValue':
+                visitAnnotations(buildAnnotations(value.attributes), path);
+                visitValue(value.value, path, false);
+                break;
+            case 'ObjectNode':
+                for (const binding of value.bindings) {
+                    const keyPath = formatPath({ segments: [{ type: 'root' }, { type: 'member', key: binding.key }] });
+                    visitValue(binding.value, path + keyPath.slice(1), insideNode);
+                    visitAnnotations(buildAnnotations(binding.attributes), path + keyPath.slice(1));
+                }
+                break;
+            case 'ListNode':
+            case 'TupleLiteral':
+                for (const [index, child] of value.elements.entries()) visitValue(child, `${path}[${index}]`, insideNode);
+                break;
+        }
+    }
+
+    visitAnnotations(event.annotations, ownerPath);
+    const ordinary = entries.filter((entry) => !intrinsic.has(entry.span.start.offset));
+    return [...ordinary, ...intrinsic.values(), ...nodeDescendants].map((entry, index): Bindable => ({
         span: entry.span,
         valueSpan: entry.valueSpan,
-        valueType: 'StringLiteral' as AssignmentEvent['value']['type'],
+        valueType: entry.valueType ?? 'StringLiteral',
         path: entry.path,
         order: orderStart + index,
         kind: 'attribute',
@@ -468,6 +526,7 @@ interface AttributeEntryBindable {
     readonly span: Span;
     readonly valueSpan: Span;
     readonly landmarks: readonly PlacementLandmark[];
+    readonly valueType?: AssignmentEvent['value']['type'];
 }
 
 function semanticEventTokens(event: AssignmentEvent, tokens: readonly Token[]): readonly Token[] {
@@ -558,6 +617,7 @@ function scanAttributeEntryBindables(
     const entries: AttributeEntryBindable[] = [];
     let index = atIndex + 1;
     let depth = 0;
+    let compositeDepth = 0;
     let keyToken: Token | undefined;
     let entryLandmarks: PlacementLandmark[] = [];
     let valueStart: Span['start'] | undefined;
@@ -605,11 +665,13 @@ function scanAttributeEntryBindables(
             continue;
         }
         if (depth === 1) {
-            if (token.type === TokenType.Comma) {
+            if (token.type === TokenType.Comma && compositeDepth === 0) {
                 finishEntry(token.span.start);
                 index += 1;
                 continue;
             }
+            if ([TokenType.LeftAngle, TokenType.LeftBracket, TokenType.LeftParen].includes(token.type)) compositeDepth += 1;
+            if ([TokenType.RightAngle, TokenType.RightBracket, TokenType.RightParen].includes(token.type)) compositeDepth -= 1;
             if (!keyToken && isSemanticToken(token)) {
                 keyToken = token;
                 entryLandmarks.push({ part: 'attribute-key', span: token.span });

@@ -26,10 +26,25 @@ for(const dir of [sansa,...['lexer','parser','aes','annotation-stream','core','c
  for(const value of Object.values(packed.dependencies??{}))assert.ok(!/^(workspace:|file:|link:)/.test(value));
  packages.push({name:pkg.name,version:pkg.version,tarball,integrity:'sha512-'+createHash('sha512').update(readFileSync(tarball)).digest('base64'),dependencies:packed.dependencies??{}});
 }
-const parser=packages.find(p=>p.name==='@altopelago/aeon-parser');assert.equal(parser.dependencies['@altopelago/sansa'],packages[0].version);
-writeFileSync(join(consumer,'package.json'),JSON.stringify({name:'aeon-installed-reference-consumer',version:'1.0.0',private:true,type:'module',dependencies:Object.fromEntries(packages.map(p=>[p.name,pathToFileURL(p.tarball).href]))},null,2));
+const parser=packages.find(p=>p.name==='@altopelago/aeon-parser');
+const provider=packages[0];
+const providerPin=parser.dependencies[provider.name];
+const candidate=/^git\+https:\/\/github\.com\/AltoPelago\/sansa\.git#[0-9a-f]{40}$/u.test(providerPin);
+assert.ok(candidate || providerPin===provider.version, 'Parser must depend on the packed SANSA version or the exact candidate commit');
+const dependencies=Object.fromEntries(packages.map(p=>[p.name,pathToFileURL(p.tarball).href]));
+const consumerManifest={
+ name:'aeon-installed-reference-consumer',version:'1.0.0',private:true,type:'module',dependencies,
+ // Exercise the packed candidate bytes offline. Consumers installing from
+ // GitHub follow the commit-pinned dependency from the packed manifest.
+ ...(candidate ? {overrides:{[provider.name]:dependencies[provider.name]}} : {}),
+};
+writeFileSync(join(consumer,'package.json'),JSON.stringify(consumerManifest,null,2));
 run('npm',['install','--offline','--ignore-scripts','--no-audit','--fund=false','--cache',join(runRoot,'cache')],consumer);
-writeFileSync(join(consumer,'vectors.json'),readFileSync(join(root,'test-fixtures/reference-structural-paths.json')));
+const vectors=read(join(root,'test-fixtures/reference-structural-paths.json'));
+for (const vector of vectors.cases) {
+ if (vector.id==='node-position') vector.source='<z("a","b")>\ncopy=~>z[1]';
+}
+writeFileSync(join(consumer,'vectors.json'),JSON.stringify(vectors));
 const smoke=String.raw`
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
@@ -39,7 +54,14 @@ import {compile} from '@altopelago/aeon-core';
 import {canonicalize} from '@altopelago/aeon-canonical';
 import {projectPortableEvents,validateReferences} from '@altopelago/aeon-aes';
 import {validatePositionIndex} from '@altopelago/sansa/parsing/selector-cursor';
+import {parseAddress} from '@altopelago/sansa';
 for(const name of ['@altopelago/sansa','@altopelago/aeon-parser','@altopelago/aeon-core','@altopelago/aeon-canonical'])assert.ok(realpathSync(fileURLToPath(import.meta.resolve(name))).startsWith(process.cwd()+'/node_modules/'));
+assert.equal(parseAddress('$.tag&tag("tag")').ok,true);
+assert.equal(parseAddress('$.tag&headTag("tag")').ok,false);
+assert.deepEqual(projectPortableEvents(compile('<tag("first")>').events),[
+ {path:'$.tag',kind:'NodeLiteral',tag:'tag'},
+ {path:'$.tag[0]',kind:'StringLiteral',value:'first'},
+]);
 assert.equal(validatePositionIndex('999999',undefined,()=>{throw new Error()}),999999);
 for(const name of ['createReferenceEngine','openReferenceSession','parseWithReferenceSession','createReferenceReplayCodec'])assert.equal(name in parser,false);
 for(const raw of ['1.5','1e2','-0','+1','00','01','1_0','0x10','1000000','9007199254740993']){

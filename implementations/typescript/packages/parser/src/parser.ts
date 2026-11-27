@@ -1535,9 +1535,14 @@ class Parser {
             // If we see what looks like the start of a new binding, stop synchronizing
             const next = this.peekNext();
             if (this.check(TokenType.LeftAngle) && next && this.isKeyToken(next)
-                && next.span.start.line === this.peek().span.start.line
                 && this.peek().span.start.line > this.previous().span.end.line) {
-                return;
+                const afterTag = this.peekAhead(2)?.type;
+                if (next.span.start.line === this.peek().span.start.line
+                    || afterTag === TokenType.RightAngle || afterTag === TokenType.LeftParen
+                    || afterTag === TokenType.StructuralIdentity || afterTag === TokenType.At
+                    || afterTag === TokenType.Colon) {
+                    return;
+                }
             }
             if (this.isBareKeyToken(this.peek())) {
                 // Peek ahead to see if this is a binding (identifier followed by = or :)

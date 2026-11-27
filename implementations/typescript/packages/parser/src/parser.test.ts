@@ -1549,6 +1549,12 @@ b = [\A1\ = 2]`).tokens;
             }
         });
 
+        it('recovers a standalone node whose tag starts on the next line', () => {
+            const result = parse(tokenize('broken = nope\n<\n"next">\nafter = 1').tokens);
+            assert.equal(result.errors.length, 1);
+            assert.deepEqual(result.document?.bindings.map(binding => binding.key), ['next', 'after']);
+        });
+
         it('rejects external bindings and anonymous wrappers around node declarations', () => {
             for (const source of [
                 'page:node = <page>',

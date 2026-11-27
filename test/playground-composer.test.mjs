@@ -97,16 +97,19 @@ test('typed tuples retain all elements and datatype arguments', async()=>{
   await roundTrip('coords:triple<number,number,number>=(1,2,3)');
 });
 test('attribute composites retain recursive value children and their metadata', async()=>{
-  for (const value of ['{a=1}', '[1,2]', '(1,2)', '<n(1,2)>', '{"@name"="kept", nested={b=2}}']) {
+  for (const value of ['{a=1}', '[1,2]', '(1,2)', '{"@name"="kept", nested={b=2}}']) {
     await roundTrip(`value@{info=${value}}=2`);
   }
+  await roundTrip('value@{<n(1,2)>}=2');
   await roundTrip('value@{info:list<number>=[1,2]}=2');
   await roundTrip('value@{info={a\\nested\\:number=1}}=2');
 });
 test('anonymous list, tuple and node children retain identity, attributes and datatype', async()=>{
-  for (const value of ['[@{unit="kg"}:number=1]', '(@{unit="kg"}:number=1,2)', '<n(@{unit="kg"}:number=1)>']) {
+  for (const value of ['[@{unit="kg"}:number=1]', '(@{unit="kg"}:number=1,2)']) {
     await roundTrip(`values=${value}`);
   }
+  await roundTrip('<n(@{unit="kg"}:number=1)>');
+  await roundTrip('<n\\ID\\@{unit="kg"}:node(<child>)>');
   await roundTrip('values=[\\first\\@{unit="kg"}:number=1,\\second\\:number=2]');
 });
 test('indexed child traversal is linear for wide mounted Composer open/apply', async t=>{
@@ -187,6 +190,8 @@ test('typed WTC and ordinary temporal controls survive Composer without edits', 
     'x:date=2026-01-01','x:time=09:10:10','x:datetime=2026-01-01T09:10:10Z']) {
     await roundTrip(binding);
   }
+  await roundTrip('<n(@{unit="kg"}:number=1)>');
+  await roundTrip('<n\\ID\\@{unit="kg"}:node(<child>)>');
   await roundTrip('values=[:wtc=2026-01-01T09:10:10&TAI]');
   await roundTrip('value@{stamp:wtc=2026-01-01T09:10:10&TAI}=1');
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { finalizeJson, finalizeLinkedJson } from './json.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
-import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
+import { resolvePaths, emitEvents, resolveRefs } from '@altopelago/aeon-aes';
 
 function compileToEvents(input: string, _legacySyntaxFlag: boolean = false, maxAttributeDepth: number = 1) {
     const lexed = tokenize(input);
@@ -29,6 +29,50 @@ function compileHeader(input: string) {
         form: ast.document.header.form,
     };
 }
+
+
+describe('Tagged node JSON finalization', () => {
+    it('links pointers from and to direct node children', () => {
+        const events = compileToEvents('source = "first"\n<tag(~>source)>\nreceiver = ~>tag[0]');
+        const result = finalizeLinkedJson(events);
+        assert.deepEqual(result.meta?.errors ?? [], []);
+        assert.equal(result.document.receiver, 'first');
+        result.document.receiver = 'updated';
+        assert.equal(result.document.source, 'updated');
+        assert.deepEqual(result.document.tag, { $node: 'tag', $children: ['updated'] });
+    });
+
+    it('preserves indexed child annotations on nodes in attributes', () => {
+        const events = compileToEvents('host@{<tag(@{x=1} = 2)>} = 0');
+        const result = finalizeJson(events);
+        assert.deepEqual(result.document, {
+            host: 0, '@': { host: { tag: { $node: 'tag', $children: [2] },
+                '@': { tag: { '@items': { '0': { x: 1 } } } } } },
+        });
+    });
+
+    it('preserves receiver annotations when a clone resolves to a node', () => {
+        const events = compileToEvents('<target(1)>\n<host@{b@{flag:n=2}:node=~target}>', false, 2);
+        const resolved = resolveRefs(events);
+        const receiver = resolved.aes.find(event => event.key === 'host')?.annotations?.get('b');
+        assert.equal(receiver?.datatype, 'node');
+        assert.equal(receiver?.annotations?.get('flag')?.datatype, 'n');
+        const ordinary = compileToEvents('<target(1)>\nhost@{b@{flag:n=2}:node=~target}:n=0', false, 2);
+        assert.deepEqual(finalizeJson(resolveRefs(ordinary).aes).document, finalizeJson(ordinary).document);
+    });
+
+    it('charges the materialized children of a projected node clone', () => {
+        const events = compileToEvents('<big(1,2,3)>\ncopy:node=~big');
+        const result = finalizeJson(events, {
+            materialization: 'projected', includePaths: ['$.copy[0]'], maxMaterializedWeight: 2,
+        });
+        assert.deepEqual(result.meta?.errors ?? [], []);
+        assert.deepEqual(result.document, { copy: { $node: 'big', $children: [1] } });
+        assert.ok(finalizeJson(events, { maxMaterializedWeight: 2 }).meta?.errors?.some(
+            error => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+    });
+});
+
 
 describe('Finalization (JSON)', { concurrency: false }, () => {
     it('builds JSON output from top-level bindings', () => {

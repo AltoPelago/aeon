@@ -329,7 +329,7 @@ export function resolveRefs(
                 let nextAnnotationsEntry = entry.annotations;
                 if (entry.annotations) {
                     if (entry.value.type === 'NodeLiteral' && nextValueEntry.type === 'NodeLiteral') {
-                        if (nextValueEntry !== entry.value) nextAnnotationsEntry = buildAnnotations(nextValueEntry.attributes);
+                        if (nextValueEntry !== entry.value) nextAnnotationsEntry = buildAnnotations(nextValueEntry.attributes, entry.value.attributes);
                     } else {
                         nextAnnotationsEntry = resolveAnnotationEntries(entry.annotations);
                     }
@@ -345,7 +345,7 @@ export function resolveRefs(
         let annotationsChanged = false;
         let nextAnnotations = event.annotations;
         if (event.annotations && event.value.type === 'NodeLiteral' && nextValue.type === 'NodeLiteral') {
-            if (nextValue !== event.value) nextAnnotations = buildAnnotations(nextValue.attributes);
+            if (nextValue !== event.value) nextAnnotations = buildAnnotations(nextValue.attributes, event.value.attributes);
         } else if (event.annotations) {
             const updated = resolveAnnotationEntries(event.annotations);
             annotationsChanged = Array.from(updated.entries()).some(([key, entry]) => event.annotations?.get(key) !== entry);

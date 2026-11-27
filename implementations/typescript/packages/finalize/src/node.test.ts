@@ -5,9 +5,9 @@ import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
 
-function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {
+function compileToEvents(input: string, _legacySyntaxFlag: boolean = false, maxAttributeDepth = 1) {
     const tokens = tokenize(input).tokens;
-    const ast = parse(tokens);
+    const ast = parse(tokens, { maxAttributeDepth });
     if (!ast.document) throw new Error('Parse failed');
     const resolved = resolvePaths(ast.document, { indexedPaths: true });
     const emitted = emitEvents(resolved, { recovery: true });
@@ -15,6 +15,27 @@ function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {
 }
 
 describe('Finalization (Node)', () => {
+    it('keeps intrinsic metadata on a node in an attribute of an object member', () => {
+        const events = compileToEvents('box={host@{<tag\\ID\\@{x=1}:node>} = 0}', false, 2);
+        const box = finalizeNode(events).document.root.entries.get('box');
+        assert.ok(box?.type === 'Object');
+        const tag = box.entries.get('host')?.annotations?.get('tag');
+        assert.equal(tag?.structuralId, 'ID');
+        assert.equal(tag?.datatype, 'node');
+        assert.equal(tag?.annotations?.get('x')?.value.type, 'NumberLiteral');
+    });
+
+    it('projects direct node indices into the presentation children field', () => {
+        const events = compileToEvents('<tag("skip", "keep")>');
+        const tag = finalizeNode(events, {
+            materialization: 'projected', includePaths: ['$.tag[1]'],
+        }).document.root.entries.get('tag');
+        assert.ok(tag?.type === 'Object');
+        const children = tag.entries.get('$children');
+        assert.ok(children?.type === 'List');
+        assert.deepEqual(children.items.map(child => child.type === 'String' && child.value), ['keep']);
+    });
+
     it('materializes a node tree', () => {
         const events = compileToEvents(
             [
