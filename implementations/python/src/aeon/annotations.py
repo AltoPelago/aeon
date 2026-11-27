@@ -164,6 +164,7 @@ class PositionLookup:
     source: str
     line_starts: list[int]
     node_values: dict[int, dict[str, object]] = field(default_factory=dict)
+    attribute_values: dict[int, dict[str, object]] = field(default_factory=dict)
     tokens: list[Token] = field(default_factory=list)
     token_starts: list[int] = field(default_factory=list)
     closing_tokens: dict[int, int] = field(default_factory=dict)
@@ -237,7 +238,7 @@ def build_path_bindables(
     events: list[dict[str, object]],
     positions: PositionLookup,
 ) -> list[BindableRecord]:
-    positions.node_values = index_node_values(events)
+    index_annotation_values(events, positions)
     bindables: list[BindableRecord] = []
     for index, event in enumerate(events):
         span = parse_span(event["span"])
@@ -277,8 +278,7 @@ def sort_annotation_records(records: list[dict[str, object]]) -> list[dict[str, 
     return sorted(records, key=key)
 
 
-def index_node_values(events: list[dict[str, object]]) -> dict[int, dict[str, object]]:
-    nodes = {}
+def index_annotation_values(events: list[dict[str, object]], positions: PositionLookup) -> None:
     seen = set()
     pending = [(event.get("value"), event.get("annotations")) for event in events]
     while pending:
@@ -287,7 +287,11 @@ def index_node_values(events: list[dict[str, object]]) -> dict[int, dict[str, ob
             for entry in annotations.values():
                 if not isinstance(entry, dict):
                     continue
-                pending.append((entry.get("value"), entry.get("annotations")))
+                value = entry.get("value")
+                span = entry.get("span")
+                if isinstance(value, dict) and isinstance(span, dict):
+                    positions.attribute_values[parse_span(span).start.offset] = value
+                pending.append((value, entry.get("annotations")))
                 for block in entry.get("attributes") or []:
                     if isinstance(block, dict):
                         pending.append((None, block.get("entries")))
@@ -305,7 +309,7 @@ def index_node_values(events: list[dict[str, object]]) -> dict[int, dict[str, ob
             continue
         seen.add(occurrence)
         if kind == "NodeLiteral":
-            nodes[offset] = value
+            positions.node_values[offset] = value
         for block in value.get("attributes") or []:
             if isinstance(block, dict):
                 pending.append((None, block.get("entries")))
@@ -321,7 +325,6 @@ def index_node_values(events: list[dict[str, object]]) -> dict[int, dict[str, ob
             pending.extend(
                 (item, None) for item in value.get("children" if kind == "NodeLiteral" else "elements") or []
             )
-    return nodes
 
 
 def build_trailing_index(bindables: list[BindableRecord]) -> dict[int, tuple[list[BindableRecord], list[int]]]:
@@ -811,22 +814,31 @@ def scan_attribute_entry(
         )]
         entries.extend(node_attribute_entry_bindables(source, value_span, path, positions))
         node = positions.node_values.get(offset, {})
-        for index, child in enumerate(node.get("children") or []):
-            entries.extend(add_metadata_value_bindables(source, child, f"{path}[{index}]", positions))
+        entries.extend(metadata_descendants(source, node, path, positions))
         return landmarks, entries, value_end
     key_span = scan_key_span(source, offset, positions)
     if key_span is None:
         return None
     key = decode_key(source[key_span.start.offset:key_span.end.offset])
+    path = format_attribute_path(owner_path, key)
     landmarks = [PlacementLandmark("attribute-key", key_span)]
+    entries = []
+    payload = positions.attribute_values.get(key_span.start.offset)
     scan = key_span.end.offset
     entry_end = scan
     value_span = key_span
     while scan < end:
         scan = skip_head_trivia(source, scan, end)
-        if scan >= end or source[scan] in {",", "}"}:
+        if scan >= end or source[scan] in {",", "}", "\r", "\n"}:
             entry_end = scan
             break
+        if source[scan] == "@":
+            attr_marks, bindables, scan = scan_attribute_block(
+                source, scan, end, path, positions, make_bindables=make_bindables,
+            )
+            landmarks.extend(attr_marks)
+            entries.extend(bindables)
+            continue
         if source[scan] == ":":
             landmarks.append(PlacementLandmark("attribute-datatype-colon", Span(positions.position_at(scan), positions.position_at(scan + 1))))
             dtype_start = skip_head_trivia(source, scan + 1, end)
@@ -837,26 +849,31 @@ def scan_attribute_entry(
             continue
         if source[scan] == "=":
             landmarks.append(PlacementLandmark("attribute-equals", Span(positions.position_at(scan), positions.position_at(scan + 1))))
-            value_start = skip_head_trivia(source, scan + 1, end)
-            value_end = scan_attribute_value_end(source, value_start, end)
-            if value_start < value_end:
+            authored_span = event_value_span({"value": payload})
+            if authored_span is not None and authored_span.end.offset <= end:
+                value_span = authored_span
+            else:
+                value_start = skip_node_layout(source, scan + 1, end)
+                value_end = scan_attribute_value_end(source, value_start, end)
                 value_span = Span(positions.position_at(value_start), positions.position_at(value_end))
+            if value_span.start.offset < value_span.end.offset:
                 landmarks.append(PlacementLandmark("attribute-value", value_span))
-            scan = value_end
-            continue
+            entry_end = skip_head_trivia(source, value_span.end.offset, end)
+            break
         scan += 1
-    bindable = None
     if make_bindables:
-        bindable = BindableRecord(
+        entries.insert(0, BindableRecord(
             span=Span(key_span.start, positions.position_at(entry_end)),
             order=0,
-            path=format_attribute_path(owner_path, key),
+            path=path,
             value_span=value_span,
-            value_type=None,
+            value_type=event_value_type({"value": payload}),
             kind="attribute",
             landmarks=landmarks,
-        )
-    return landmarks, [bindable] if bindable is not None else [], entry_end
+        ))
+        if payload is not None:
+            entries.extend(metadata_descendants(source, payload, path, positions))
+    return landmarks, entries, entry_end
 
 
 def decode_key(raw: str) -> str:
@@ -869,8 +886,9 @@ def decode_key(raw: str) -> str:
 
 def add_metadata_value_bindables(
     source: str, payload: dict[str, object], path: str, positions: PositionLookup,
+    *, binding_span: object = None,
 ) -> list[BindableRecord]:
-    raw_span = payload.get("span")
+    raw_span = binding_span or payload.get("span")
     if not isinstance(raw_span, dict):
         return []
     span = parse_span(raw_span)
@@ -882,10 +900,26 @@ def add_metadata_value_bindables(
         landmarks=binding_landmarks(source, event, positions),
     )]
     result.extend(attribute_bindables(source, event, positions, 0))
-    kind = event_value_type(event)
-    if kind in {"NodeLiteral", "ListNode", "TupleLiteral"}:
-        for index, child in enumerate(value.get("children" if kind == "NodeLiteral" else "elements") or []):
-            result.extend(add_metadata_value_bindables(source, child, f"{path}[{index}]", positions))
+    result.extend(metadata_descendants(source, value, path, positions))
+    return result
+
+
+def metadata_descendants(
+    source: str, value: dict[str, object], path: str, positions: PositionLookup,
+) -> list[BindableRecord]:
+    result = []
+    kind = value.get("type")
+    if kind == "ObjectNode":
+        for binding in value.get("bindings") or []:
+            key = binding["key"]
+            member = key if is_ascii_identifier(key) else f"[{json.dumps(key, ensure_ascii=False)}]"
+            result.extend(add_metadata_value_bindables(
+                source, binding["value"], f"{path}.{member}", positions, binding_span=binding.get("span"),
+            ))
+    elif kind in {"NodeLiteral", "ListNode", "TupleLiteral"}:
+        children = value.get("children" if kind == "NodeLiteral" else "elements") or []
+        for index, item in enumerate(children):
+            result.extend(add_metadata_value_bindables(source, item, f"{path}[{index}]", positions))
     return result
 
 

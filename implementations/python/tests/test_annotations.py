@@ -92,6 +92,26 @@ class AnnotationStreamTests(unittest.TestCase):
             [annotation["target"]["path"] for annotation in annotations],
         )
 
+    def test_annotations_walk_object_and_indexed_values_in_metadata(self) -> None:
+        cases = (
+            (
+                '<root@{<doc({<leaf("a"/#left#/, "b"/#right#/)>})>}>',
+                ["$.root.@.doc[0].leaf[0]", "$.root.@.doc[0].leaf[1]"],
+            ),
+            (
+                '<root@{docs = [<doc("a"/#left#/, "b"/#right#/)>]\nword/#key#/="ok"}>',
+                ["$.root.@.docs[0][0]", "$.root.@.docs[0][1]", "$.root.@.word"],
+            ),
+            (
+                '<root@{docs = {<"x.y"("a"/#left#/, "b"/#right#/)>}}>',
+                ['$.root.@.docs.["x.y"][0]', '$.root.@.docs.["x.y"][1]'],
+            ),
+        )
+        for source, expected in cases:
+            with self.subTest(source=source):
+                annotations = self.annotations_for(source)
+                self.assertEqual(expected, [annotation["target"]["path"] for annotation in annotations])
+
     def test_binding_head_gap_comments_report_placement(self) -> None:
         annotations = self.annotations_for(
             'aname/#A#/ :string = "alignment playground"\n'
