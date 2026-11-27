@@ -418,6 +418,7 @@ pub enum Value {
         datatype: Option<String>,
         children: Vec<Value>,
         head_span: Span,
+        span: Span,
     },
     ListNode {
         items: Vec<Value>,
@@ -1401,7 +1402,7 @@ pub(crate) const SET_TO_ELEVEN_PROFILE_ID: &str = "set.to.eleven.v1";
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GpDatatypePosition {
     Binding,
-    NodeHead,
+    NodeDeclaration,
     Argument,
 }
 
@@ -1460,21 +1461,22 @@ pub(crate) fn validate_profile_event_datatypes<P: AsRef<str>>(
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
         };
-        let Some(surface) = parse_gp_datatype_surface(datatype) else {
-            continue;
-        };
         let rendered_path = rendered_paths
             .get(index)
             .map(|path| path.as_ref().to_owned())
             .unwrap_or_else(|| format_path(&event.path));
-        validate_profile_datatype_surface(
+        validate_profile_authored_datatype(
             profile,
-            &surface,
+            datatype,
             &rendered_path,
             event.span,
             errors,
-            gp_custom_clarifier_literal(&event.value),
-            GpDatatypePosition::Binding,
+            Some(&event.value),
+            if matches!(&event.value, Value::NodeLiteral { .. }) {
+                GpDatatypePosition::NodeDeclaration
+            } else {
+                GpDatatypePosition::Binding
+            },
         );
     }
 }
@@ -1488,17 +1490,48 @@ fn validate_profile_validation_datatypes(
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
         };
-        let Some(surface) = parse_gp_datatype_surface(datatype) else {
-            continue;
-        };
-        validate_profile_datatype_surface(
+        validate_profile_authored_datatype(
             profile,
-            &surface,
+            datatype,
             &event.path,
             event.span,
             errors,
-            gp_custom_clarifier_literal(event.value),
-            GpDatatypePosition::Binding,
+            Some(event.value),
+            if matches!(&event.value, Value::NodeLiteral { .. }) {
+                GpDatatypePosition::NodeDeclaration
+            } else {
+                GpDatatypePosition::Binding
+            },
+        );
+    }
+}
+
+fn validate_profile_authored_datatype(
+    profile: DatatypeProfile<'_>,
+    datatype: &str,
+    path: &str,
+    span: Span,
+    errors: &mut Vec<Diagnostic>,
+    value: Option<&Value>,
+    position: GpDatatypePosition,
+) {
+    // Core rejects the intrinsic datatype claim before GP can inspect the node.
+    if position == GpDatatypePosition::NodeDeclaration
+        && profile
+            .custom_value_error(datatype, "NodeLiteral", path)
+            .is_some()
+    {
+        return;
+    }
+    if let Some(surface) = parse_gp_datatype_surface(datatype) {
+        validate_profile_datatype_surface(
+            profile,
+            &surface,
+            path,
+            span,
+            errors,
+            value.is_some_and(gp_custom_clarifier_literal),
+            position,
         );
     }
 }
@@ -1514,15 +1547,16 @@ fn validate_profile_datatype_surface(
 ) {
     let name = datatype.name.as_str();
     if !datatype.args.is_empty() && profile.enforces_generic_admission() {
-        let message = if position == GpDatatypePosition::NodeHead
+        let message = if position == GpDatatypePosition::NodeDeclaration
             && !profile.allows_node_head_generic(name)
         {
             Some(match profile {
                 DatatypeProfile::BuiltinGp => {
-                    "Profile only allows generic arguments on node head datatype :node".to_owned()
+                    "Profile only allows generic arguments on node declaration datatype :node"
+                        .to_owned()
                 }
                 DatatypeProfile::Loaded(_) => format!(
-                    "Profile does not allow generic arguments on node head datatype ':{name}'"
+                    "Profile does not allow generic arguments on node declaration datatype ':{name}'"
                 ),
             })
         } else if position == GpDatatypePosition::Binding
@@ -1556,11 +1590,11 @@ fn validate_profile_datatype_surface(
 
     if let Some(clarifiers) = &datatype.clarifiers {
         match profile.clarifier_rule(name) {
-            _ if position == GpDatatypePosition::NodeHead => {
+            _ if position == GpDatatypePosition::NodeDeclaration => {
                 errors.push(
                     Diagnostic::new(
                         "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
-                        "Profile does not allow clarifiers on node head datatypes",
+                        "Profile does not allow clarifiers on node declaration datatypes",
                     )
                     .at_path(rendered_path)
                     .with_span(span),
@@ -2803,30 +2837,32 @@ mod tests {
     }
 
     #[test]
-    fn preserves_structural_identity_on_attribute_entry_and_node_heads() {
+    fn preserves_structural_identity_on_nodes_and_their_attributes() {
         let result = compile(
-            "value@{source\\META\\:string = \"user\"} = <tag\\HEAD\\>",
+            r#"<value\NODE\@{source\META\:string = "user"}>"#,
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
+        assert_eq!(result.events[0].structural_id.as_deref(), Some("NODE"));
+        let Value::NodeLiteral {
+            structural_id,
+            attributes,
+            ..
+        } = &result.events[0].value
+        else {
+            panic!("node");
+        };
+        assert_eq!(structural_id.as_deref(), Some("NODE"));
         assert_eq!(
-            result.events[0].annotations["source"]
-                .structural_id
-                .as_deref(),
+            attributes[0]["source"].structural_id.as_deref(),
             Some("META")
         );
-        match &result.events[0].value {
-            Value::NodeLiteral { structural_id, .. } => {
-                assert_eq!(structural_id.as_deref(), Some("HEAD"));
-            }
-            other => panic!("expected node literal, got {other:?}"),
-        }
     }
 
     #[test]
-    fn rejects_duplicate_identity_across_attribute_and_node_heads() {
+    fn rejects_duplicate_identity_across_node_and_attribute() {
         let result = compile(
-            "value@{source\\same\\ = \"user\"} = <tag\\same\\>",
+            r#"<value\same\@{source\same\ = "user"}>"#,
             CompileOptions::default(),
         );
         assert_eq!(result.errors[0].code, "DUPLICATE_STRUCTURAL_IDENTITY");
@@ -2886,7 +2922,7 @@ mod tests {
             "a:sansa = $.name/* block */\n\
              b:sansa = $.name// line\n\
              c:list = [$.name]\n\
-             d:node = <tag($.name)>\n\
+             <d($.name)>\n\
              e:tuple = ($.name)\n",
             CompileOptions::default(),
         );
@@ -2921,7 +2957,7 @@ mod tests {
     #[test]
     fn reports_self_reference_from_node_attribute() {
         let result = compile(
-            "aeon:mode = \"custom\"\nwidget:node = <card@{ \"a.b\":lookup = ~$.widget }:node>\n",
+            "aeon:mode = \"custom\"\n<widget@{ \"a.b\":lookup = ~$.widget }:node>\n",
             CompileOptions::default(),
         );
         assert!(
@@ -3127,16 +3163,16 @@ mod tests {
                 &[],
             ),
             (
-                "node-head-forward",
-                r###"a = <tag@{b = ~a.@.z, z = 1}>"###,
+                "node-attribute-forward",
+                r###"<a@{b = ~a.@.z, z = 1}>"###,
                 1,
-                &["MISSING_REFERENCE_TARGET"],
+                &["FORWARD_REFERENCE"],
             ),
             (
-                "node-head-backward",
-                r###"a = <tag@{z = 1, b = ~a.@.z}>"###,
+                "node-attribute-backward",
+                r###"<a@{z = 1, b = ~a.@.z}>"###,
                 1,
-                &["MISSING_REFERENCE_TARGET"],
+                &[],
             ),
             (
                 "anonymous-head-forward",
@@ -3196,7 +3232,7 @@ copy = ~["literal.@key"]"###,
             ("ancestor-object", r###"a = { child = ~a }"###, 1, &[]),
             (
                 "node-child-error-once",
-                r###"a = <tag(~missing)>"###,
+                r###"<a(~missing)>"###,
                 1,
                 &["MISSING_REFERENCE_TARGET"],
             ),
@@ -3207,21 +3243,21 @@ copy = ~["literal.@key"]"###,
                 &["SELF_REFERENCE"],
             ),
             (
-                "node-head-key-attribute-distinct",
-                r###"a@{b = 7} = <tag@{b = ~a.@.b}>"###,
+                "node-attribute-and-child-scopes",
+                r###"<a@{b = 7}(<tag@{b = ~a.@.b}>)>"###,
                 1,
                 &[],
             ),
             (
                 "node-head-external-backward",
                 r###"z = 7
-a = <tag@{b = ~z}>"###,
+<a@{b = ~z}>"###,
                 1,
                 &[],
             ),
             (
                 "node-head-external-forward",
-                r###"a = <tag@{b = ~z}>
+                r###"<a@{b = ~z}>
 z = 7"###,
                 1,
                 &["FORWARD_REFERENCE"],
@@ -3246,13 +3282,13 @@ z = 7"###,
             ),
             (
                 "node-head-nested-list-reference",
-                r###"a = <tag@{b = [~missing]}>"###,
+                r###"<a@{b = [~missing]}>"###,
                 1,
                 &["MISSING_REFERENCE_TARGET"],
             ),
             (
                 "node-head-nested-object-reference",
-                r###"a = <tag@{b = {c = ~missing}}>"###,
+                r###"<a@{b = {c = ~missing}}>"###,
                 1,
                 &["MISSING_REFERENCE_TARGET"],
             ),
@@ -3270,7 +3306,7 @@ z = 7"###,
             ),
             (
                 "anonymous-node-child-head-forward",
-                r###"a = <tag(@{b = ~a[0].@.z, z = 1} = 0)>"###,
+                r###"<a(@{b = ~a[0].@.z, z = 1} = 0)>"###,
                 1,
                 &["FORWARD_REFERENCE"],
             ),
@@ -3281,10 +3317,10 @@ z = 7"###,
                 &["SELF_REFERENCE"],
             ),
             (
-                "node-head-not-binding-target",
-                "a = <tag@{z = 1}>\nb = ~a.@.z",
+                "node-attribute-binding-target",
+                "<a@{z = 1}>\nb = ~a.@.z",
                 1,
-                &["MISSING_REFERENCE_TARGET"],
+                &[],
             ),
         ];
         let anonymous_metadata_cases: &[(&str, &str, usize, &[&str])] = &[
@@ -3338,25 +3374,25 @@ z = 7"###,
             ),
             (
                 "anonymous-node-child-payload-own-clone-metadata",
-                r###"a = <tag(@{z = 1} = ~a[0].@.z)>"###,
+                r###"<a(@{z = 1} = ~a[0].@.z)>"###,
                 1,
                 &[],
             ),
             (
                 "anonymous-node-child-payload-own-pointer-metadata",
-                r###"a = <tag(@{z = 1} = ~>a[0].@.z)>"###,
+                r###"<a(@{z = 1} = ~>a[0].@.z)>"###,
                 1,
                 &[],
             ),
             (
                 "anonymous-node-child-payload-own-metadata-member",
-                r###"a = <tag(@{z = {leaf = 1}} = ~a[0].@.z.leaf)>"###,
+                r###"<a(@{z = {leaf = 1}} = ~a[0].@.z.leaf)>"###,
                 1,
                 &[],
             ),
             (
                 "anonymous-node-child-head-later-payload-member",
-                r###"a = <tag(@{z = ~a[0].child} = {child = 1})>"###,
+                r###"<a(@{z = ~a[0].child} = {child = 1})>"###,
                 1,
                 &["FORWARD_REFERENCE"],
             ),
@@ -3439,7 +3475,7 @@ z = 7"###,
     #[test]
     fn accepts_parameterized_object_and_node_claims() {
         let result = compile(
-            "scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity\n",
+            "scores:object<number> = { alice:number = 10 }\n<doc:node<html>>\n<child:node<node>>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -3456,7 +3492,7 @@ z = 7"###,
 
     #[test]
     fn core_preserves_binding_node_claims_with_reserved_child_value_datatypes() {
-        let result = compile("tag:node<string> = <tag>\n", CompileOptions::default());
+        let result = compile("<tag:node<string>>\n", CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(result.events[0].datatype.as_deref(), Some("node<string>"));
     }
@@ -3995,7 +4031,7 @@ z = 7"###,
     #[test]
     fn parses_node_literals_with_attributes() {
         let result = compile(
-            "content:node = <span@{id=\"text\", class:string=\"dark\"}(\"hello\")>\n",
+            "<content@{id=\"text\", class:string=\"dark\"}(\"hello\")>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -4007,7 +4043,7 @@ z = 7"###,
                 children,
                 ..
             } => {
-                assert_eq!(tag, "span");
+                assert_eq!(tag, "content");
                 assert!(datatype.is_none());
                 assert_eq!(attributes.len(), 1);
                 assert_eq!(attributes[0]["id"].datatype, None);
@@ -4918,7 +4954,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn strict_mode_rejects_untyped_node_head_attribute_entries() {
         let result = compile(
-            "aeon:mode = \"strict\"\ncontent:node = <span@{id=\"text\", class=\"dark\"}(\"hello\")>\n",
+            "aeon:mode = \"strict\"\n<content@{id=\"text\", class=\"dark\"}(\"hello\")>\n",
             CompileOptions::default(),
         );
         assert!(
@@ -5324,7 +5360,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn supports_backtick_strings_and_multiline_node_introducers() {
         let result = compile(
-            "text:string = `hello`\ncontent:node = <div(\n  <span@{id=\"text\"}:node(\n    `world`\n  )>\n)>\n",
+            "text:string = `hello`\n<content(\n  <span@{id=\"text\"}:node(\n    `world`\n  )>\n)>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -5339,7 +5375,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn anonymous_typed_sequence_items_emit_indexed_datatypes() {
         let result = compile(
-            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>\n",
+            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\n<page(:string = \"hello\", <tag>, :int32 = 3)>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -5364,7 +5400,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn anonymous_attributed_sequence_items_emit_indexed_annotations() {
         let result = compile(
-            "page:node = <page(@{unit:string=\"cm\"}:int32 = 3)>\nvalues:list = [@{unit:string=\"cm\"} = 4]\n",
+            "<page(@{unit:string=\"cm\"}:int32 = 3)>\nvalues:list = [@{unit:string=\"cm\"} = 4]\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -5394,7 +5430,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn node_children_emit_indexed_paths_and_descendants() {
         let result = compile(
-            "page:node = <page({a:n = 1, b:n = 2}, \"hello\")>\n",
+            "<page({a:n = 1, b:n = 2}, \"hello\")>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -5413,7 +5449,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn references_resolve_through_node_child_indexes() {
         let result = compile(
-            "page:node = <page({a:n = 1})>\ncopy:n = ~page[0].a\n",
+            "<page({a:n = 1})>\ncopy:n = ~page[0].a\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -5428,14 +5464,14 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn strict_mode_rejects_non_node_inline_node_head_datatypes_with_aligned_message() {
         let result = compile(
-            "aeon:mode = \"strict\"\nwidget:node = <tag:contact(\"x\")>\n",
+            "aeon:mode = \"strict\"\n<widget:contact(\"x\")>\n",
             CompileOptions::default(),
         );
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].code, "INVALID_NODE_HEAD_DATATYPE");
+        assert_eq!(result.errors[0].code, "INVALID_NODE_DATATYPE");
         assert_eq!(
             result.errors[0].message,
-            "Invalid node head datatype in strict mode at '$.widget': node heads must use ':node', got ':contact'"
+            "Invalid node datatype in strict mode at '$.widget': expected ':node', got ':contact'"
         );
         assert_eq!(result.errors[0].path.as_deref(), Some("$.widget"));
         assert!(result.errors[0].span.is_some());
@@ -5444,7 +5480,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn strict_mode_allows_node_inline_node_head_datatype() {
         let result = compile(
-            "aeon:mode = \"strict\"\nwidget:node = <tag:node(\"x\")>\n",
+            "aeon:mode = \"strict\"\n<widget:node(\"x\")>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -5453,7 +5489,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn transport_mode_allows_custom_inline_node_head_datatype() {
         let result = compile(
-            "aeon:mode = \"transport\"\nwidget:node = <tag:pair(\"x\", \"y\")>\n",
+            "aeon:mode = \"transport\"\n<widget:pair(\"x\", \"y\")>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -5531,7 +5567,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn supports_newline_delimited_node_children_and_multiline_node_attributes() {
         let result = compile(
-            "n:node = <a (\n  <title (\"hello\")>\n  <text (\"world\", {n:n = 234, m:node = <a>})>\n)>\ns:node = <span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n",
+            "<n (\n  <title (\"hello\")>\n  <text (\"world\", {n:n = 234, <m>})>\n)>\n<s\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -5548,7 +5584,7 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn supports_multiline_binding_layout_around_colon_and_equals() {
         let result = compile(
-            "name\n  :\n  string = \n  \"playground\"\n\norder001:node = \n<\n  aeon\n  (\n    \"hello\"\n  )\n>\n",
+            "name\n  :\n  string = \n  \"playground\"\n\n<\n  order001\n  (\n    \"hello\"\n  )\n>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty());
@@ -5806,10 +5842,10 @@ other:number = ~>source.shared.@.metadata"#;
     #[test]
     fn scenarios_fixture_parses_cleanly() {
         let fixture = std::fs::read_to_string(format!(
-            "{}/../../../../stress-tests/full/scenarios.aeon",
+            "{}/../../../../stress-tests/full/scenarios-tagged-nodes.aeon",
             env!("CARGO_MANIFEST_DIR")
         ))
-        .expect("read scenarios.aeon fixture");
+        .expect("read tagged-node scenarios fixture");
         let result = compile(&fixture, CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }

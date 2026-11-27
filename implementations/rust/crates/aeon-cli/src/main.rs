@@ -3137,6 +3137,9 @@ fn render_portable_events(events: &[PortableAesEvent]) -> String {
                 String::from("kind"),
                 JsonValue::String(event.kind.to_owned()),
             );
+            if let Some(tag) = &event.tag {
+                object.insert(String::from("tag"), JsonValue::String(tag.clone()));
+            }
             if let Some(identity) = &event.identity {
                 object.insert(
                     String::from("identity"),
@@ -3212,6 +3215,9 @@ fn render_portable_compatibility_events(events: &[PortableAesCompatibilityEvent]
                 String::from("kind"),
                 JsonValue::String(event.kind.to_owned()),
             );
+            if let Some(tag) = &event.tag {
+                object.insert(String::from("tag"), JsonValue::String(tag.clone()));
+            }
             if let Some(identity) = &event.identity {
                 object.insert(
                     String::from("identity"),
@@ -3796,7 +3802,7 @@ fn infer_phase_label_from_code(code: &str) -> Option<&'static str> {
         | "UNTYPED_VALUE_IN_STRICT_MODE"
         | "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"
         | "CUSTOM_DATATYPE_NOT_ALLOWED"
-        | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+        | "INVALID_NODE_DATATYPE" => Some("Mode Enforcement"),
         "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED"
         | "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED"
         | "PROFILE_DATATYPE_CLARIFIER_INVALID" => Some("Profile Validation"),
@@ -5869,11 +5875,8 @@ mod tests {
     }
 
     #[test]
-    fn inspect_json_renders_portable_expanded_node_projection() {
-        let result = compile(
-            r#"a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>"#,
-            CompileOptions::default(),
-        );
+    fn inspect_json_renders_intrinsic_tag_and_direct_child() {
+        let result = compile(r#"<a\ROOT\(\CHILD\ = "value")>"#, CompileOptions::default());
         let rendered = render_portable_events(&project_portable_events(&result.events));
         let events: JsonValue = serde_json::from_str(&rendered).expect("portable events JSON");
         assert_eq!(
@@ -5884,14 +5887,14 @@ mod tests {
                 .map(|event| json!({
                     "path": event["path"],
                     "kind": event["kind"],
+                    "tag": event["tag"],
                     "identity": event.get("identity").cloned().unwrap_or(JsonValue::Null),
                     "value": event.get("value").cloned().unwrap_or(JsonValue::Null),
                 }))
                 .collect::<Vec<_>>(),
             vec![
-                json!({ "path": "$.a", "kind": "NodeLiteral", "identity": "ROOT", "value": null }),
-                json!({ "path": "$.a[0]", "kind": "NodeHead", "identity": "HEAD", "value": "tag" }),
-                json!({ "path": "$.a[0][0]", "kind": "StringLiteral", "identity": "CHILD", "value": "value" }),
+                json!({ "path": "$.a", "kind": "NodeLiteral", "identity": "ROOT", "value": null, "tag": "a" }),
+                json!({ "path": "$.a[0]", "kind": "StringLiteral", "identity": "CHILD", "value": "value", "tag": null }),
             ]
         );
     }
@@ -5984,7 +5987,7 @@ mod tests {
     #[test]
     fn render_events_serializes_node_attribute_entry_maps() {
         let result = compile(
-            "content:node = <span@{id=\"text\", class:string=\"dark\"}(\"hello\")>\n",
+            "<content@{id=\"text\", class:string=\"dark\"}(\"hello\")>\n",
             CompileOptions::default(),
         );
         let parsed: JsonValue =

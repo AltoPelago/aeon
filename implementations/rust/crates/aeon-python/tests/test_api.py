@@ -8,11 +8,15 @@ import unittest
 import altopelago.aeon as aeon
 from altopelago.aeon import _native, pytonic
 
+RETIRED_PROPERTY_ADDRESSES = ('$.*&headTag("book")', r'?&headTag("\u{1F600}")')
+
 
 class CompileTests(unittest.TestCase):
     def test_property_address_literals_keep_native_kind_payload_and_wire(self) -> None:
         fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text(encoding="utf-8"))
         for address, expected in zip(fixture["addresses"], fixture["canonical"]):
+            if address in RETIRED_PROPERTY_ADDRESSES:
+                continue
             with self.subTest(address=address):
                 source = f'p:sansa={address}// outside\nx=1'
                 compiled = aeon.compile(source)
@@ -35,7 +39,7 @@ class CompileTests(unittest.TestCase):
 
     def test_property_literals_do_not_admit_native_reference_targets(self) -> None:
         fixture = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/property-address-literals.json").read_text(encoding="utf-8"))
-        sources = [f'p:sansa={address}' for address in fixture["invalid"]]
+        sources = [f'p:sansa={address}' for address in (*fixture["invalid"], *RETIRED_PROPERTY_ADDRESSES)]
         sources += [f'copy={marker}{address}' for address in fixture["addresses"] for marker in ["~", "~>"]]
         for source in sources:
             with self.subTest(source=source):
@@ -64,9 +68,13 @@ class CompileTests(unittest.TestCase):
         self.assertEqual({"a": 0}, loaded.document)
 
     def test_gp_validates_unprojected_claims(self) -> None:
-        fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-attribute-clarifiers.json").read_text(encoding="utf-8"))
-        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/gp-tag-head-clarifiers.json").read_text(encoding="utf-8"))
-        for fixture in fixtures:
+        root = Path(__file__).resolve().parents[5] / "test-fixtures"
+        fixtures = {}
+        for name in ("gp-attribute-clarifiers", "gp-tag-head-clarifiers", "gp-datatype-generics"):
+            for suffix in ("", "-tagged-nodes"):
+                cases = json.loads((root / f"{name}{suffix}.json").read_text(encoding="utf-8"))
+                fixtures.update((case["id"], case) for case in cases)
+        for fixture in fixtures.values():
             with self.subTest(case=fixture["id"]):
                 source = 'aeon:profile="aeon.gp.profile.v1"\n' + fixture["source"]
                 result = json.loads(_native.compile_cts_json(source, rich=True, max_attribute_depth=2, max_separator_depth=2))
@@ -85,7 +93,7 @@ class CompileTests(unittest.TestCase):
     def test_gp_uses_exact_numeric_radix_bases(self) -> None:
         root = Path(__file__).resolve().parents[5] / "test-fixtures"
         fixtures = json.loads((root / "radix-bases.json").read_text(encoding="utf-8"))
-        contexts = json.loads((root / "gp-radix-contexts.json").read_text(encoding="utf-8"))
+        contexts = json.loads((root / "gp-radix-contexts-tagged-nodes.json").read_text(encoding="utf-8"))
         for fixture in (f for f in fixtures if f["testSource"]):
             for context in contexts:
                 source = context["before"] + fixture["literal"] + context["after"]
@@ -123,7 +131,7 @@ class CompileTests(unittest.TestCase):
 
     def test_generic_arguments_are_type_descriptors_not_numeric_literals(self) -> None:
         fixtures = json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/datatype-generic-arguments.json").read_text(encoding="utf-8"))
-        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/node-binding-generics.json").read_text(encoding="utf-8"))
+        fixtures += json.loads((Path(__file__).resolve().parents[5] / "test-fixtures/node-binding-generics-tagged-nodes.json").read_text(encoding="utf-8"))
         for fixture in fixtures:
             source = fixture["source"]
             with self.subTest(source=source):

@@ -8,6 +8,12 @@ publication evidence. A package version does not promote experimental profiles
 or stable CTS claims. Parsing/transport preserve inert values; evaluation requires
 an explicitly authorized namespace and admitted consumer.
 
+In the tagged-node development model, TypeScript and Rust (including native
+Python) read `&tag("book")` from the selected node's intrinsic tag. For
+`<book("yes")>`, the first child is `$.book[0]` in both SANSA and portable AES,
+and `~book[0]` addresses the same value in source. The published 0.17.0 and
+pure-Python reference paths retain the earlier topology described below.
+
 ## Owning APIs
 
 | Entry point | Delivered property behavior | Boundary |

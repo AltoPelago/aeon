@@ -63,13 +63,10 @@ The current crates include:
 - `aeon-python`
 - `aeon-wasm`
 
-The `altopelago-aeon` facade offers an optional `sansa` feature backed by the exact
-registry dependency `altopelago-sansa-runtime =0.15.0`. `Cargo.lock` records
-the verified published crate checksum; the [provider receipt](../../docs/releases/sansa-0.15.0.json)
-pins its source and registry verification. This replaces the earlier development
-Git selection. Final AEON artifacts, platform checks and independent release QA
-remain pending; a verified provider alone does not accept the combined RC.
-The feature adapts the immutable document graph to
+The development workspace pins the tagged-node AES Telex and SANSA runtime
+providers by Git revision in `Cargo.toml` and `Cargo.lock`. The Rust packages
+require matching registry releases of those providers before publication.
+The `altopelago-aeon` facade's optional `sansa` feature adapts the immutable document graph to
 stable SANSA Address, Resolve, and Query, plus experimental immutable mutation
 planning and AEON/JSON target validation. Local spaces remain under host
 control. See the facade and native Python READMEs for plan inspection and
@@ -197,23 +194,11 @@ Failures return diagnostics and empty text. Authored heads on the structured
 header envelope currently return `CANONICAL_ORDERING_CONFLICT`; this emitter
 does not yet render those envelope heads.
 
-`canonicalize`, default options, the `fmt` CLI, native Python and WASM process
-output now use reference-safe ordering. Explicitly select
-`CanonicalOrdering::LexicalV1` to reproduce historical source bytes, including
-the old lack of reference validation. Do not mix canonical hashes across these
-contracts. Integrity event hashing/receipt verification remains its separate
-historical projection; SDK Telex canonicalization is unchanged.
-
-From the repository root, run the explicit Rust API CTS and TypeScript parity
-gate after building the TypeScript workspace:
-
-```bash
-pnpm --dir implementations/typescript build
-node scripts/test-canonical-reference-ordering.mjs rust
-```
-
-GitHub CI runs this experimental gate alongside the historical three-runtime
-canonical lane. Released CTS claims and historical snapshots remain unchanged.
+`canonicalize`, default options, the `fmt` CLI, native Python and WASM use
+reference-safe ordering. `CanonicalOrdering::LexicalV1` parses the same grammar
+and sorts named scopes by decoded key without validating reference availability.
+Historical canonical claims run against the artifact's pinned implementation.
+Integrity event hashing and SDK Telex canonicalization use their own contracts.
 
 Numeric datatype clarifiers now retain exact value-number semantics in all
 independent writers; the parity corpus covers large integers, decimals and
@@ -222,7 +207,8 @@ remains a separate review gate.
 
 ## CTS
 
-Run all supported CTS lanes:
+Run the revised node model candidate lanes for Core, portable AES, canonical
+source, and SDK SANSA Address Resolve:
 
 ```bash
 cd implementations/rust
@@ -233,18 +219,17 @@ Run selected lanes:
 
 ```bash
 cd implementations/rust
-python3 tools/run_cts.py core aes aeos
+python3 tools/run_cts.py node-model-core node-model-sansa
 ```
 
-The core and aes lanes (including their *-released aliases) select immutable
-Core 0.6 and AES projection 0.6; canonical selects immutable 0.5. Use *-next
-for moving development targets and *-legacy for older baseline targets. The
-unchanged historical 0.5/0.4 rejection-delta audit remains a separate check.
-Authority adoption is tracked in the [release input record](../../docs/releases/cts-0.17.0-rc.2.json).
+Run historical published lanes from the implementation revision they qualify.
+The `core` and `aes` lane names select immutable Core 0.6 and AES projection
+0.6, and `canonical` selects immutable canonical 0.5. See the
+[0.17.0 release input record](../../docs/releases/cts-0.17.0-rc.2.json).
 
 The wrapper resolves manifests from the sibling `aeonite-org/aeonite-cts`
-checkout via `AEONITE_CTS_ROOT` and builds `target/debug/aeon-rust` before
-running the requested lanes.
+checkout via `AEONITE_CTS_ROOT` and builds the locked Rust CLI before running
+the selected CLI lanes. The SANSA lane runs the Rust SDK test directly.
 
 For parser hardening work, a local `cargo-fuzz` workspace now lives under:
 

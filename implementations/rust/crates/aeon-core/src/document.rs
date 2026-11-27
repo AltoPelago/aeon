@@ -153,31 +153,33 @@ a = 8",
     }
 
     #[test]
-    fn preserves_identity_datatype_and_separate_node_head_metadata() {
-        let source = r#"value\BIND\@{z\META\:string = "user", a = 1}:custom = <tag\HEAD\@{q = 2, b = 3}(\CHILD\:string = "child")>"#;
+    fn preserves_identity_datatype_and_metadata_on_the_node_declaration() {
+        let source =
+            r#"<value\NODE\@{z\META\:string = "user", a = 1}:custom(\CHILD\:string = "child")>"#;
         let bindings = parse(source);
         let binding = &bindings[0];
-        assert_eq!(binding.structural_id.as_deref(), Some("BIND"));
-        assert_eq!(binding.datatype.as_deref(), Some("custom"));
-        assert_eq!(binding.attribute_order, ["z", "a"]);
-        assert_eq!(
-            binding.attributes["z"].structural_id.as_deref(),
-            Some("META")
-        );
-        assert_eq!(binding.attributes["z"].datatype.as_deref(), Some("string"));
+        assert_eq!(binding.key, "value");
+        assert_eq!(binding.structural_id, None);
+        assert_eq!(binding.datatype, None);
+        assert!(binding.attributes.is_empty());
         let Value::NodeLiteral {
             structural_id,
+            datatype,
             attributes,
             attribute_order,
             children,
+            span,
             ..
         } = &binding.value
         else {
             panic!("node")
         };
-        assert_eq!(structural_id.as_deref(), Some("HEAD"));
-        assert_eq!(attribute_order, &["q", "b"]);
-        assert!(!attributes[0].contains_key("z"));
+        assert_eq!(structural_id.as_deref(), Some("NODE"));
+        assert_eq!(datatype.as_deref(), Some("custom"));
+        assert_eq!(span, &binding.span);
+        assert_eq!(attribute_order, &["z", "a"]);
+        assert_eq!(attributes[0]["z"].structural_id.as_deref(), Some("META"));
+        assert_eq!(attributes[0]["z"].datatype.as_deref(), Some("string"));
         let Value::TypedValue {
             structural_id,
             datatype,
@@ -336,16 +338,16 @@ b = ~>["line\nbreak"][0]"#,
             "a = {b@{m = [{z = 1, z = 2}]} = 0}",
             "a = [@{m = [{z = 1, z = 2}]} = 0]",
             "a = (@{m = [{z = 1, z = 2}]} = 0,)",
-            "a = <tag(@{m = [{z = 1, z = 2}]} = 0)>",
+            "<a(@{m = [{z = 1, z = 2}]} = 0)>",
             "a = [@{m = [{z = 1, z = 2}]} = {leaf = 0}]",
-            "a = <tag@{m = [{z = 1, z = 2}]}>",
+            "<a@{m = [{z = 1, z = 2}]}>",
             "a = [<tag@{m = [{z = 1, z = 2}]}>]",
             "a@{m@{n = [{z = 1, z = 2}]} = 0} = 0",
             "a@{m = {n = [{z = 1, z = 2}]}} = 0",
             "a@{m = {n@{p = [{z = 1, z = 2}]} = 0}} = 0",
             "a@{m = ({z = 1, z = 2},)} = 0",
-            "a@{m = <tag({z = 1, z = 2})>} = 0",
-            "a@{m = <tag@{n = [{z = 1, z = 2}]}>} = 0",
+            "a@{<m({z = 1, z = 2})>} = 0",
+            "a@{<m@{n = [{z = 1, z = 2}]}>} = 0",
             "aeon:header = {x@{m = [{z = 1, z = 2}]} = 0}",
             "aeon:header = {x = {leaf@{m = [{z = 1, z = 2}]} = 0}}",
             "aeon:header@{m = [{z = 1, z = 2}]} = {x = 0}",
@@ -426,13 +428,13 @@ b = ~>["line\nbreak"][0]"#,
                 r#""literal.@key"@{"m.@x" = [{"z.y" = 1, "z.y" = 2}]} = 0"#,
                 r#"$.["literal.@key"].@.["m.@x"][0].["z.y"]"#,
             ),
-            ("a@{m = 1} = <tag@{m = [{z = 1, z = 2}]}>", "$.a"),
-            ("a = [@{m = 1} = <tag@{m = [{z = 1, z = 2}]}>]", "$.a[0]"),
+            ("<a@{m = [{z = 1, z = 2}]}>", "$.a.@.m[0].z"),
+            ("a = [<tag@{m = [{z = 1, z = 2}]}>]", "$.a[0].@.m[0].z"),
             (
                 "a@{m = {n@{p = [{z = 1, z = 2}]} = 0}} = 0",
                 "$.a.@.m.n.@.p[0].z",
             ),
-            ("a@{m = <tag@{n = [{z = 1, z = 2}]}>} = 0", "$.a.@.m"),
+            ("a@{<m@{n = [{z = 1, z = 2}]}>} = 0", "$.a.@.m.@.n[0].z"),
         ] {
             let errors = parse_document(
                 source,
@@ -452,8 +454,8 @@ b = ~>["line\nbreak"][0]"#,
     fn repeated_keys_in_independent_metadata_scopes_remain_valid() {
         for source in [
             "a@{m = {z = 1}, n = {z = 2}} = {z = 3}",
-            "a@{m = 1} = <tag@{m = 2}>",
-            "a = [@{m = 1} = <tag@{m = 2}>]",
+            "<a@{m = 1}(<tag@{m = 2}>)>",
+            "a = [<tag@{m = 1}>, <tag@{m = 2}>]",
             "a@{m@{z = 1} = {z = 2}} = 0",
             r#""aeon:x"@{m = [{z = 1}]} = 0"#,
             r#"aeon:header = {x@{m = [{z = 1}]} = 0}

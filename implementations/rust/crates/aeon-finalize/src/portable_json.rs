@@ -71,7 +71,7 @@ struct Context<'a> {
     max_materialized_weight: Option<usize>,
     max_reference_depth: Option<usize>,
     active_clone_paths: Vec<String>,
-    materialized_weight_cache: BTreeMap<String, usize>,
+    materialized_weight_cache: BTreeMap<(String, bool), usize>,
     materialized_weight: usize,
 }
 
@@ -309,16 +309,6 @@ fn materialize_record_with_receiver(
             );
             JsonValue::String(reference_token("~>", value))
         }
-        "NodeHead" => {
-            report(
-                ctx,
-                "NodeHead can only be materialized through its owning NodeLiteral".to_owned(),
-                "FINALIZE_ORPHAN_NODE_HEAD",
-                output_path,
-                true,
-            );
-            JsonValue::String(value.to_owned())
-        }
         _ => {
             report(
                 ctx,
@@ -395,42 +385,27 @@ fn materialize_node(
     ctx: &mut Context<'_>,
     output_path: &str,
 ) -> JsonValue {
-    let mut heads = structural_children(plane_for(indexed, ctx), &indexed.address)
-        .into_iter()
-        .filter(|child| matches!(child.segment, Segment::Index(_)))
-        .collect::<Vec<_>>();
-    heads.sort_by(|left, right| index_cmp(&left.segment, &right.segment));
-    let valid = heads.len() == 1
-        && matches!(&heads[0].segment, Segment::Index(index) if index == "0")
-        && ctx.records[heads[0].record].get("kind") == Some("NodeHead");
-    if !valid {
+    let mut object = Map::new();
+    let Some(tag) = ctx.records[indexed.record]
+        .get("tag")
+        .filter(|tag| !tag.is_empty())
+    else {
         report(
             ctx,
-            "The JSON output profile requires exactly one NodeHead at index 0".to_owned(),
-            "FINALIZE_UNREPRESENTABLE_NODE_HEADS",
+            "A node record requires an intrinsic tag".to_owned(),
+            "FINALIZE_INVALID_NODE_TAG",
             output_path,
             true,
         );
         return JsonValue::Null;
-    }
-    let head = &heads[0];
-    let head_path = descendant_path(indexed, head, output_path);
-    let mut object = Map::new();
-    object.insert(
-        "$node".to_owned(),
-        JsonValue::String(
-            ctx.records[head.record]
-                .get("value")
-                .unwrap_or("")
-                .to_owned(),
-        ),
-    );
-    if let Some(attributes) = attributes_to_json(head, ctx, &head_path) {
+    };
+    object.insert("$node".to_owned(), JsonValue::String(tag.to_owned()));
+    if let Some(attributes) = attributes_to_json(indexed, ctx, output_path) {
         object.insert("@".to_owned(), attributes);
     }
     object.insert(
         "$children".to_owned(),
-        materialize_indexed(head, ctx, &head_path),
+        materialize_indexed(indexed, ctx, output_path),
     );
     JsonValue::Object(object)
 }
@@ -486,7 +461,7 @@ fn materialize_clone(
         return JsonValue::String(reference_token("~", &target_path));
     }
     if let Some(limit) = ctx.max_materialized_weight {
-        let weight = measure_weight(&target, ctx, &mut BTreeSet::new());
+        let weight = measure_weight(&target, ctx, &mut BTreeSet::new(), false);
         let observed = ctx.materialized_weight.saturating_add(weight);
         if observed > limit {
             report(
@@ -512,42 +487,63 @@ fn measure_weight(
     indexed: &IndexedRecord,
     ctx: &mut Context<'_>,
     stack: &mut BTreeSet<String>,
+    include_metadata: bool,
 ) -> usize {
-    if let Some(weight) = ctx.materialized_weight_cache.get(&indexed.address) {
+    let cache_key = (indexed.address.clone(), include_metadata);
+    if let Some(weight) = ctx.materialized_weight_cache.get(&cache_key) {
         return *weight;
     }
     if !stack.insert(indexed.address.clone()) {
         return 1;
     }
     let kind = ctx.records[indexed.record].get("kind").unwrap_or("");
-    let weight = match kind {
-        "ObjectNode" | "ListNode" | "TupleLiteral" => plane_children(indexed, ctx)
-            .into_iter()
-            .map(|child| measure_weight(&child, ctx, stack))
-            .sum(),
-        "NodeLiteral" => plane_children(indexed, ctx)
-            .into_iter()
-            .map(|head| {
-                1 + plane_children(&head, ctx)
-                    .into_iter()
-                    .map(|child| measure_weight(&child, ctx, stack))
-                    .sum::<usize>()
-            })
-            .sum(),
+    let mut weight = match kind {
+        "ObjectNode" => structural_children(plane_for(indexed, ctx), &indexed.address)
+            .iter()
+            .fold(0usize, |sum, child| {
+                sum.saturating_add(measure_weight(child, ctx, stack, true))
+            }),
+        "ListNode" | "TupleLiteral" | "NodeLiteral" => {
+            let mut weight = usize::from(kind == "NodeLiteral");
+            for child in structural_children(plane_for(indexed, ctx), &indexed.address) {
+                weight = weight.saturating_add(measure_weight(&child, ctx, stack, false));
+                if include_metadata
+                    && matches!(child.segment, Segment::Index(_))
+                    && ctx.records[child.record].get("kind") != Some("NodeLiteral")
+                {
+                    weight = weight.saturating_add(measure_attribute_weight(&child, ctx, stack));
+                }
+            }
+            weight
+        }
         "CloneReference" => {
-            let target_path = ctx.records[indexed.record].get("value").unwrap_or("");
+            let target = ctx.records[indexed.record].get("value").unwrap_or("");
             ctx.body
                 .by_address
-                .get(target_path)
+                .get(target)
                 .cloned()
-                .map_or(1, |target| measure_weight(&target, ctx, stack))
+                .map_or(1, |target| measure_weight(&target, ctx, stack, false))
         }
         _ => 1,
     };
+    if include_metadata || kind == "NodeLiteral" {
+        weight = weight.saturating_add(measure_attribute_weight(indexed, ctx, stack));
+    }
     stack.remove(&indexed.address);
-    ctx.materialized_weight_cache
-        .insert(indexed.address.clone(), weight);
+    ctx.materialized_weight_cache.insert(cache_key, weight);
     weight
+}
+
+fn measure_attribute_weight(
+    indexed: &IndexedRecord,
+    ctx: &mut Context<'_>,
+    stack: &mut BTreeSet<String>,
+) -> usize {
+    attribute_children(plane_for(indexed, ctx), &indexed.address)
+        .iter()
+        .fold(0usize, |sum, child| {
+            sum.saturating_add(measure_weight(child, ctx, stack, true))
+        })
 }
 
 fn record_metadata(
@@ -555,7 +551,9 @@ fn record_metadata(
     ctx: &mut Context<'_>,
     output_path: &str,
 ) -> Option<JsonValue> {
-    let own = attributes_to_json(indexed, ctx, output_path);
+    let own = (ctx.records[indexed.record].get("kind") != Some("NodeLiteral"))
+        .then(|| attributes_to_json(indexed, ctx, output_path))
+        .flatten();
     let items = indexed_item_attributes(indexed, ctx, output_path);
     match (own, items) {
         (None, None) => None,
@@ -605,12 +603,7 @@ fn indexed_item_attributes(
     output_path: &str,
 ) -> Option<JsonValue> {
     let kind = ctx.records[indexed.record].get("kind").unwrap_or("");
-    let owners = if kind == "NodeLiteral" {
-        structural_children(plane_for(indexed, ctx), &indexed.address)
-            .into_iter()
-            .flat_map(|head| structural_children(plane_for(&head, ctx), &head.address))
-            .collect::<Vec<_>>()
-    } else if kind == "ListNode" || kind == "TupleLiteral" {
+    let owners = if matches!(kind, "NodeLiteral" | "ListNode" | "TupleLiteral") {
         structural_children(plane_for(indexed, ctx), &indexed.address)
     } else {
         Vec::new()
@@ -620,6 +613,9 @@ fn indexed_item_attributes(
         let Segment::Index(index) = &owner.segment else {
             continue;
         };
+        if ctx.records[owner.record].get("kind") == Some("NodeLiteral") {
+            continue;
+        }
         let owner_path = descendant_path(indexed, &owner, output_path);
         if let Some(attributes) = attributes_to_json(&owner, ctx, &owner_path) {
             object.insert(index.clone(), attributes);
@@ -664,14 +660,6 @@ fn attribute_children(index: &PlaneIndex, parent: &str) -> Vec<IndexedRecord> {
         .filter(|child| matches!(child.segment, Segment::Attribute(_)))
         .cloned()
         .collect()
-}
-
-fn plane_children(indexed: &IndexedRecord, ctx: &Context<'_>) -> Vec<IndexedRecord> {
-    plane_for(indexed, ctx)
-        .by_parent
-        .get(&indexed.address)
-        .cloned()
-        .unwrap_or_default()
 }
 
 fn plane_for<'a>(indexed: &IndexedRecord, ctx: &'a Context<'_>) -> &'a PlaneIndex {
@@ -996,8 +984,8 @@ value=$.box
     }
 
     #[test]
-    fn rejects_multi_head_and_sparse_indexes() {
-        let multi_head = vec![
+    fn rejects_retired_node_records_and_sparse_indexes() {
+        let retired = vec![
             record(&[("path", "$.value"), ("kind", "NodeLiteral")]),
             record(&[
                 ("path", "$.value[0]"),
@@ -1018,14 +1006,16 @@ value=$.box
                 ("value", "far away"),
             ]),
         ];
-        let heads = finalize_portable_json(&multi_head, FinalizePortableJsonOptions::default());
+        let nodes = finalize_portable_json(&retired, FinalizePortableJsonOptions::default());
         let indexes = finalize_portable_json(&sparse, FinalizePortableJsonOptions::default());
         assert!(
-            heads
+            nodes
                 .meta
                 .errors
                 .iter()
-                .any(|error| error.code == "FINALIZE_UNREPRESENTABLE_NODE_HEADS")
+                .any(|error| error.code == "AES_INVALID_TAG"),
+            "{:?}",
+            nodes.meta.errors
         );
         assert!(
             indexes
@@ -1063,7 +1053,7 @@ value=$.box
         let source = r#"config\ROOT\@{scope\META\ = "test"} = {
   title:string = "Demo"
   values:list<int> = [2, 3, 4]
-  card:node = <tag\HEAD\@{role = "button"}(\CHILD\@{lang = "en"}:string = "hello", true)>
+  <card\NODE\@{role = "button"}(\CHILD\@{lang = "en"}:string = "hello", true)>
 }
 copy = ~config.values
 pointer = ~>config.title"#;

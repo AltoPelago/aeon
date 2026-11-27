@@ -24,7 +24,7 @@ fn contexts(comment: &str) -> Vec<String> {
         format!("o={{a=3e3 {comment}b=399}}"),
         format!("v=[3e3 {comment}399]"),
         format!("v=(3e3 {comment}399)"),
-        format!("v=<n(3e3 {comment}399)>"),
+        format!("<v(3e3 {comment}399)>"),
         format!("a@{{x=3e3 {comment}y=399}}=0"),
         format!("aeon:version=\"1.0\" {comment}aeon:mode=\"transport\"\na=1"),
     ]

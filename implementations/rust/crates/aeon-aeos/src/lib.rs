@@ -5,8 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use sansa_runtime::property::{
-    PropertyAccess, PropertyAccessContext, PropertyAccessError, PropertyHeads, PropertyNodeKind,
-    PropertyScopeRole,
+    PropertyAccess, PropertyAccessContext, PropertyAccessError, PropertyNodeKind, PropertyScopeRole,
 };
 
 #[cfg(test)]
@@ -914,11 +913,8 @@ fn hydrate_portable_container_shapes(body: &mut [(String, AesEvent)]) {
                     .map(|child| serde_json::json!({"path": child}))
                     .collect();
             }
-            "ListNode" | "TupleLiteral" => {
+            "ListNode" | "TupleLiteral" | "NodeLiteral" => {
                 event.value.elements = portable_indexed_children(address, &values);
-            }
-            "NodeLiteral" => {
-                event.value.elements = portable_indexed_children(&format!("{address}[0]"), &values);
             }
             _ => {}
         }
@@ -3885,6 +3881,7 @@ struct IdentitySelectorState {
     property_namespace: Option<IdentitySelectorNamespace>,
     property_topology: bool,
     original_paths: Option<BTreeSet<String>>,
+    portable_tags: BTreeMap<String, String>,
     property_limit: usize,
     property_selectors: BTreeSet<String>,
     property_rule_batches: Vec<BTreeMap<String, JsonValue>>,
@@ -3904,6 +3901,16 @@ impl IdentitySelectorState {
                     .filter_map(|record| record.get("path").map(str::to_owned))
                     .collect()
             }),
+            portable_tags: portable_records
+                .into_iter()
+                .flatten()
+                .filter_map(|record| {
+                    Some((
+                        record.get("path")?.to_owned(),
+                        record.get("tag")?.to_owned(),
+                    ))
+                })
+                .collect(),
             property_limit,
             property_selectors: BTreeSet::new(),
             property_rule_batches: Vec::new(),
@@ -3914,7 +3921,7 @@ impl IdentitySelectorState {
 #[derive(Default)]
 struct IdentitySelectorRow {
     parent: Option<usize>,
-    tag: Option<JsonValue>,
+    tag: Option<String>,
     address: Option<String>,
     name: Option<String>,
     index: Option<usize>,
@@ -3929,7 +3936,6 @@ struct IdentitySelectorNamespace {
     inspections: Cell<usize>,
     property_inspections: Cell<usize>,
     properties_enabled: bool,
-    direct_heads: BTreeMap<usize, Vec<usize>>,
 }
 impl IdentitySelectorNamespace {
     fn new(root: SansaResolveBinding) -> Self {
@@ -3967,37 +3973,23 @@ impl IdentitySelectorNamespace {
             inspections: Cell::new(0),
             property_inspections: Cell::new(0),
             properties_enabled: false,
-            direct_heads: BTreeMap::new(),
         }
     }
 
-    fn with_properties(root: SansaResolveBinding, events: &BTreeMap<String, EventInfo>) -> Self {
+    fn with_properties(root: SansaResolveBinding, tags: &BTreeMap<String, String>) -> Self {
         let mut namespace = Self::new(root);
         namespace.properties_enabled = true;
         for index in 0..namespace.rows.len() {
             let row = &mut namespace.rows[index];
-            row.tag = row
-                .address
-                .as_ref()
-                .and_then(|path| events.get(path))
-                .filter(|_| row.kind.as_deref() == Some("NodeHead"))
-                .and_then(|info| info.value.clone());
+            if row.kind.as_deref() == Some("NodeLiteral") {
+                row.tag = row
+                    .address
+                    .as_ref()
+                    .and_then(|path| tags.get(path))
+                    .cloned();
+            }
             let mut children = std::mem::take(&mut row.children);
             children.sort_by_key(|child| namespace.rows[*child].index);
-            if namespace.rows[index].kind.as_deref() == Some("NodeLiteral")
-                && children
-                    .iter()
-                    .any(|child| namespace.rows[*child].kind.is_none())
-            {
-                namespace.direct_heads.insert(
-                    index,
-                    children
-                        .iter()
-                        .copied()
-                        .filter(|child| namespace.rows[*child].kind.is_some())
-                        .collect(),
-                );
-            }
             namespace.rows[index].children = children;
         }
         namespace
@@ -4037,14 +4029,6 @@ impl PropertyAccess for IdentitySelectorNamespace {
         {
             return Ok(PropertyScopeRole::Outside);
         }
-        if let Some(owner) = context.direct_head_of
-            && (!self.inside(*owner, *context.scope_root)
-                || self.rows[*owner].kind.as_deref() != Some("NodeLiteral")
-                || self.rows[*binding].parent != Some(*owner)
-                || self.rows[*binding].kind.as_deref() != Some("NodeHead"))
-        {
-            return Ok(PropertyScopeRole::Outside);
-        }
         Ok(if binding == context.scope_root {
             PropertyScopeRole::Root
         } else {
@@ -4056,9 +4040,7 @@ impl PropertyAccess for IdentitySelectorNamespace {
         binding: &usize,
         _context: &PropertyAccessContext<'_, usize>,
     ) -> Result<Option<String>, PropertyAccessError> {
-        Ok((self.rows[*binding].kind.as_deref() != Some("NodeHead"))
-            .then(|| self.rows[*binding].name.clone())
-            .flatten())
+        Ok(self.rows[*binding].name.clone())
     }
     fn node_kind(
         &self,
@@ -4067,7 +4049,6 @@ impl PropertyAccess for IdentitySelectorNamespace {
     ) -> Result<PropertyNodeKind, PropertyAccessError> {
         Ok(match self.rows[*binding].kind.as_deref() {
             Some("NodeLiteral") => PropertyNodeKind::NodeLiteral,
-            Some("NodeHead") => PropertyNodeKind::NodeHead,
             _ => PropertyNodeKind::Other,
         })
     }
@@ -4076,25 +4057,7 @@ impl PropertyAccess for IdentitySelectorNamespace {
         binding: &usize,
         _context: &PropertyAccessContext<'_, usize>,
     ) -> Result<Option<String>, PropertyAccessError> {
-        match &self.rows[*binding].tag {
-            None => Ok(None),
-            Some(JsonValue::String(tag)) => Ok(Some(tag.clone())),
-            _ => Err(PropertyAccessError::InvalidMetadata),
-        }
-    }
-    fn node_heads<'a>(
-        &'a self,
-        binding: &'a usize,
-        _context: &'a PropertyAccessContext<'a, usize>,
-    ) -> Result<PropertyHeads<'a, usize>, PropertyAccessError> {
-        Ok(Box::new(
-            self.direct_heads
-                .get(binding)
-                .unwrap_or(&self.rows[*binding].children)
-                .iter()
-                .copied()
-                .map(Ok),
-        ))
+        Ok(self.rows[*binding].tag.clone())
     }
 }
 impl sansa_runtime::resolve::Namespace for IdentitySelectorNamespace {
@@ -4199,6 +4162,7 @@ fn resolve_sansa_selector_path_set(
                 .as_ref()
                 .map_or(0, |ns| ns.inspections.get());
         let original_paths = identity_state.original_paths.as_ref();
+        let tags = &identity_state.portable_tags;
         let namespace = identity_state.property_namespace.get_or_insert_with(|| {
             IdentitySelectorNamespace::with_properties(
                 build_aeos_sansa_resolve_tree_with_source_limits(
@@ -4206,7 +4170,7 @@ fn resolve_sansa_selector_path_set(
                     true,
                     original_paths,
                 ),
-                events_by_path,
+                tags,
             )
         });
         let result = sansa_runtime::resolve::resolve_address(
@@ -6680,8 +6644,8 @@ mod tests {
     }
 
     #[test]
-    fn counts_node_contents_beneath_the_explicit_telex_head() {
-        let wire = "telex.aes=1\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n";
+    fn counts_direct_tagged_node_contents() {
+        let wire = "telex.aes=1\n\npath=$.node\nkind=NodeLiteral\ntag=node\n\npath=$.node[0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[1]\nkind=StringLiteral\nvalue=two\n";
         let schema = Schema {
             rules: vec![SchemaRule {
                 path: Some("$.node".to_owned()),

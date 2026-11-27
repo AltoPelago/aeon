@@ -188,11 +188,19 @@ jobs:
           python3 -m unittest discover -s implementations/rust/crates/aeon-python/tests -p 'test_*.py'
           python3 -m mypy --strict implementations/rust/crates/aeon-python/tests/typing/canonical.py
 
-      - name: Installed native Python reference-safe canonical API and TypeScript parity
+      - name: Pre-revision native Python canonical API and TypeScript parity
         working-directory: legacy-node-baseline/implementations/typescript
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
-        run: node ../../scripts/test-canonical-reference-ordering.mjs python-native
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/aeon-native-legacy"
+          python3 -m maturin build --release --locked \
+            --manifest-path ../rust/crates/aeon-python/Cargo.toml \
+            --interpreter python3 --out "${RUNNER_TEMP}/aeon-native-legacy-wheel"
+          "${RUNNER_TEMP}/aeon-native-legacy/bin/python" -m pip install --no-index --no-deps \
+            "${RUNNER_TEMP}"/aeon-native-legacy-wheel/*.whl
+          PYTHON_NATIVE="${RUNNER_TEMP}/aeon-native-legacy/bin/python" \
+            node ../../scripts/test-canonical-reference-ordering.mjs python-native
 
       - name: CTS development lanes and immutable snapshot audit
         working-directory: legacy-node-baseline/implementations/typescript
@@ -233,16 +241,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Checkout AES
+      - name: Checkout revised node CTS fixtures
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: AltoPelago/aes
-          ref: f90ee2dea2d06b99ccadd96df716c2c27b203c21
-          path: aes
+          repository: aeonite-org/aeonite-cts
+          ref: 8bdd1e607a29214a2c1f6eb70f80534faf690af8
+          path: node-model-cts
+          persist-credentials: false
 
-      - name: Link AES beside AEON checkout
-        working-directory: .
-        run: ln -s "${GITHUB_WORKSPACE}/aes" "${GITHUB_WORKSPACE}/../aes"
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
@@ -254,10 +264,15 @@ jobs:
         run: cargo test --locked -p altopelago-aeon --no-default-features
 
       - name: Rust SDK SANSA integration
-        run: cargo test --locked -p altopelago-aeon --all-features
+        run: cargo test --locked --workspace --exclude aeon-python --all-features
 
       - name: Rust SDK lint
-        run: cargo clippy --locked -p altopelago-aeon --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --exclude aeon-python --all-targets --all-features -- -D warnings
+
+      - name: Rust revised node model CTS
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
+        run: python3 tools/run_cts.py
 
   canonical-cts:
     runs-on: ubuntu-latest

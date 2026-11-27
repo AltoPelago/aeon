@@ -260,10 +260,10 @@ CTS statuses; package versions/delivery follow the independent release flow.
 The existing native `Document.query()` is explicitly admitted to the coordinated
 read-only property candidate. It uses the Rust SDK's authoritative document
 namespace and shared evaluator: `.&key("name")` retains the current row's
-originating scope, while explicit `?` starts a boundary at the row. `&tag` selects
-node containers, `&headTag` selects heads, and results retain immutable original
-binding views and structural addresses. Pure Python has no Query evaluator;
-WASM gains no new Query API.
+originating scope, while explicit `?` starts a boundary at the row. `&tag`
+matches a node's intrinsic tag. Under `<book("yes")>` the first child is at
+`$.book[0]` and results retain the original binding views and structural addresses.
+The Query evaluator remains part of the native Pytonic API.
 
 `max_property_inspections` accepts finite integer-valued Python ints/floats
 (default/None:10,000; range0..1,000,000). Integral1.0 and signed zero normalize

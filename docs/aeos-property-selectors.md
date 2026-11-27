@@ -1,5 +1,12 @@
 # Portable AEOS property selectors (experimental profile)
 
+With the tagged-node model in TypeScript and Rust, `&tag("book")` checks the
+selected node's intrinsic tag. For `<book("yes")>`, a selector such as
+`$.book&tag("book")[0]` validates the first child at `$.book[0]`.
+`&headTag()` and portable `NodeHead` records belong to the earlier model.
+The rest of this page describes the published 0.17.0 baseline, which the
+pure-Python reference still uses.
+
 The selected experimental `aeos-properties-0.1` profile is implemented in the
 published 0.17.0 implementation line. Package release and normative profile/CTS
 promotion remain distinct; publication does not promote this experimental profile. The [provider/host matrix](property-selector-support.md)

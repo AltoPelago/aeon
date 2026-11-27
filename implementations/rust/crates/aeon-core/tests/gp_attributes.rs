@@ -1,17 +1,42 @@
 use aeon_core::{CompileOptions, CompileResult, DatatypePolicy, compile};
 
+fn effective_fixtures<'a>(
+    previous: &'a serde_json::Value,
+    revised: &'a serde_json::Value,
+) -> impl Iterator<Item = &'a serde_json::Value> {
+    let revised = revised.as_array().expect("revised fixtures");
+    previous
+        .as_array()
+        .expect("fixtures")
+        .iter()
+        .map(|fixture| {
+            revised
+                .iter()
+                .find(|case| case["id"] == fixture["id"])
+                .unwrap_or(fixture)
+        })
+}
+
 #[test]
 fn gp_checks_datatype_claims_once_at_their_exact_paths() {
-    let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+    let previous_attributes = serde_json::from_str(include_str!(
         "../../../../../test-fixtures/gp-attribute-clarifiers.json"
+    ))
+    .expect("original attribute fixtures");
+    let previous_generics = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/gp-datatype-generics.json"
+    ))
+    .expect("original generic fixtures");
+    let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../test-fixtures/gp-attribute-clarifiers-tagged-nodes.json"
     ))
     .expect("fixtures");
     let tag_heads: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../test-fixtures/gp-tag-head-clarifiers.json"
+        "../../../../../test-fixtures/gp-tag-head-clarifiers-tagged-nodes.json"
     ))
     .expect("tag-head fixtures");
     let generics: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../test-fixtures/gp-datatype-generics.json"
+        "../../../../../test-fixtures/gp-datatype-generics-tagged-nodes.json"
     ))
     .expect("generic fixtures");
     let compilers: &[fn(&str, CompileOptions) -> CompileResult] = &[
@@ -19,12 +44,9 @@ fn gp_checks_datatype_claims_once_at_their_exact_paths() {
         #[cfg(feature = "sofia")]
         aeon_core::compile_sofia,
     ];
-    for fixture in fixtures
-        .as_array()
-        .expect("array")
-        .iter()
+    for fixture in effective_fixtures(&previous_attributes, &fixtures)
         .chain(tag_heads.as_array().expect("array"))
-        .chain(generics.as_array().expect("array"))
+        .chain(effective_fixtures(&previous_generics, &generics))
     {
         let source = fixture["source"].as_str().expect("source");
         let options = CompileOptions {

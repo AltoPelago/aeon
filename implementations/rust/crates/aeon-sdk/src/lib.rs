@@ -1030,6 +1030,28 @@ mod tests {
     }
 
     #[test]
+    fn loads_tagged_nodes_after_aes_film_transcoding() {
+        let source = "<book@{edition:number=2}(\"hello\", <chapter>)>\ncopy = ~book[0]";
+        let compiled = aeon_to_telex(source, CompileToTelexOptions::default());
+        assert!(
+            compiled.compile.errors.is_empty(),
+            "{:?}",
+            compiled.compile.errors
+        );
+        let telex = compiled.telex.expect("portable Telex");
+        let film = aes_telex::film::telex_to_film(&telex, &[]).expect("encode Film");
+        let replay = aes_telex::film::film_to_telex(&film, &[]).expect("decode Film");
+        assert_eq!(replay, telex);
+        let loaded =
+            load_telex_str::<JsonValue>(&replay, TelexLoadOptions::default()).expect("load replay");
+        assert_eq!(loaded.document["book"]["$node"], "book");
+        assert_eq!(loaded.document["book"]["$children"][0], "hello");
+        assert_eq!(loaded.document["book"]["$children"][1]["$node"], "chapter");
+        assert_eq!(loaded.document["book"]["@"]["edition"], 2);
+        assert_eq!(loaded.document["copy"], "hello");
+    }
+
+    #[test]
     fn returns_compile_errors_for_invalid_source() {
         let error = load_str::<GreetingDoc>("greeting = {\n", LoadOptions::default())
             .expect_err("compile failure");

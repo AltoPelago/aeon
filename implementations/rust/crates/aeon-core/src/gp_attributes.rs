@@ -1,10 +1,10 @@
-//! Profile metadata and node-head claims do not have AssignmentEvents. Walk authored occurrences
+//! Profile metadata claims have no assignment events. Walk authored occurrences
 //! before projection can discard metadata, without following references.
 use super::pathing::is_identifier;
 use super::validation::AttributeDatatypeCheck;
 use super::{
     AttributeValue, Binding, DatatypeProfile, Diagnostic, GpDatatypePosition, Span, Value,
-    gp_custom_clarifier_literal, parse_gp_datatype_surface, validate_profile_datatype_surface,
+    validate_profile_authored_datatype,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -78,19 +78,9 @@ pub(crate) fn validate_profile_unprojected_datatypes(
 ) {
     visit_gp_unprojected_datatypes(bindings, |datatype, value, path, span, position| {
         if let Some(checks) = value_checks.as_deref_mut() {
-            collect_value_check(profile, checks, datatype, value, path, position);
+            collect_value_check(profile, checks, datatype, value, path);
         }
-        if let Some(surface) = parse_gp_datatype_surface(datatype) {
-            validate_profile_datatype_surface(
-                profile,
-                &surface,
-                path,
-                span,
-                errors,
-                value.is_some_and(gp_custom_clarifier_literal),
-                position,
-            );
-        }
+        validate_profile_authored_datatype(profile, datatype, path, span, errors, value, position);
     });
 }
 
@@ -99,8 +89,8 @@ pub(crate) fn collect_profile_attribute_value_checks(
     bindings: &[Binding],
     checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
-    visit_gp_unprojected_datatypes(bindings, |datatype, value, path, _, position| {
-        collect_value_check(profile, checks, datatype, value, path, position);
+    visit_gp_unprojected_datatypes(bindings, |datatype, value, path, _, _| {
+        collect_value_check(profile, checks, datatype, value, path);
     });
 }
 
@@ -110,10 +100,8 @@ fn collect_value_check(
     datatype: &str,
     value: Option<&Value>,
     path: &str,
-    position: GpDatatypePosition,
 ) {
-    if position == GpDatatypePosition::Binding
-        && let Some(value) = value
+    if let Some(value) = value
         && let Some(check) =
             AttributeDatatypeCheck::profile_custom_value(profile, datatype, value, path)
     {
@@ -239,28 +227,25 @@ fn visit_gp_unprojected_datatypes(
                     head_span,
                     ..
                 } => {
-                    let head = format!("{path}[0]");
-                    // Node-head datatypes have no payload AssignmentEvent,
-                    // even when the node itself belongs to the body payload.
-                    if let Some(datatype) = datatype.as_deref() {
+                    if metadata && let Some(datatype) = datatype.as_deref() {
                         visit(
                             datatype,
                             Some(value),
-                            &head,
+                            &path,
                             *head_span,
-                            GpDatatypePosition::NodeHead,
+                            GpDatatypePosition::NodeDeclaration,
                         );
                     }
                     for (index, child) in children.iter().enumerate().rev() {
                         tasks.push(Task::Value(
                             child,
-                            format!("{head}[{index}]"),
+                            format!("{path}[{index}]"),
                             span,
                             metadata,
                         ));
                     }
                     for attributes in attributes.iter().rev() {
-                        push_attributes(&mut tasks, attributes, attribute_order, &head, *head_span);
+                        push_attributes(&mut tasks, attributes, attribute_order, &path, *head_span);
                     }
                 }
                 _ => {}

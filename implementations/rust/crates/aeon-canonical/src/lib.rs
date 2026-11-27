@@ -1,9 +1,8 @@
 #![allow(clippy::result_large_err)]
 
-use std::borrow::Cow;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
-use aeon_core::{Diagnostic, Position, Span, normalize_number_literal};
+use aeon_core::{Diagnostic, Span, normalize_number_literal};
 
 pub use aes_telex::{canonicalize_telex, canonicalize_telex_with_limits};
 
@@ -62,7 +61,6 @@ enum Value {
     Symbol(String),
     Separator(String),
     Number(String),
-    Infinity(String),
     Null {
         mode: NullMode,
         value: String,
@@ -88,112 +86,6 @@ enum NullMode {
 #[must_use]
 pub fn canonicalize(source: &str) -> CanonicalResult {
     canonicalize_with_options(source, &CanonicalizeOptions::default())
-}
-
-// Preserve the historical source parser/writer only behind explicit LexicalV1.
-fn canonicalize_lexical(source: &str) -> CanonicalResult {
-    let source = lexical_source(source);
-    let mut parser = Parser::new(&source);
-    let bindings = match parser.parse_document() {
-        Ok(bindings) => bindings,
-        Err(error) => {
-            return CanonicalResult {
-                text: String::new(),
-                errors: vec![error],
-            };
-        }
-    };
-
-    let (header, body) = match split_header(bindings) {
-        Ok(parts) => parts,
-        Err(error) => {
-            return CanonicalResult {
-                text: String::new(),
-                errors: vec![error],
-            };
-        }
-    };
-
-    CanonicalResult {
-        text: render_document(header, body),
-        errors: Vec::new(),
-    }
-}
-
-fn split_header(bindings: Vec<Binding>) -> Result<(Vec<Binding>, Vec<Binding>), Diagnostic> {
-    let mut header = None;
-    let mut shorthand_header = Vec::new();
-    let mut body = Vec::new();
-
-    for binding in bindings {
-        if binding.key == "aeon:header" {
-            if !body.is_empty() || header.is_some() {
-                return Err(Diagnostic::new(
-                    "SYNTAX_ERROR",
-                    "Structured headers must appear before body bindings",
-                )
-                .at_path("$"));
-            }
-            let Value::Object(bindings) = binding.value else {
-                return Err(
-                    Diagnostic::new("SYNTAX_ERROR", "Structured header must be an object")
-                        .at_path("$"),
-                );
-            };
-            header = Some(bindings);
-        } else if let Some(key) = shorthand_header_key(&binding.key) {
-            if !body.is_empty() {
-                return Err(Diagnostic::new(
-                    "SYNTAX_ERROR",
-                    "Header bindings must appear before body bindings",
-                )
-                .at_path("$"));
-            }
-            shorthand_header.push(Binding {
-                rank: binding.rank,
-                canonical_key: binding.canonical_key,
-                key: String::from(key),
-                structural_id: binding.structural_id,
-                datatype: binding.datatype,
-                attributes: binding.attributes,
-                value: binding.value,
-            });
-        } else {
-            body.push(binding);
-        }
-    }
-
-    let header = match header {
-        Some(mut structured) => {
-            merge_header_bindings(&mut structured, shorthand_header);
-            structured
-        }
-        None if !shorthand_header.is_empty() => shorthand_header,
-        None => default_header(),
-    };
-
-    Ok((header, body))
-}
-
-fn shorthand_header_key(key: &str) -> Option<&'static str> {
-    match key {
-        "aeon:encoding" => Some("encoding"),
-        "aeon:mode" => Some("mode"),
-        "aeon:profile" => Some("profile"),
-        "aeon:version" => Some("version"),
-        "aeon:schema" => Some("schema"),
-        _ => None,
-    }
-}
-
-fn merge_header_bindings(structured: &mut Vec<Binding>, shorthand: Vec<Binding>) {
-    for binding in shorthand {
-        if let Some(existing) = structured.iter_mut().find(|entry| entry.key == binding.key) {
-            *existing = binding;
-        } else {
-            structured.push(binding);
-        }
-    }
 }
 
 fn default_header() -> Vec<Binding> {
@@ -250,6 +142,11 @@ fn render_document(mut header: Vec<Binding>, mut body: Vec<Binding>) -> String {
 }
 
 fn render_binding(binding: &Binding, indent: usize) -> Vec<String> {
+    if binding.canonical_key
+        && let Value::Node(node) = &binding.value
+    {
+        return render_node(node, indent, false);
+    }
     let prefix = " ".repeat(indent);
     let left = format!(
         "{}{}{}{}{}",
@@ -510,6 +407,9 @@ fn render_attributes(attributes: &BTreeMap<String, AttributeEntry>) -> String {
     let rendered = entries
         .into_iter()
         .map(|(key, entry)| {
+            if entry.rank.is_some() && matches!(entry.value, Value::Node(_)) {
+                return render_value_inline_with_contract(&entry.value, true);
+            }
             format!(
                 "{}{}{}{} = {}",
                 render_head_key(
@@ -565,7 +465,6 @@ fn render_value_inline_with_contract(value: &Value, reference_safe: bool) -> Str
         // Native separators are literal data, not legacy raw/reference text.
         Value::Separator(raw) => raw.clone(),
         Value::Number(value) => normalize_number(value),
-        Value::Infinity(value) => value.clone(),
         Value::Null { mode, value } => match mode {
             NullMode::Reserved => format!("!{value}"),
             NullMode::Reason => format!("!\"{}\"", escape_string(value)),
@@ -581,6 +480,9 @@ fn render_value_inline_with_contract(value: &Value, reference_safe: bool) -> Str
                 nested
                     .iter()
                     .map(|binding| {
+                        if binding.canonical_key && matches!(binding.value, Value::Node(_)) {
+                            return render_value_inline_with_contract(&binding.value, true);
+                        }
                         format!(
                             "{}{}{}{} = {}",
                             render_binding_key(binding),
@@ -746,7 +648,6 @@ fn is_simple_scalar(value: &Value) -> bool {
         Value::Symbol(_)
         | Value::Separator(_)
         | Value::Number(_)
-        | Value::Infinity(_)
         | Value::Null { .. }
         | Value::Raw(_)
         | Value::Reference { .. } => true,
@@ -761,7 +662,6 @@ fn is_simple_value(value: &Value) -> bool {
         Value::Symbol(_)
         | Value::Separator(_)
         | Value::Number(_)
-        | Value::Infinity(_)
         | Value::Null { .. }
         | Value::Raw(_)
         | Value::Reference { .. } => true,
@@ -877,385 +777,8 @@ fn escape_trimtick_line(value: &str) -> String {
     out
 }
 
-fn apply_trimticks(raw: &str) -> String {
-    if !raw.contains('\n') {
-        return raw.to_owned();
-    }
-
-    let mut lines: Vec<&str> = raw.split('\n').collect();
-    if !lines.is_empty() && is_blank_trimtick_line(lines[0]) {
-        lines.remove(0);
-    }
-    while !lines.is_empty() && is_blank_trimtick_line(lines[lines.len() - 1]) {
-        lines.pop();
-    }
-    if lines.is_empty() {
-        return String::new();
-    }
-
-    let normalized: Vec<String> = lines
-        .into_iter()
-        .map(|line| {
-            if is_blank_trimtick_line(line) {
-                String::new()
-            } else {
-                String::from(line)
-            }
-        })
-        .collect();
-
-    let gutter = normalized
-        .iter()
-        .find(|line| !line.is_empty())
-        .and_then(|line| line.chars().next())
-        .filter(|ch| *ch == '\t')
-        .unwrap_or(' ');
-
-    let common_indent = normalized
-        .iter()
-        .filter(|line| !line.is_empty())
-        .map(|line| line.chars().take_while(|ch| *ch == gutter).count())
-        .min()
-        .unwrap_or(0);
-
-    normalized
-        .into_iter()
-        .map(|line| {
-            if line.is_empty() {
-                String::new()
-            } else {
-                line.chars().skip(common_indent).collect()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn is_blank_trimtick_line(line: &str) -> bool {
-    line.chars().all(|ch| matches!(ch, ' ' | '\t'))
-}
-
 fn normalize_number(raw: &str) -> String {
     normalize_number_literal(raw)
-}
-
-fn is_rejected_nonfinite_literal(raw: &str) -> bool {
-    matches!(raw, "+Infinity" | "+NaN")
-}
-
-fn is_reserved_null_sentinel(value: &str) -> bool {
-    matches!(value, "none" | "notSet" | "notApplicable" | "tombstone")
-}
-
-fn is_ascii_whitespace_only(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| matches!(ch, ' ' | '\t' | '\n' | '\r'))
-}
-
-fn looks_like_number_literal(raw: &str) -> bool {
-    if raw.is_empty() {
-        return false;
-    }
-
-    let bytes = raw.as_bytes();
-    let mut index = 0usize;
-    if matches!(bytes.first(), Some(b'+') | Some(b'-')) {
-        index += 1;
-    }
-    if index >= bytes.len() {
-        return false;
-    }
-
-    let mut saw_digit = false;
-    let mut saw_dot = false;
-    let mut saw_exponent = false;
-    let mut prev_was_underscore = false;
-
-    if bytes[index] == b'.' {
-        if index + 1 >= bytes.len() || !(bytes[index + 1] as char).is_ascii_digit() {
-            return false;
-        }
-        saw_dot = true;
-        index += 1;
-    }
-
-    while index < bytes.len() {
-        match bytes[index] as char {
-            '0'..='9' => {
-                saw_digit = true;
-                prev_was_underscore = false;
-                index += 1;
-            }
-            '_' => {
-                if !saw_digit || prev_was_underscore || index + 1 >= bytes.len() {
-                    return false;
-                }
-                if !(bytes[index + 1] as char).is_ascii_digit() {
-                    return false;
-                }
-                prev_was_underscore = true;
-                index += 1;
-            }
-            '.' => {
-                if saw_dot || saw_exponent || prev_was_underscore || index + 1 >= bytes.len() {
-                    return false;
-                }
-                if !(bytes[index + 1] as char).is_ascii_digit() {
-                    return false;
-                }
-                saw_dot = true;
-                prev_was_underscore = false;
-                index += 1;
-            }
-            'e' | 'E' => {
-                if !saw_digit || saw_exponent || prev_was_underscore || index + 1 >= bytes.len() {
-                    return false;
-                }
-                saw_exponent = true;
-                prev_was_underscore = false;
-                index += 1;
-                if matches!(bytes.get(index), Some(b'+') | Some(b'-')) {
-                    index += 1;
-                }
-                if index >= bytes.len() || !(bytes[index] as char).is_ascii_digit() {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    saw_digit && !prev_was_underscore
-}
-
-fn invalid_temporal_literal(raw: &str) -> Option<String> {
-    if looks_like_datetime(raw) || looks_like_date(raw) || looks_like_time(raw) {
-        return None;
-    }
-    if looks_like_datetime_candidate(raw) {
-        return Some(format!("Invalid datetime literal: '{raw}'"));
-    }
-    if looks_like_date_candidate(raw) {
-        return Some(format!("Invalid date literal: '{raw}'"));
-    }
-    if looks_like_time_candidate(raw) {
-        return Some(format!("Invalid time literal: '{raw}'"));
-    }
-    None
-}
-
-fn looks_like_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() == 5 && bytes[4] == b'-' && bytes[..4].iter().all(u8::is_ascii_digit) {
-        return value[0..4]
-            .parse::<u32>()
-            .is_ok_and(|year| (1..=9999).contains(&year));
-    }
-    if bytes.len() == 7
-        && bytes[4] == b'-'
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-    {
-        return match (value[0..4].parse::<u32>(), value[5..7].parse::<u32>()) {
-            (Ok(year), Ok(month)) => (1..=9999).contains(&year) && (1..=12).contains(&month),
-            _ => false,
-        };
-    }
-    looks_like_full_date(value)
-}
-
-fn looks_like_full_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if !(bytes.len() == 10
-        && bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[8..10].iter().all(u8::is_ascii_digit))
-    {
-        return false;
-    }
-
-    match (
-        value[0..4].parse::<u32>().ok(),
-        value[5..7].parse::<u32>().ok(),
-        value[8..10].parse::<u32>().ok(),
-    ) {
-        (Some(year), Some(month), Some(day)) => is_valid_date_parts(year, month, day),
-        _ => false,
-    }
-}
-
-fn looks_like_date_candidate(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() >= 5
-        && bytes[4] == b'-'
-        && bytes[..4].iter().all(u8::is_ascii_digit)
-        && bytes[5..]
-            .iter()
-            .all(|byte| byte.is_ascii_digit() || *byte == b'-')
-}
-
-fn looks_like_time(value: &str) -> bool {
-    matches_time_core(value, true) || looks_like_zoned_time(value)
-}
-
-fn looks_like_datetime(value: &str) -> bool {
-    if let Some((date, rest)) = value.split_once('T') {
-        if !looks_like_date(date) {
-            return false;
-        }
-        if looks_like_datetime_time(rest) || looks_like_datetime_zoned_time(rest) {
-            return true;
-        }
-        if let Some((base, zone)) = rest.split_once('&') {
-            return (looks_like_datetime_time(base) || looks_like_datetime_zoned_time(base))
-                && is_valid_wtc_reference(zone);
-        }
-    }
-    false
-}
-
-fn looks_like_datetime_candidate(value: &str) -> bool {
-    if let Some((date, rest)) = value.split_once('T').or_else(|| value.split_once('t')) {
-        return looks_like_date_candidate(date)
-            && !rest.is_empty()
-            && rest.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric()
-                    || matches!(byte, b':' | b'.' | b'+' | b'-' | b'/' | b'_' | b'&')
-            });
-    }
-    false
-}
-
-fn looks_like_time_candidate(value: &str) -> bool {
-    value.contains(':')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'.' | b'+' | b'-'))
-}
-
-fn looks_like_datetime_time(value: &str) -> bool {
-    matches_datetime_core(value) || matches_time_core(value, true)
-}
-
-fn looks_like_datetime_zoned_time(value: &str) -> bool {
-    value
-        .strip_suffix('Z')
-        .is_some_and(looks_like_datetime_time)
-        || value
-            .rsplit_once(['+', '-'])
-            .is_some_and(|(time, offset)| looks_like_datetime_time(time) && matches_offset(offset))
-}
-
-fn looks_like_zoned_time(value: &str) -> bool {
-    matches_time_core(value, true)
-        || value
-            .strip_suffix('Z')
-            .is_some_and(|time| matches_time_core(time, true))
-        || value
-            .rsplit_once(['+', '-'])
-            .is_some_and(|(time, offset)| matches_time_core(time, true) && matches_offset(offset))
-}
-
-fn is_valid_wtc_reference(reference: &str) -> bool {
-    !reference.is_empty()
-        && (reference == "local" || !reference.eq_ignore_ascii_case("local"))
-        && !reference.starts_with('/')
-        && !reference.ends_with('/')
-        && !reference.contains("//")
-        && !reference.contains("/*")
-        && !reference.contains("/[")
-}
-
-fn matches_time_core(value: &str, allow_hour_precision_marker: bool) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() == 3 {
-        return allow_hour_precision_marker
-            && bytes[2] == b':'
-            && bytes[..2].iter().all(u8::is_ascii_digit)
-            && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour);
-    }
-    if bytes.len() == 5 {
-        return bytes[2] == b':'
-            && bytes[..2].iter().all(u8::is_ascii_digit)
-            && bytes[3..5].iter().all(u8::is_ascii_digit)
-            && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-            && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute);
-    }
-    matches_hms(value)
-}
-
-fn matches_datetime_core(value: &str) -> bool {
-    if value.len() == 2 {
-        return value.as_bytes().iter().all(u8::is_ascii_digit)
-            && value.parse::<u32>().ok().is_some_and(is_valid_hour);
-    }
-    matches_time_core(value, false)
-}
-
-fn matches_hms(value: &str) -> bool {
-    let whole = match value.split_once('.') {
-        Some((whole, fraction)) => {
-            if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) {
-                return false;
-            }
-            whole
-        }
-        None => value,
-    };
-    let bytes = whole.as_bytes();
-    bytes.len() == 8
-        && bytes[2] == b':'
-        && bytes[5] == b':'
-        && bytes[..2].iter().all(u8::is_ascii_digit)
-        && bytes[3..5].iter().all(u8::is_ascii_digit)
-        && bytes[6..8].iter().all(u8::is_ascii_digit)
-        && whole[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && whole[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
-        && whole[6..8].parse::<u32>().ok().is_some_and(is_valid_second)
-}
-
-fn matches_offset(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 5
-        && bytes[2] == b':'
-        && bytes[..2].iter().all(u8::is_ascii_digit)
-        && bytes[3..5].iter().all(u8::is_ascii_digit)
-        && value[0..2].parse::<u32>().ok().is_some_and(is_valid_hour)
-        && value[3..5].parse::<u32>().ok().is_some_and(is_valid_minute)
-}
-
-fn is_valid_date_parts(year: u32, month: u32, day: u32) -> bool {
-    if !(1..=12).contains(&month) || day == 0 {
-        return false;
-    }
-    let days_in_month = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => unreachable!(),
-    };
-    day <= days_in_month
-}
-
-fn is_leap_year(year: u32) -> bool {
-    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
-}
-
-fn is_valid_hour(value: u32) -> bool {
-    value <= 23
-}
-
-fn is_valid_minute(value: u32) -> bool {
-    value <= 59
-}
-
-fn is_valid_second(value: u32) -> bool {
-    value <= 60
 }
 
 fn normalize_datatype(raw: &str) -> String {
@@ -1314,220 +837,6 @@ fn normalize_encoding(raw: &str) -> String {
     raw.to_owned()
 }
 
-fn validate_datatype_clarifiers(clarifiers: &[&str]) -> Result<(), String> {
-    if clarifiers.is_empty() {
-        return Ok(());
-    }
-    if clarifiers.len() > 1 {
-        return Err(String::from(
-            "Datatype clarifiers must use a single bracketed list like `sep[\"/\", \".\"]`",
-        ));
-    }
-    validate_clarifier_list(clarifiers[0])
-}
-
-// The historical writer has its own parser. Match Core's type-only generic
-// arguments without interpreting quoted clarifier payloads as type syntax.
-fn validate_generic_type_names(raw: &str) -> Result<(), String> {
-    if !raw.contains('<') {
-        return Ok(());
-    }
-    let lexed = aeon_core::tokenize(raw, aeon_core::LexerOptions::default());
-    if !lexed.errors.is_empty() {
-        return Err(String::from("Invalid datatype annotation"));
-    }
-    let mut angle_depth = 0usize;
-    let mut bracket_depth = 0usize;
-    let mut expect_name = false;
-    for token in lexed.tokens {
-        use aeon_core::TokenKind;
-        match token.kind {
-            TokenKind::LeftBracket if angle_depth > 0 && expect_name => {
-                return Err(String::from("Expected type name for generic argument"));
-            }
-            TokenKind::LeftBracket => bracket_depth += 1,
-            TokenKind::RightBracket => bracket_depth = bracket_depth.saturating_sub(1),
-            _ if bracket_depth > 0 => {}
-            TokenKind::LeftAngle => {
-                angle_depth += 1;
-                expect_name = true;
-            }
-            TokenKind::RightAngle => {
-                if expect_name {
-                    return Err(String::from("Expected type name for generic argument"));
-                }
-                angle_depth = angle_depth.saturating_sub(1);
-            }
-            TokenKind::Comma if angle_depth > 0 => expect_name = true,
-            TokenKind::Comma | TokenKind::Eof => {}
-            _ if angle_depth > 0 => {
-                let mut chars = token.text.chars();
-                if !chars
-                    .next()
-                    .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
-                    || !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-                {
-                    return Err(String::from("Expected type name for generic argument"));
-                }
-                expect_name = false;
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn validate_clarifier_list(payload: &str) -> Result<(), String> {
-    if payload.trim().is_empty() {
-        return Err(String::from(
-            "Datatype clarifier must contain at least one string or number",
-        ));
-    }
-
-    let mut values = 0usize;
-    let mut rest = payload.trim();
-    loop {
-        rest = rest.trim_start();
-        if rest.is_empty() {
-            return Err(String::from("Expected clarifier value"));
-        }
-
-        let consumed = if matches!(rest.chars().next(), Some('"') | Some('\'')) {
-            parse_clarifier_string(rest)?
-        } else {
-            let end = rest.find(',').unwrap_or(rest.len());
-            let number = rest[..end].trim();
-            if !looks_like_number_literal(number) {
-                return Err(String::from("Expected clarifier value"));
-            }
-            end
-        };
-
-        values += 1;
-        rest = rest[consumed..].trim_start();
-        if rest.is_empty() {
-            break;
-        }
-        if !rest.starts_with(',') {
-            return Err(String::from("Expected ',' between clarifier values"));
-        }
-        rest = &rest[1..];
-        if rest.trim().is_empty() {
-            return Err(String::from("Expected clarifier value"));
-        }
-    }
-
-    if values == 0 {
-        return Err(String::from(
-            "Datatype clarifier must contain at least one string or number",
-        ));
-    }
-    Ok(())
-}
-
-fn parse_clarifier_string(raw: &str) -> Result<usize, String> {
-    let delimiter = raw.chars().next().unwrap_or('"');
-    let mut escaped = false;
-    for (index, ch) in raw.char_indices().skip(1) {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-            continue;
-        }
-        if ch == delimiter {
-            return Ok(index + ch.len_utf8());
-        }
-    }
-    Err(String::from("Unterminated clarifier string"))
-}
-
-fn datatype_bracket_specs(datatype: &str) -> Vec<&str> {
-    let mut specs = Vec::new();
-    let mut angle_depth = 0usize;
-    let mut current_start = None;
-
-    for (index, ch) in datatype.char_indices() {
-        match ch {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
-            '[' if angle_depth == 0 => current_start = Some(index + 1),
-            ']' if angle_depth == 0 => {
-                if let Some(start) = current_start.take() {
-                    specs.push(&datatype[start..index]);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    specs
-}
-
-fn is_identifier_literal(raw: &str) -> bool {
-    matches!(raw, "true" | "false" | "yes" | "no" | "on" | "off")
-}
-
-fn is_radix_digit(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '&' | '!')
-}
-
-fn looks_like_valid_radix_literal(raw: &str) -> bool {
-    let Some(body) = raw.strip_prefix('%') else {
-        return false;
-    };
-    if body.is_empty() {
-        return false;
-    }
-
-    let chars: Vec<char> = body.chars().collect();
-    let mut index = if matches!(chars.first(), Some('+' | '-')) {
-        1
-    } else {
-        0
-    };
-    if index >= chars.len() {
-        return false;
-    }
-
-    let mut saw_digit = false;
-    let mut saw_decimal = false;
-    let mut prev_was_digit = false;
-    let mut saw_digit_before_decimal = false;
-
-    while index < chars.len() {
-        let ch = chars[index];
-        if is_radix_digit(ch) {
-            saw_digit = true;
-            prev_was_digit = true;
-            if !saw_decimal {
-                saw_digit_before_decimal = true;
-            }
-        } else if ch == '_' {
-            if !prev_was_digit || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
-                return false;
-            }
-            prev_was_digit = false;
-        } else if ch == '.' {
-            if saw_decimal || index + 1 >= chars.len() || !is_radix_digit(chars[index + 1]) {
-                return false;
-            }
-            if !prev_was_digit && saw_digit_before_decimal {
-                return false;
-            }
-            saw_decimal = true;
-            prev_was_digit = false;
-        } else {
-            return false;
-        }
-        index += 1;
-    }
-
-    saw_digit && prev_was_digit
-}
-
 fn looks_like_hex_literal(raw: &str) -> bool {
     raw.starts_with('#') && raw.len() > 1 && raw[1..].chars().all(|ch| ch.is_ascii_hexdigit())
 }
@@ -1554,35 +863,6 @@ fn normalize_quoted_reference_segments(raw: &str, needle: &str, replacement: &st
     output
 }
 
-// Keep the historical preprocessing bytes exactly. LF-only, preamble-free
-// input already has the required representation except for its last LF.
-fn lexical_source(input: &str) -> Cow<'_, str> {
-    let input = input.strip_prefix('\u{feff}').unwrap_or(input);
-    if !input.starts_with("#!") && !input.contains('\r') {
-        Cow::Borrowed(input.strip_suffix('\n').unwrap_or(input))
-    } else {
-        Cow::Owned(strip_preamble(input))
-    }
-}
-
-fn strip_preamble(input: &str) -> String {
-    let mut lines = input.lines();
-    let mut output = Vec::new();
-
-    if let Some(first) = lines.next()
-        && !first.starts_with("#!")
-    {
-        output.push(first);
-    }
-    if let Some(second) = lines.next()
-        && !(output.is_empty() && second.starts_with("//! format:"))
-    {
-        output.push(second);
-    }
-    output.extend(lines);
-    output.join("\n")
-}
-
 impl Binding {
     fn scalar(key: &str, value: Value) -> Self {
         Self {
@@ -1593,1005 +873,6 @@ impl Binding {
             datatype: None,
             attributes: BTreeMap::new(),
             value,
-        }
-    }
-}
-
-struct Parser<'a> {
-    source: &'a [u8],
-    index: usize,
-    structural_identities: HashSet<String>,
-}
-
-impl<'a> Parser<'a> {
-    fn new(source: &'a str) -> Self {
-        Self {
-            source: source.as_bytes(),
-            index: 0,
-            structural_identities: HashSet::new(),
-        }
-    }
-
-    fn parse_document(&mut self) -> Result<Vec<Binding>, Diagnostic> {
-        let mut bindings = Vec::new();
-        self.skip_ws(true);
-        while !self.is_eof() {
-            bindings.push(self.parse_binding()?);
-            self.skip_delimiters()?;
-        }
-        Ok(bindings)
-    }
-
-    fn parse_binding(&mut self) -> Result<Binding, Diagnostic> {
-        let key = self.parse_key()?;
-        self.skip_ws(true);
-        let structural_id = self.parse_optional_structural_identity()?;
-        self.skip_ws(true);
-        let attributes = if self.peek() == Some('@') {
-            self.parse_attribute_block()?
-        } else {
-            BTreeMap::new()
-        };
-        self.skip_ws(true);
-        let datatype = if self.peek() == Some(':') {
-            self.index += 1;
-            self.skip_ws(true);
-            if self.peek() == Some(':') {
-                return Err(self.syntax_error("Expected datatype annotation"));
-            }
-            let parsed = self.parse_datatype_like()?;
-            Some(parsed)
-        } else {
-            None
-        };
-        self.skip_ws(true);
-        self.expect_char_message('=', &format!("Expected '=' after key '{key}'"))?;
-        self.skip_ws(true);
-        let value = self.parse_value()?;
-        Ok(Binding {
-            rank: None,
-            canonical_key: false,
-            key,
-            structural_id,
-            datatype,
-            attributes,
-            value,
-        })
-    }
-
-    fn parse_key(&mut self) -> Result<String, Diagnostic> {
-        self.skip_inline_ws();
-        if matches!(self.peek(), Some('"') | Some('\'')) {
-            return self.parse_quoted_string();
-        }
-        let key = self.parse_identifier_like(&[
-            '\\', ':', '@', '=', ' ', '\t', '\n', '\r', ',', '{', '}', '(', ')', '>', ']',
-        ])?;
-        if key == "aeon" {
-            let before_separator = self.index;
-            self.skip_ws(true);
-            if self.peek() == Some(':') {
-                self.index += 1;
-                self.skip_ws(true);
-                let suffix = self.parse_identifier_like(&[
-                    '@', '=', ' ', '\t', '\n', '\r', ',', '}', ')', ']',
-                ])?;
-                return Ok(format!("aeon:{suffix}"));
-            }
-            self.index = before_separator;
-        }
-        Ok(key)
-    }
-
-    fn parse_attribute_block(&mut self) -> Result<BTreeMap<String, AttributeEntry>, Diagnostic> {
-        self.expect_char('@')?;
-        self.skip_ws(true);
-        self.expect_char('{')?;
-        let mut entries = BTreeMap::new();
-        self.skip_ws(true);
-        while self.peek() != Some('}') {
-            let key = self.parse_key()?;
-            self.skip_ws(true);
-            let structural_id = self.parse_optional_structural_identity()?;
-            self.skip_ws(true);
-            let nested = if self.peek() == Some('@') {
-                self.parse_attribute_block()?
-            } else {
-                BTreeMap::new()
-            };
-            self.skip_ws(true);
-            let datatype = if self.peek() == Some(':') {
-                self.index += 1;
-                self.skip_ws(true);
-                if self.peek() == Some(':') {
-                    return Err(self.syntax_error("Expected datatype annotation"));
-                }
-                let parsed = self.parse_datatype_like()?;
-                Some(parsed)
-            } else {
-                None
-            };
-            self.skip_ws(true);
-            self.expect_char('=')?;
-            self.skip_ws(true);
-            let value = self.parse_value()?;
-            entries.insert(
-                key,
-                AttributeEntry {
-                    rank: None,
-                    structural_id,
-                    datatype,
-                    attributes: nested,
-                    value,
-                },
-            );
-            self.skip_ws(true);
-            if matches!(self.peek(), Some(',') | Some('\n')) {
-                self.consume_delimiter();
-                self.skip_ws(true);
-            }
-        }
-        self.expect_char('}')?;
-        Ok(entries)
-    }
-
-    fn parse_value(&mut self) -> Result<Value, Diagnostic> {
-        match self.peek() {
-            Some('"') | Some('\'') | Some('`') => Ok(Value::String {
-                value: self.parse_quoted_string()?,
-                trimticks: false,
-            }),
-            Some('|') => Ok(Value::Symbol(self.parse_quoted_string()?)),
-            Some('>') => Ok(Value::String {
-                value: self.parse_trimtick()?,
-                trimticks: true,
-            }),
-            Some('{') => self.parse_object(),
-            Some('[') => self.parse_list(),
-            Some('(') => self.parse_tuple(),
-            Some('<') => self.parse_node(),
-            Some('~') => Ok(Value::Raw(self.parse_reference_literal()?)),
-            Some('!') => self.parse_null_literal(),
-            Some(ch) if ch.is_ascii_digit() || matches!(ch, '-' | '+') => {
-                let start = self.index;
-                let raw = self.parse_bare_value()?;
-                if matches!(raw.as_str(), "Infinity" | "-Infinity") {
-                    return Ok(Value::Infinity(raw));
-                }
-                if matches!(raw.as_str(), "NaN" | "-NaN") {
-                    return Ok(Value::Raw(raw));
-                }
-                if let Some(message) = invalid_temporal_literal(&raw) {
-                    return Err(self.syntax_error_range(start, self.index, &message));
-                }
-                if looks_like_number_literal(&raw) {
-                    return Ok(Value::Number(raw));
-                }
-                if is_rejected_nonfinite_literal(&raw) {
-                    return Err(self.syntax_error("Invalid number literal"));
-                }
-                Ok(Value::Raw(raw))
-            }
-            Some(_) => {
-                let start = self.index;
-                let raw = self.parse_bare_value()?;
-                if matches!(raw.as_str(), "Infinity" | "-Infinity") {
-                    return Ok(Value::Infinity(raw));
-                }
-                if matches!(raw.as_str(), "NaN" | "-NaN") {
-                    return Ok(Value::Raw(raw));
-                }
-                if let Some(message) = invalid_temporal_literal(&raw) {
-                    return Err(self.syntax_error_range(start, self.index, &message));
-                }
-                if looks_like_number_literal(&raw) {
-                    return Ok(Value::Number(raw));
-                }
-                if is_rejected_nonfinite_literal(&raw) {
-                    return Err(self.syntax_error("Invalid number literal"));
-                }
-                if raw.starts_with('%') && !looks_like_valid_radix_literal(&raw) {
-                    return Err(self.syntax_error_range(
-                        start,
-                        self.index,
-                        &format!("Invalid radix literal `{raw}`"),
-                    ));
-                }
-                if is_identifier(&raw) && !is_identifier_literal(&raw) {
-                    return Err(self.syntax_error_range(
-                        start,
-                        self.index,
-                        &format!("Unexpected token '{raw}'"),
-                    ));
-                }
-                Ok(Value::Raw(raw))
-            }
-            None => Err(self.syntax_error("Missing value")),
-        }
-    }
-
-    fn parse_anonymous_value(&mut self) -> Result<Value, Diagnostic> {
-        if !matches!(self.peek(), Some('\\' | '@' | ':')) {
-            return self.parse_value();
-        }
-        let structural_id = self.parse_optional_structural_identity()?;
-        self.skip_ws(true);
-        let attributes = if self.peek() == Some('@') {
-            self.parse_attribute_block()?
-        } else {
-            BTreeMap::new()
-        };
-        self.skip_ws(true);
-        let datatype = if self.peek() == Some(':') {
-            self.index += 1;
-            self.skip_ws(true);
-            let parsed = self.parse_datatype_like()?;
-            Some(parsed)
-        } else {
-            None
-        };
-        self.skip_ws(true);
-        self.expect_char_message('=', "Expected '=' after anonymous value head")?;
-        self.skip_ws(true);
-        let value = self.parse_value()?;
-        Ok(Value::Attributed {
-            canonical_head: false,
-            structural_id,
-            attributes,
-            datatype,
-            value: Box::new(value),
-        })
-    }
-
-    fn parse_optional_structural_identity(&mut self) -> Result<Option<String>, Diagnostic> {
-        if self.peek() != Some('\\') {
-            return Ok(None);
-        }
-        let start = self.index;
-        self.index += 1;
-        let value_start = self.index;
-        while let Some(ch) = self.peek() {
-            if ch == '\\' {
-                break;
-            }
-            if !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_' {
-                while let Some(next) = self.peek() {
-                    self.index += 1;
-                    if next == '\\' {
-                        break;
-                    }
-                }
-                let mut diagnostic =
-                    Diagnostic::new("INVALID_STRUCTURAL_IDENTITY", "Invalid structural identity")
-                        .at_path("$");
-                diagnostic.span = Some(Span {
-                    start: self.position_at(start),
-                    end: self.position_at(self.index),
-                });
-                return Err(diagnostic);
-            }
-            self.index += 1;
-        }
-        if self.peek() != Some('\\') || self.index == value_start {
-            if self.peek() == Some('\\') {
-                self.index += 1;
-            }
-            let mut diagnostic =
-                Diagnostic::new("INVALID_STRUCTURAL_IDENTITY", "Invalid structural identity")
-                    .at_path("$");
-            diagnostic.span = Some(Span {
-                start: self.position_at(start),
-                end: self.position_at(self.index),
-            });
-            return Err(diagnostic);
-        }
-        let structural_id = std::str::from_utf8(&self.source[value_start..self.index])
-            .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-            .to_owned();
-        self.index += 1;
-        if !self.structural_identities.insert(structural_id.clone()) {
-            let mut diagnostic = Diagnostic::new(
-                "DUPLICATE_STRUCTURAL_IDENTITY",
-                format!("Duplicate structural identity: '{structural_id}'"),
-            )
-            .at_path("$");
-            diagnostic.span = Some(Span {
-                start: self.position_at(start),
-                end: self.position_at(self.index),
-            });
-            return Err(diagnostic);
-        }
-        Ok(Some(structural_id))
-    }
-
-    fn parse_reference_literal(&mut self) -> Result<String, Diagnostic> {
-        self.expect_char('~')?;
-        let is_pointer = if self.peek() == Some('>') {
-            self.index += 1;
-            true
-        } else {
-            false
-        };
-        self.skip_ws(true);
-        let path = self.parse_bare_value()?;
-        Ok(if is_pointer {
-            format!("~>{path}")
-        } else {
-            format!("~{path}")
-        })
-    }
-
-    fn parse_null_literal(&mut self) -> Result<Value, Diagnostic> {
-        self.expect_char('!')?;
-        match self.peek() {
-            Some('"') | Some('\'') | Some('`') => {
-                let value = self.parse_quoted_string()?;
-                if value.is_empty() {
-                    return Err(self.syntax_error("Null reason must not be empty"));
-                }
-                if is_ascii_whitespace_only(&value) {
-                    return Err(self.syntax_error("Null reason must not be ASCII-whitespace-only"));
-                }
-                if is_reserved_null_sentinel(&value) {
-                    return Err(self.syntax_error("Null reason collides with reserved sentinel"));
-                }
-                Ok(Value::Null {
-                    mode: NullMode::Reason,
-                    value,
-                })
-            }
-            Some(_) => {
-                let raw = self.parse_bare_value()?;
-                if !is_reserved_null_sentinel(&raw) {
-                    return Err(self.syntax_error("Invalid null sentinel"));
-                }
-                Ok(Value::Null {
-                    mode: NullMode::Reserved,
-                    value: raw,
-                })
-            }
-            None => Err(self.syntax_error(
-                "Null literal must be followed by a reserved sentinel or quoted reason",
-            )),
-        }
-    }
-
-    fn parse_object(&mut self) -> Result<Value, Diagnostic> {
-        self.expect_char('{')?;
-        let mut bindings = Vec::new();
-        self.skip_ws(true);
-        while self.peek() != Some('}') {
-            bindings.push(self.parse_binding()?);
-            self.skip_delimiters()?;
-        }
-        self.expect_char('}')?;
-        Ok(Value::Object(bindings))
-    }
-
-    fn parse_list(&mut self) -> Result<Value, Diagnostic> {
-        self.expect_char('[')?;
-        let items = self.parse_sequence(']')?;
-        Ok(Value::List(items))
-    }
-
-    fn parse_tuple(&mut self) -> Result<Value, Diagnostic> {
-        self.expect_char('(')?;
-        let items = self.parse_sequence(')')?;
-        Ok(Value::Tuple(items))
-    }
-
-    fn parse_sequence(&mut self, terminator: char) -> Result<Vec<Value>, Diagnostic> {
-        let mut items = Vec::new();
-        self.skip_ws(true);
-        while self.peek() != Some(terminator) {
-            items.push(self.parse_anonymous_value()?);
-            self.skip_inline_ws();
-            if self.peek() == Some(',') || self.peek() == Some('\n') {
-                self.consume_delimiter();
-                self.skip_ws(true);
-            } else if self.peek() != Some(terminator) {
-                return Err(self.syntax_error("Expected list delimiter"));
-            }
-        }
-        self.expect_char(terminator)?;
-        Ok(items)
-    }
-
-    fn parse_node(&mut self) -> Result<Value, Diagnostic> {
-        self.expect_char('<')?;
-        self.skip_ws(true);
-        let tag = self.parse_key()?;
-        self.skip_ws(true);
-        let structural_id = self.parse_optional_structural_identity()?;
-        let mut datatype = None;
-        let mut attributes = BTreeMap::new();
-        loop {
-            self.skip_ws(true);
-            if self.peek() == Some('@') && attributes.is_empty() {
-                attributes = self.parse_attribute_block()?;
-                continue;
-            }
-            if self.peek() == Some(':') && datatype.is_none() {
-                self.index += 1;
-                let parsed = self.parse_datatype_like()?;
-                datatype = Some(parsed);
-                continue;
-            }
-            break;
-        }
-        self.skip_ws(true);
-        let children = if self.peek() == Some('(') {
-            self.expect_char('(')?;
-            self.skip_ws(true);
-            if self.peek() == Some(')') {
-                self.expect_char(')')?;
-                Vec::new()
-            } else {
-                self.parse_sequence(')')?
-            }
-        } else {
-            Vec::new()
-        };
-        self.skip_ws(true);
-        self.expect_char('>')?;
-        Ok(Value::Node(NodeValue {
-            canonical_key: false,
-            tag,
-            structural_id,
-            datatype,
-            attributes,
-            children,
-        }))
-    }
-
-    fn parse_quoted_string(&mut self) -> Result<String, Diagnostic> {
-        let quote = self
-            .peek()
-            .ok_or_else(|| self.syntax_error("Expected quoted string"))?;
-        if !matches!(quote, '"' | '\'' | '`' | '|') {
-            return Err(self.syntax_error("Expected quoted string"));
-        }
-        let symbolic = quote == '|';
-        self.index += 1;
-        let mut value = String::new();
-        let mut chunk_start = self.index;
-        while self.index < self.source.len() {
-            let byte = self.source[self.index];
-            if byte == quote as u8 {
-                value.push_str(
-                    std::str::from_utf8(&self.source[chunk_start..self.index])
-                        .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
-                );
-                self.index += 1;
-                if symbolic && value.is_empty() {
-                    return Err(self.error(
-                        "INVALID_SYMBOLIC_LITERAL",
-                        "Symbolic literals must contain a value",
-                    ));
-                }
-                return Ok(value);
-            }
-            if matches!(byte, b'\n' | b'\r') && quote != '`' {
-                if symbolic {
-                    return Err(self.error(
-                        "UNTERMINATED_SYMBOLIC_LITERAL",
-                        "Unterminated symbolic literal",
-                    ));
-                }
-                return Err(self.error(
-                    "UNTERMINATED_STRING",
-                    &format!("Unterminated string literal (started with {quote})"),
-                ));
-            }
-            if byte == b'\\' {
-                value.push_str(
-                    std::str::from_utf8(&self.source[chunk_start..self.index])
-                        .map_err(|_| self.syntax_error("Invalid UTF-8"))?,
-                );
-                self.index += 1;
-                let escaped = self.peek().ok_or_else(|| {
-                    if symbolic {
-                        self.error(
-                            "UNTERMINATED_SYMBOLIC_LITERAL",
-                            "Unterminated symbolic literal",
-                        )
-                    } else {
-                        self.syntax_error("Unterminated string")
-                    }
-                })?;
-                match escaped {
-                    '\\' => value.push('\\'),
-                    '"' => value.push('"'),
-                    '\'' => value.push('\''),
-                    '`' => value.push('`'),
-                    '|' if symbolic => value.push('|'),
-                    'n' => value.push('\n'),
-                    'r' => value.push('\r'),
-                    't' => value.push('\t'),
-                    'b' => value.push('\u{0008}'),
-                    'f' => value.push('\u{000c}'),
-                    'u' => {
-                        self.index += 1;
-                        let (codepoint, permits_surrogate_pair) = if self.peek() == Some('{') {
-                            self.index += 1;
-                            let hex_start = self.index;
-                            let mut hex_digits = 0usize;
-                            while matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
-                                self.index += 1;
-                                hex_digits += 1;
-                            }
-                            if hex_digits == 0 || hex_digits > 6 || self.peek() != Some('}') {
-                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
-                            }
-                            let hex = std::str::from_utf8(&self.source[hex_start..self.index])
-                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                            self.index += 1;
-                            (
-                                u32::from_str_radix(hex, 16).map_err(|_| {
-                                    self.error("INVALID_ESCAPE", "Invalid unicode escape")
-                                })?,
-                                false,
-                            )
-                        } else {
-                            let hex_start = self.index;
-                            for _ in 0..4 {
-                                if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
-                                    return Err(
-                                        self.error("INVALID_ESCAPE", "Invalid unicode escape")
-                                    );
-                                }
-                                self.index += 1;
-                            }
-                            let hex = std::str::from_utf8(&self.source[hex_start..self.index])
-                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                            (
-                                u32::from_str_radix(hex, 16).map_err(|_| {
-                                    self.error("INVALID_ESCAPE", "Invalid unicode escape")
-                                })?,
-                                true,
-                            )
-                        };
-                        let codepoint = if permits_surrogate_pair
-                            && (0xD800..=0xDBFF).contains(&codepoint)
-                        {
-                            if self.peek() != Some('\\') || self.peek_next() != Some('u') {
-                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
-                            }
-                            self.index += 2;
-                            let low_start = self.index;
-                            for _ in 0..4 {
-                                if !matches!(self.peek(), Some(c) if c.is_ascii_hexdigit()) {
-                                    return Err(
-                                        self.error("INVALID_ESCAPE", "Invalid unicode escape")
-                                    );
-                                }
-                                self.index += 1;
-                            }
-                            let low_hex = std::str::from_utf8(&self.source[low_start..self.index])
-                                .map_err(|_| self.syntax_error("Invalid UTF-8"))?;
-                            let low = u32::from_str_radix(low_hex, 16).map_err(|_| {
-                                self.error("INVALID_ESCAPE", "Invalid unicode escape")
-                            })?;
-                            if !(0xDC00..=0xDFFF).contains(&low) {
-                                return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
-                            }
-                            0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00)
-                        } else if (0xDC00..=0xDFFF).contains(&codepoint) {
-                            return Err(self.error("INVALID_ESCAPE", "Invalid unicode escape"));
-                        } else {
-                            codepoint
-                        };
-                        let decoded = char::from_u32(codepoint).ok_or_else(|| {
-                            self.error("INVALID_ESCAPE", "Invalid unicode escape")
-                        })?;
-                        value.push(decoded);
-                        chunk_start = self.index;
-                        continue;
-                    }
-                    _ => return Err(self.error("INVALID_ESCAPE", "Invalid escape sequence")),
-                }
-                self.index += 1;
-                chunk_start = self.index;
-                continue;
-            }
-            self.index += 1;
-        }
-        if symbolic {
-            Err(self.error(
-                "UNTERMINATED_SYMBOLIC_LITERAL",
-                "Unterminated symbolic literal",
-            ))
-        } else {
-            Err(self.syntax_error("Unterminated string"))
-        }
-    }
-
-    fn parse_trimtick(&mut self) -> Result<String, Diagnostic> {
-        self.index += 1;
-        while matches!(self.peek(), Some(' ' | '\t')) {
-            self.index += 1;
-        }
-        if self.peek() != Some('`') {
-            return Err(self.syntax_error("Expected trimtick opener"));
-        }
-        let decoded = self.parse_quoted_string()?;
-        Ok(apply_trimticks(&decoded))
-    }
-
-    fn parse_bare_value(&mut self) -> Result<String, Diagnostic> {
-        let start = self.index;
-        let mut bracket_depth = 0usize;
-        let mut paren_depth = 0usize;
-        let mut in_quote = None;
-        let is_sansa_like = matches!(self.source[start], b'$' | b'?');
-        while let Some(ch) = self.peek() {
-            if let Some(quote) = in_quote {
-                self.index += 1;
-                if ch == '\\' {
-                    if !self.is_eof() {
-                        self.index += 1;
-                    }
-                    continue;
-                }
-                if ch == quote {
-                    in_quote = None;
-                }
-                continue;
-            }
-
-            match ch {
-                '"' | '\'' => {
-                    in_quote = Some(ch);
-                    self.index += 1;
-                }
-                '[' => {
-                    bracket_depth += 1;
-                    self.index += 1;
-                }
-                ']' => {
-                    if bracket_depth == 0 {
-                        break;
-                    }
-                    bracket_depth -= 1;
-                    self.index += 1;
-                }
-                '(' if is_sansa_like => {
-                    paren_depth += 1;
-                    self.index += 1;
-                }
-                ')' if is_sansa_like && paren_depth > 0 => {
-                    paren_depth -= 1;
-                    self.index += 1;
-                }
-                '/' if is_sansa_like && bracket_depth == 0 && paren_depth == 0 => break,
-                '/' if bracket_depth == 0
-                    && paren_depth == 0
-                    && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
-                {
-                    break;
-                }
-                ' ' | '\t' | ',' | '\n' | '\r' | '}' | ')'
-                    if bracket_depth == 0 && paren_depth == 0 =>
-                {
-                    break;
-                }
-                _ => self.index += 1,
-            }
-        }
-        if self.index == start {
-            return Err(self.syntax_error("Expected token"));
-        }
-        let value = std::str::from_utf8(&self.source[start..self.index])
-            .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-            .trim()
-            .to_owned();
-        if value.is_empty() {
-            return Err(self.syntax_error("Expected token"));
-        }
-        Ok(value)
-    }
-
-    fn parse_identifier_like(&mut self, stop: &[char]) -> Result<String, Diagnostic> {
-        let start = self.index;
-        while let Some(ch) = self.peek() {
-            if ch == '/' && (self.peek_next() == Some('/') || self.block_comment_close().is_some())
-            {
-                break;
-            }
-            if stop.contains(&ch) {
-                break;
-            }
-            self.index += 1;
-        }
-        if self.index == start {
-            return Err(self.syntax_error("Expected token"));
-        }
-        let value = std::str::from_utf8(&self.source[start..self.index])
-            .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-            .trim()
-            .to_owned();
-        if value.is_empty() {
-            return Err(self.syntax_error("Expected token"));
-        }
-        Ok(value)
-    }
-
-    fn parse_datatype_like(&mut self) -> Result<String, Diagnostic> {
-        self.skip_ws(true);
-        let start = self.index;
-        let mut angle_depth = 0usize;
-        let mut bracket_depth = 0usize;
-        while let Some(ch) = self.peek() {
-            match ch {
-                '<' => {
-                    angle_depth += 1;
-                    self.index += 1;
-                }
-                '>' => {
-                    if angle_depth == 0 {
-                        break;
-                    }
-                    angle_depth -= 1;
-                    self.index += 1;
-                }
-                '[' => {
-                    bracket_depth += 1;
-                    self.index += 1;
-                }
-                ']' => {
-                    if bracket_depth == 0 {
-                        break;
-                    }
-                    bracket_depth -= 1;
-                    self.index += 1;
-                }
-                '\n' | '\r' if angle_depth > 0 || bracket_depth > 0 => {
-                    self.index += 1;
-                }
-                '\n' | '\r' if self.next_datatype_continuation().is_some() => {
-                    self.index += 1;
-                }
-                '@' | '=' | ',' | '{' | '}' | '(' | ')' | '\n' | '\r'
-                    if angle_depth == 0 && bracket_depth == 0 =>
-                {
-                    break;
-                }
-                '/' if angle_depth == 0
-                    && bracket_depth == 0
-                    && (self.peek_next() == Some('/') || self.block_comment_close().is_some()) =>
-                {
-                    break;
-                }
-                _ => self.index += 1,
-            }
-        }
-        if angle_depth != 0 || bracket_depth != 0 {
-            return Err(self.syntax_error("Unterminated datatype annotation"));
-        }
-        let value = std::str::from_utf8(&self.source[start..self.index])
-            .map_err(|_| self.syntax_error("Invalid UTF-8"))?
-            .chars()
-            .filter(|ch| !matches!(ch, ' ' | '\t' | '\n' | '\r'))
-            .collect::<String>()
-            .trim()
-            .to_owned();
-        if value.is_empty() {
-            return Err(self.syntax_error("Expected token"));
-        }
-        if let Err(message) = validate_datatype_clarifiers(&datatype_bracket_specs(&value)) {
-            return Err(self.syntax_error(&message));
-        }
-        if let Err(message) = validate_generic_type_names(&value) {
-            return Err(self.syntax_error(&message));
-        }
-        Ok(value)
-    }
-
-    fn next_datatype_continuation(&self) -> Option<char> {
-        let mut probe = self.index;
-        while let Some(byte) = self.source.get(probe) {
-            let ch = char::from(*byte);
-            if matches!(ch, ' ' | '\t' | '\n' | '\r') {
-                probe += 1;
-                continue;
-            }
-            if ch == '/' {
-                if matches!(
-                    self.source.get(probe + 1).map(|b| char::from(*b)),
-                    Some('/')
-                ) {
-                    return None;
-                }
-                if self.source.get(probe + 1).is_some() {
-                    return None;
-                }
-            }
-            return Some(ch);
-        }
-        None
-    }
-
-    fn skip_delimiters(&mut self) -> Result<(), Diagnostic> {
-        self.skip_ws(true);
-        if self.is_eof() {
-            return Ok(());
-        }
-        if matches!(self.peek(), Some(',') | Some('\n')) {
-            self.consume_delimiter();
-            self.skip_ws(true);
-        }
-        Ok(())
-    }
-
-    fn skip_ws(&mut self, include_newlines: bool) {
-        loop {
-            let mut consumed = false;
-            while let Some(ch) = self.peek() {
-                if matches!(ch, ' ' | '\t' | '\r') || (include_newlines && ch == '\n') {
-                    self.index += 1;
-                    consumed = true;
-                } else {
-                    break;
-                }
-            }
-
-            if self.peek() == Some('/') && self.peek_next() == Some('/') {
-                self.index += 2;
-                while let Some(ch) = self.peek() {
-                    if ch == '\n' {
-                        if include_newlines {
-                            self.index += 1;
-                        }
-                        break;
-                    }
-                    self.index += 1;
-                }
-                consumed = true;
-            } else if let Some(close) = self.block_comment_close() {
-                self.index += 2;
-                while !self.is_eof() {
-                    if self.peek() == Some(close) && self.peek_next() == Some('/') {
-                        self.index += 2;
-                        break;
-                    }
-                    self.index += 1;
-                }
-                consumed = true;
-            }
-
-            if !consumed {
-                break;
-            }
-        }
-    }
-
-    fn skip_inline_ws(&mut self) {
-        self.skip_ws(false);
-    }
-
-    fn consume_delimiter(&mut self) {
-        let mut consumed_newline = false;
-        while self.peek() == Some('\n') {
-            self.index += 1;
-            consumed_newline = true;
-        }
-        if self.peek() == Some(',') {
-            self.index += 1;
-            return;
-        }
-        if !consumed_newline && self.peek() == Some('\n') {
-            self.index += 1;
-        }
-    }
-
-    fn expect_char(&mut self, expected: char) -> Result<(), Diagnostic> {
-        self.expect_char_message(expected, &format!("Expected `{expected}`"))
-    }
-
-    fn expect_char_message(&mut self, expected: char, message: &str) -> Result<(), Diagnostic> {
-        if self.peek() == Some(expected) {
-            self.index += 1;
-            Ok(())
-        } else {
-            Err(self.syntax_error(message))
-        }
-    }
-
-    fn peek(&self) -> Option<char> {
-        self.source.get(self.index).map(|byte| char::from(*byte))
-    }
-
-    fn peek_next(&self) -> Option<char> {
-        self.source
-            .get(self.index + 1)
-            .map(|byte| char::from(*byte))
-    }
-
-    fn block_comment_close(&self) -> Option<char> {
-        if self.peek() != Some('/') {
-            return None;
-        }
-        match self.peek_next()? {
-            '*' => Some('*'),
-            '#' => Some('#'),
-            '@' => Some('@'),
-            '?' => Some('?'),
-            '{' => Some('}'),
-            '[' => Some(']'),
-            '(' => Some(')'),
-            _ => None,
-        }
-    }
-
-    fn is_eof(&self) -> bool {
-        self.index >= self.source.len()
-    }
-
-    fn syntax_error(&self, message: &str) -> Diagnostic {
-        self.error("SYNTAX_ERROR", message)
-    }
-
-    fn error(&self, code: &str, message: &str) -> Diagnostic {
-        let mut diagnostic = Diagnostic::new(code, message).at_path("$");
-        diagnostic.span = Some(self.current_span());
-        diagnostic
-    }
-
-    fn syntax_error_range(&self, start: usize, end: usize, message: &str) -> Diagnostic {
-        let mut diagnostic = Diagnostic::new("SYNTAX_ERROR", message).at_path("$");
-        diagnostic.span = Some(Span {
-            start: self.position_at(start),
-            end: self.position_at(end),
-        });
-        diagnostic
-    }
-
-    fn current_span(&self) -> Span {
-        let start = self.position_at(self.index);
-        let end_index = self.error_end_index();
-        Span {
-            start,
-            end: self.position_at(end_index),
-        }
-    }
-
-    fn error_end_index(&self) -> usize {
-        let mut index = self.index;
-        while let Some(byte) = self.source.get(index) {
-            let ch = char::from(*byte);
-            if ch.is_whitespace()
-                || matches!(
-                    ch,
-                    ',' | '=' | ':' | '@' | '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>'
-                )
-            {
-                break;
-            }
-            index += 1;
-        }
-        if index == self.index {
-            self.index
-        } else {
-            index
-        }
-    }
-
-    fn position_at(&self, index: usize) -> Position {
-        let mut line = 1usize;
-        let mut column = 1usize;
-        let limit = index.min(self.source.len());
-        for byte in &self.source[..limit] {
-            if *byte == b'\n' {
-                line += 1;
-                column = 1;
-            } else {
-                column += 1;
-            }
-        }
-        Position {
-            line,
-            column,
-            offset: limit,
         }
     }
 }
@@ -2616,10 +897,14 @@ mod tests {
 
     #[test]
     fn preserves_attribute_entry_and_node_head_structural_identity() {
-        let result = canonicalize("value@{source\\META\\:string = \"user\"} = <tag\\HEAD\\>");
+        let result = canonicalize("<value\\NODE\\@{source\\META\\:string = \"user\"}>");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(result.text.contains("source\\META\\:string = \"user\""));
-        assert!(result.text.contains("<tag\\HEAD\\>"));
+        assert!(
+            result
+                .text
+                .contains("<value\\NODE\\@{source\\META\\:string = \"user\"}>")
+        );
     }
 
     #[test]
@@ -2689,14 +974,12 @@ mod tests {
     #[test]
     fn decodes_the_complete_escape_vocabulary_in_trimticks() {
         let source = r#"value = >`\"\'\`\\\n\r\t\b\f\u0041\u{1F600}\uD83D\uDE00`"#;
-        let bindings = Parser::new(source).parse_document().expect("parse");
-        assert_eq!(
-            bindings[0].value,
-            Value::String {
-                value: String::from("\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"),
-                trimticks: true,
-            }
-        );
+        let bindings = aeon_core::parse_document(source, &Default::default()).expect("parse");
+        assert!(matches!(
+            &bindings[0].value,
+            aeon_core::Value::StringLiteral { value, trimticks: Some(_), .. }
+                if value == "\"'`\\\n\r\t\u{0008}\u{000c}A😀😀"
+        ));
     }
 
     #[test]
@@ -2867,7 +1150,7 @@ mod tests {
              a:sansa = $.name/* block */\n\
              b:sansa = $.name// line\n\
              c:list = [$.name]\n\
-             d:node = <tag($.name)>\n\
+             <d($.name)>\n\
              e:tuple = ($.name)\n\
              f:sansa = $.items.*#text%stringLiteral.(\"item?*\")\n",
         );
@@ -2878,7 +1161,7 @@ mod tests {
              a:sansa = $.name\n\
              b:sansa = $.name\n\
              c:list = [$.name]\n\
-             d:node = <tag(\n  $.name\n)>\n\
+             <d(\n  $.name\n)>\n\
              e:tuple = ($.name)\n\
              f:sansa = $.items.*#text%stringLiteral.(\"item?*\")\n"
         );
@@ -2974,11 +1257,11 @@ mod tests {
 
     #[test]
     fn renders_child_bearing_nodes_multiline_in_bindings() {
-        let result = canonicalize("aeon:mode = \"strict\"\nwidget:node = <tag:node(\"x\")>\n");
+        let result = canonicalize("aeon:mode = \"strict\"\n<widget:node(\"x\")>\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nwidget:node = <tag:node(\n  \"x\"\n)>\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\n<widget:node(\n  \"x\"\n)>\n"
         );
     }
 
@@ -2986,14 +1269,14 @@ mod tests {
     fn canonicalizes_nested_node_list_and_tuple_children_inside_nodes() {
         let result = canonicalize(
             "aeon:mode = \"transport\"\n\
-             b = <a(<a(1,2,3)>)>\n\
-             c = <a([1,2])>\n\
-             d = <a((1,2))>\n",
+             <b(<a(1,2,3)>)>\n\
+             <c([1,2])>\n\
+             <d((1,2))>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\nb = <a(\n  <a(1, 2, 3)>\n)>\nc = <a(\n  [1, 2]\n)>\nd = <a(\n  (1, 2)\n)>\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\n<b(\n  <a(1, 2, 3)>\n)>\n<c(\n  [1, 2]\n)>\n<d(\n  (1, 2)\n)>\n"
         );
     }
 
@@ -3027,17 +1310,17 @@ mod tests {
     fn canonicalizes_whitespace_around_empty_node_children_in_strict_mode() {
         let result = canonicalize(
             "aeon:mode = \"strict\"\n\
-             a:node = <\n\
+             <\n\
              a\n\
              >\n\
-             b:node =  < a (   ) >\n\
-             c:node =  <a(  ) >\n\
-             d:node =  <a (  )>\n",
+             < b (   ) >\n\
+             <c(  ) >\n\
+             <d (  )>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\na:node = <a>\nb:node = <a>\nc:node = <a>\nd:node = <a>\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\n<a>\n<b>\n<c>\n<d>\n"
         );
     }
 
@@ -3115,20 +1398,20 @@ mod tests {
     #[test]
     fn canonicalizes_parameterized_object_and_node_claims() {
         let result = canonicalize(
-            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>\nchild:node<node> = <tag>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity\ntitle:node = <title:node<string>(\"Hello\")>\n",
+            "aeon:mode = \"strict\"\nscores:object<number> = { alice:number = 10 }\n<doc:node<html>>\n<child:node<node>>\nmissing:null<number> = !none\nbad:nan<number> = NaN\nfast:infinity<speedofmass> = Infinity\n<title:node<string>(\"Hello\")>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"strict\"\n}\nbad:nan<number> = NaN\nchild:node<node> = <tag>\ndoc:node<html> = <html>\nfast:infinity<speedofmass> = Infinity\nmissing:null<number> = !none\nscores:object<number> = {\n  alice:number = 10\n}\ntitle:node = <title:node<string>(\n  \"Hello\"\n)>\n"
+            "aeon:header = {\n  mode = \"strict\"\n}\nbad:nan<number> = NaN\n<child:node<node>>\n<doc:node<html>>\nfast:infinity<speedofmass> = Infinity\nmissing:null<number> = !none\nscores:object<number> = {\n  alice:number = 10\n}\n<title:node<string>(\n  \"Hello\"\n)>\n"
         );
     }
 
     #[test]
     fn preserves_binding_node_claims_with_reserved_child_value_datatypes() {
-        let result = canonicalize("tag:node<string> = <tag>\n");
+        let result = canonicalize("<tag:node<string>>\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
-        assert!(result.text.contains("tag:node<string> = <tag>"));
+        assert!(result.text.contains("<tag:node<string>>"));
     }
 
     #[test]
@@ -3185,12 +1468,12 @@ mod tests {
     #[test]
     fn preserves_multiline_trimticks_inside_inline_attribute_objects() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\na@{ nested:object = { note:trimtick = > `\n    hello\n\n    world\n  ` } }:node = <box>\n",
+            "aeon:mode = \"custom\"\n<a@{ nested:object = { note:trimtick = > `\n    hello\n\n    world\n  ` } }:node>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\na@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node = <box>\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\n<a@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node>\n"
         );
         let repeated = canonicalize(&result.text);
         assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
@@ -3206,8 +1489,7 @@ mod tests {
                 .text
                 .contains("note:trimtick = >`\\t first\\n\\t  second`")
         );
-        let reparsed = Parser::new(&result.text)
-            .parse_document()
+        let reparsed = aeon_core::parse_document(&result.text, &Default::default())
             .expect("canonical output should parse");
         let note = reparsed
             .iter()
@@ -3217,11 +1499,9 @@ mod tests {
             .get("note")
             .expect("note attribute");
         assert!(matches!(
-            &note.value,
-            Value::String {
-                value,
-                trimticks: true,
-            } if value == " first\n  second"
+            note.value.as_ref(),
+            Some(aeon_core::Value::StringLiteral { value, trimticks: Some(_), .. })
+                if value == " first\n  second"
         ));
         let repeated = canonicalize(&result.text);
         assert!(repeated.errors.is_empty(), "{:?}", repeated.errors);
@@ -3285,8 +1565,7 @@ mod tests {
         let compiled = aeon_core::compile(&result.text, aeon_core::CompileOptions::default());
         assert!(compiled.errors.is_empty(), "{:?}", compiled.errors);
 
-        let reparsed = Parser::new(&result.text)
-            .parse_document()
+        let reparsed = aeon_core::parse_document(&result.text, &Default::default())
             .expect("canonical output should parse");
         let description = reparsed
             .iter()
@@ -3294,8 +1573,8 @@ mod tests {
             .expect("description binding");
         assert!(matches!(
             description.value,
-            Value::String {
-                trimticks: true,
+            aeon_core::Value::StringLiteral {
+                trimticks: Some(_),
                 ..
             }
         ));
@@ -3305,8 +1584,8 @@ mod tests {
             .expect("message binding");
         assert!(matches!(
             message.value,
-            Value::String {
-                trimticks: false,
+            aeon_core::Value::StringLiteral {
+                trimticks: None,
                 ..
             }
         ));
@@ -3350,13 +1629,12 @@ mod tests {
 
     #[test]
     fn quotes_non_identifier_node_heads_canonically() {
-        let result = canonicalize(
-            "aeon:mode = \"transport\"\na = <\"a\">\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n",
-        );
+        let result =
+            canonicalize("aeon:mode = \"transport\"\n<\"a\">\n<\"\\n\">\n<\" \">\n<\"º\">\n");
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"transport\"\n}\na = <a>\nb = <\"\\n\">\nc = <\" \">\nd = <\"º\">\n"
+            "aeon:header = {\n  mode = \"transport\"\n}\n<\"\\n\">\n<\" \">\n<a>\n<\"º\">\n"
         );
     }
 
@@ -3373,7 +1651,7 @@ mod tests {
     #[test]
     fn parses_node_heads_with_attributes_before_datatype() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\ntarget=1\nscene:node = <panel(\n  <button@{ action:lookup = ~$.target }:node(\n    > `\n      Click\n      Here\n    `\n  )>\n)>\n",
+            "aeon:mode = \"custom\"\ntarget=1\n<scene(\n  <button@{ action:lookup = ~$.target }:node(\n    > `\n      Click\n      Here\n    `\n  )>\n)>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(
@@ -3398,13 +1676,13 @@ mod tests {
     #[test]
     fn canonicalizes_node_head_references_inside_attributes() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\ntarget:number = 1\nscene:node = <panel@{ \"z.k\":lookup = ~$.target, alpha:number = 1 }:node(\n  <button@{ action:lookup = ~>$.target }:node>\n)>\n",
+            "aeon:mode = \"custom\"\ntarget:number = 1\n<scene@{ \"z.k\":lookup = ~$.target, alpha:number = 1 }:node(\n  <button@{ action:lookup = ~>$.target }:node>\n)>\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert!(result.text.contains("target:number = 1"));
         assert!(result.text.contains("~target"));
         assert!(result.text.contains("~>target"));
-        assert!(result.text.contains("<panel@{"));
+        assert!(result.text.contains("<scene@{"));
         assert!(
             result
                 .text
@@ -3427,12 +1705,12 @@ mod tests {
     #[test]
     fn strips_surrounding_comments_from_multiline_node_layouts() {
         let result = canonicalize(
-            "aeon:mode = \"custom\"\n/* header note */\ntarget:number = 1\nscene:node = <panel@{ meta:object = { deep:number = 1 } }:node(\n  <button@{ action:lookup = ~>$.target }:node> // trailing child comment\n)> // trailing node comment\n",
+            "aeon:mode = \"custom\"\n/* header note */\ntarget:number = 1\n<scene@{ meta:object = { deep:number = 1 } }:node(\n  <button@{ action:lookup = ~>$.target }:node> // trailing child comment\n)> // trailing node comment\n",
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
         assert_eq!(
             result.text,
-            "aeon:header = {\n  mode = \"custom\"\n}\ntarget:number = 1\nscene:node = <panel@{meta:object = { deep:number = 1 }}:node(\n  <button@{action:lookup = ~>target}:node>\n)>\n"
+            "aeon:header = {\n  mode = \"custom\"\n}\ntarget:number = 1\n<scene@{meta:object = { deep:number = 1 }}:node(\n  <button@{action:lookup = ~>target}:node>\n)>\n"
         );
     }
 
@@ -3664,38 +1942,6 @@ mod tests {
             result,
             "telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=A\n"
         );
-    }
-}
-
-#[cfg(test)]
-mod lexical_preprocessing_tests {
-    #[test]
-    fn borrowed_fast_path_preserves_every_legacy_preprocessing_byte() {
-        for prefix in [
-            "",
-            "\u{feff}",
-            "#!aeon\n",
-            "#!aeon\r\n",
-            "#!aeon\n//! format: aeon\n",
-            "\n//! format: aeon\n",
-        ] {
-            for body in [
-                "",
-                "\n",
-                "\n\n",
-                "a=1",
-                "a=1\n",
-                "a=1\n\n",
-                "a=1\r\nb=2\r\n",
-                "a=1\rb=2",
-                "a=\"é\"\n",
-                "a=`first\nsecond`\n",
-            ] {
-                let input = format!("{prefix}{body}");
-                let old = super::strip_preamble(&aeon_core::strip_leading_bom(&input));
-                assert_eq!(super::lexical_source(&input).as_ref(), old, "{input:?}");
-            }
-        }
     }
 }
 

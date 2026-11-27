@@ -15,9 +15,10 @@ use crate::{
 };
 
 use super::{
-    ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal, decode_quoted_token,
-    decode_reference_key_token, invalid_temporal_literal, is_ascii_whitespace_only,
-    is_bare_key_kind, is_reserved_null_sentinel, is_valid_number_literal, render_quoted_string,
+    NODE_DECLARATION_MESSAGE, ParserLimits, RESERVED_ATTRIBUTE_KEYS, classify_temporal_literal,
+    decode_quoted_token, decode_reference_key_token, invalid_temporal_literal,
+    is_ascii_whitespace_only, is_bare_key_kind, is_reserved_null_sentinel, is_valid_number_literal,
+    node_attribute, node_binding, render_quoted_string,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1299,6 +1300,11 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
     fn synchronize_to_next_binding(&mut self) -> bool {
         while !self.is_at_end() {
             let token = self.peek();
+            if token.kind == TokenKind::LeftAngle
+                && matches!(self.previous().kind, TokenKind::Newline | TokenKind::Comma)
+            {
+                return true;
+            }
             let is_binding_key = is_bare_key_kind(token.kind)
                 || (token.kind == TokenKind::String && token.quote != Some('`'));
             if is_binding_key
@@ -1566,12 +1572,10 @@ impl Frame {
                         return Step::Continue(Frame::Object(ObjectFrame::new(true)));
                     }
                     TokenKind::LeftAngle => {
-                        if let Err(error) = parser.enter_value_container() {
-                            return Step::Failed(error);
-                        }
-                        let start_index = parser.current;
-                        parser.advance();
-                        return Step::Continue(Frame::Node(NodeFrame::new(start_index)));
+                        return match NodeFrame::start(parser, 1) {
+                            Ok(frame) => Step::Continue(frame),
+                            Err(error) => Step::Failed(error),
+                        };
                     }
                     TokenKind::Tilde | TokenKind::TildeArrow => {
                         return match parser.parse_reference() {
@@ -1881,6 +1885,17 @@ impl BindingFrame {
                     product.is_none(),
                     "Sofia binding frame received an early product"
                 );
+                if parser.check(TokenKind::LeftAngle) {
+                    return match NodeFrame::start(parser, 1) {
+                        Ok(child) => Step::Push {
+                            parent: Frame::Binding(Self {
+                                phase: BindingPhase::Node,
+                            }),
+                            child,
+                        },
+                        Err(error) => Step::Failed(error),
+                    };
+                }
                 let (key, is_header, start) = match parser.parse_key() {
                     Ok(key) => key,
                     Err(error) => return Step::Failed(error),
@@ -1942,6 +1957,12 @@ impl BindingFrame {
                 };
                 Self::finish(parser, *head, value, product)
             }
+            BindingPhase::Node => {
+                let Some(Product::Value(value)) = product.take() else {
+                    unreachable!("Sofia node binding expected a node value");
+                };
+                complete(product, Product::Binding(node_binding(value)))
+            }
         }
     }
 
@@ -1986,6 +2007,9 @@ impl BindingFrame {
         }
         parser.advance();
         parser.skip_newlines();
+        if parser.check(TokenKind::LeftAngle) {
+            return Step::Failed(parser.error_at_current(NODE_DECLARATION_MESSAGE));
+        }
         // The header envelope groups field values without adding a nesting level.
         if head.as_ref().is_header_envelope && parser.check(TokenKind::LeftBrace) {
             parser.advance();
@@ -2041,6 +2065,7 @@ enum BindingPhase {
     Attributes(Box<BindingHead>),
     Datatype(Box<BindingHead>),
     Value(Box<BindingHead>),
+    Node,
 }
 
 #[derive(Clone)]
@@ -2171,6 +2196,9 @@ impl AnonymousValueFrame {
         }
         parser.advance();
         parser.skip_newlines();
+        if parser.check(TokenKind::LeftAngle) {
+            return Step::Failed(parser.error_at_current(NODE_DECLARATION_MESSAGE));
+        }
         Step::Push {
             parent: Frame::AnonymousValue(Self {
                 phase: AnonymousValuePhase::Value(head.into_box()),
@@ -2351,6 +2379,18 @@ impl AttributeEntryFrame {
                     product.is_none(),
                     "Sofia attribute entry received an early product"
                 );
+                if parser.check(TokenKind::LeftAngle) {
+                    return match NodeFrame::start(parser, self.depth + 1) {
+                        Ok(child) => Step::Push {
+                            parent: Frame::AttributeEntry(Self {
+                                depth: self.depth,
+                                phase: AttributeEntryPhase::Node,
+                            }),
+                            child,
+                        },
+                        Err(error) => Step::Failed(error),
+                    };
+                }
                 let key_span = parser.peek().span;
                 let (key, _, _) = match parser.parse_key() {
                     Ok(key) => key,
@@ -2424,6 +2464,22 @@ impl AttributeEntryFrame {
                 };
                 Self::finish(parser, *head, None, Some(object), product)
             }
+            AttributeEntryPhase::Node => {
+                let Some(Product::Value(node)) = product.take() else {
+                    unreachable!("Sofia node attribute expected a node value");
+                };
+                match node_attribute(node) {
+                    Ok((key, key_span, value)) => complete(
+                        product,
+                        Product::AttributeEntry(ParsedAttributeEntry {
+                            key,
+                            key_span,
+                            value,
+                        }),
+                    ),
+                    Err(error) => Step::Failed(error),
+                }
+            }
         }
     }
 
@@ -2464,6 +2520,9 @@ impl AttributeEntryFrame {
         }
         parser.advance();
         parser.skip_newlines();
+        if parser.check(TokenKind::LeftAngle) {
+            return Step::Failed(parser.error_at_current(NODE_DECLARATION_MESSAGE));
+        }
         if parser.check(TokenKind::LeftBrace) {
             parser.advance();
             Step::Push {
@@ -2527,6 +2586,7 @@ enum AttributeEntryPhase {
     Datatype(Box<AttributeEntryHead>),
     Value(Box<AttributeEntryHead>),
     ObjectValue(Box<AttributeEntryHead>),
+    Node,
 }
 
 #[derive(Clone)]
@@ -2787,15 +2847,21 @@ struct NodeFrame {
 }
 
 impl NodeFrame {
-    fn new(start_index: usize) -> Self {
-        Self {
-            phase: NodePhase::Tag { start_index },
-        }
+    fn start(parser: &mut Parser<'_, '_>, attribute_depth: usize) -> Result<Frame, Diagnostic> {
+        parser.enter_value_container()?;
+        let start_index = parser.current;
+        parser.advance();
+        Ok(Frame::Node(Self {
+            phase: NodePhase::Tag {
+                start_index,
+                attribute_depth,
+            },
+        }))
     }
 
     const fn start_index(&self) -> usize {
         match &self.phase {
-            NodePhase::Tag { start_index } => *start_index,
+            NodePhase::Tag { start_index, .. } => *start_index,
             NodePhase::Attributes(head)
             | NodePhase::Datatype(head)
             | NodePhase::Closure(head)
@@ -2805,7 +2871,10 @@ impl NodeFrame {
 
     fn step(self, parser: &mut Parser<'_, '_>, product: &mut Option<Product>) -> Step {
         match self.phase {
-            NodePhase::Tag { start_index } => {
+            NodePhase::Tag {
+                start_index,
+                attribute_depth,
+            } => {
                 assert!(
                     product.is_none(),
                     "Sofia node frame received an early product"
@@ -2837,14 +2906,16 @@ impl NodeFrame {
                 head.structural_id = structural_id;
                 parser.skip_newlines();
                 if parser.check(TokenKind::At) {
-                    if let Err(error) = parser.open_attribute_block(1) {
+                    if let Err(error) = parser.open_attribute_block(attribute_depth) {
                         return Step::Failed(error);
                     }
                     Step::Push {
                         parent: Frame::Node(Self {
                             phase: NodePhase::Attributes(Box::new(head)),
                         }),
-                        child: Frame::AttributeMembers(AttributeMembersFrame::block(1)),
+                        child: Frame::AttributeMembers(AttributeMembersFrame::block(
+                            attribute_depth,
+                        )),
                     }
                 } else {
                     Self::push_datatype_or_closure(parser, PhaseHead::Inline(head))
@@ -2956,6 +3027,10 @@ impl NodeFrame {
                     start: head.head_start,
                     end: head.head_end,
                 },
+                span: Span {
+                    start: parser.token_at(head.start_index).span.start,
+                    end: parser.previous().span.end,
+                },
             }),
         )
     }
@@ -2963,7 +3038,10 @@ impl NodeFrame {
 
 #[derive(Clone)]
 enum NodePhase {
-    Tag { start_index: usize },
+    Tag {
+        start_index: usize,
+        attribute_depth: usize,
+    },
     Attributes(Box<NodeHead>),
     Datatype(Box<NodeHead>),
     Closure(Box<NodeHead>),
@@ -3288,7 +3366,7 @@ mod tests {
         r#"clone = ~$.["root.key"][1].member
 pointer = ~>root.@.meta.["x.y"][0]
 literal = ~true.off"#,
-        r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+        r#"<"root tag"\root\@{class:string = "top"}:node<custom>(
   "text"
   \child\:string = "typed"
   <leaf>
@@ -3790,9 +3868,8 @@ literal = ~true.off"#,
         let prefix = (0..64)
             .map(|index| format!("prefix_{index} = {index}\n"))
             .collect::<String>();
-        let input = format!(
-            "{prefix}typed:map<string,list<number>> = true\ntree = <root(1, <leaf>, \"🌊\")>"
-        );
+        let input =
+            format!("{prefix}typed:map<string,list<number>> = true\n<root(1, <leaf>, \"🌊\")>");
         let expected = parse(&input);
         let options = LexerOptions {
             include_newlines: true,
@@ -4245,38 +4322,34 @@ literal = ~true.off"#;
                 "Expected object member delimiter",
             ),
             (
-                "bad = <root(1 2)>",
+                "<root(1 2)>",
                 "SYNTAX_ERROR",
                 "Expected node child delimiter",
             ),
+            ("<root(1]>", "SYNTAX_ERROR", "Expected node child delimiter"),
             (
-                "bad = <root(1]>",
-                "SYNTAX_ERROR",
-                "Expected node child delimiter",
-            ),
-            (
-                "bad = <root(1)",
+                "<root(1)",
                 "SYNTAX_ERROR",
                 "Expected `>` after node children",
             ),
-            ("bad = <>", "SYNTAX_ERROR", "Expected node tag"),
+            ("<>", "SYNTAX_ERROR", "Expected node tag"),
             (
-                "bad = <\"\">",
+                "<\"\">",
                 "SYNTAX_ERROR",
                 "Empty quoted node tags are not valid",
             ),
             (
-                "bad = <`root`>",
+                "<`root`>",
                 "SYNTAX_ERROR",
                 "Backtick strings are not valid node tags",
             ),
             (
-                "bad = <root garbage>",
+                "<root garbage>",
                 "SYNTAX_ERROR",
                 "Expected `(` or `>` in node literal",
             ),
             (
-                "bad = <root@{first=1}@{second=2}>",
+                "<root@{first=1}@{second=2}>",
                 "SYNTAX_ERROR",
                 "Only one attribute block is allowed before a node datatype",
             ),
@@ -4367,7 +4440,7 @@ literal = ~true.off"#;
 
     #[test]
     fn iterative_node_frames_preserve_heads_children_and_raw_text() {
-        let source = r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+        let source = r#"<"root tag"\root\@{class:string = "top"}:node<custom>(
   "text"
   \child\:string = "typed"
   <leaf>
@@ -4385,6 +4458,7 @@ literal = ~true.off"#;
             datatype,
             children,
             head_span,
+            ..
         } = &bindings[0].value
         else {
             panic!("expected node value");
@@ -4413,13 +4487,13 @@ literal = ~true.off"#;
         for _ in 1..depth {
             node = format!("<branch({node})>");
         }
-        let source = format!("tree = {node}");
+        let source = node;
         assert!(matches!(
             parse_with_limits(&source, ParserLimits::new(depth, 8, 8, 8, 32, 64)),
             ParseOutcome::Parsed(_)
         ));
         let error = assert_native_failure(
-            "tree = <root(<leaf>)>",
+            "<root(<leaf>)>",
             ParserLimits::new(1, 8, 8, 8, 32, 64),
             "NESTING_DEPTH_EXCEEDED",
         );
@@ -4428,7 +4502,7 @@ literal = ~true.off"#;
             "Value nesting depth 2 exceeds max_value_nesting_depth 1"
         );
         assert!(matches!(
-            parse_with_limits("tree = <root(1, 2)>", ParserLimits::new(1, 8, 8, 8, 32, 64)),
+            parse_with_limits("<root(1, 2)>", ParserLimits::new(1, 8, 8, 8, 32, 64)),
             ParseOutcome::Parsed(_)
         ));
     }

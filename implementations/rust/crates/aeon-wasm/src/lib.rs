@@ -1246,7 +1246,7 @@ fn diagnostic_phase_label(diagnostic: &Diagnostic) -> Option<&'static str> {
             | "UNTYPED_VALUE_IN_STRICT_MODE"
             | "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED"
             | "CUSTOM_DATATYPE_NOT_ALLOWED"
-            | "INVALID_NODE_HEAD_DATATYPE" => Some("Mode Enforcement"),
+            | "INVALID_NODE_DATATYPE" => Some("Mode Enforcement"),
             "PROFILE_NOT_FOUND" | "PROFILE_PROCESSORS_SKIPPED" => Some("Profile Compilation"),
             "TYPE_GUARD_FAILED" => Some("Finalization"),
             code if code.starts_with("FINALIZE_") => Some("Finalization"),
@@ -1602,7 +1602,7 @@ mod tests {
     #[test]
     fn standalone_canonical_shared_rendering_boundaries_are_fixed_points() {
         let fixtures: JsonValue = serde_json::from_str(include_str!(
-            "../../../../../test-fixtures/canonical-rendering-boundaries.json"
+            "../../../../../test-fixtures/canonical-rendering-boundaries-tagged-nodes.json"
         ))
         .expect("fixtures");
         let options = r#"{"ordering":"reference-safe-v1","maxAttributeDepth":2}"#;

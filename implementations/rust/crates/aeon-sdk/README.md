@@ -88,17 +88,19 @@ assert!(result.is_ok());
 
 Local spaces remain host-mounted and are not invented by the document adapter.
 
-With the coordinated SANSA 0.15 provider, the same feature supplies an
+With the tagged-node SANSA provider, the same feature supplies an
 authoritative property facet for standalone `namespace.resolve_address(...)` and
 direct read-only `namespace.evaluate_query(...)`:
-`$.*&key("item")&tag("widget")` selects the original named container for
-`item = <widget("hello")>`. `runtime::resolve::ResolveOptions` provides
+`$.*&key("widget")&tag("widget")` selects the node declared by
+`<widget("hello")>`. Its first value is at `$.widget[0]`, the same address as the
+reference `~widget[0]`. In an indexed container, the node keeps its tag and is
+addressed by its index. `runtime::resolve::ResolveOptions` provides
 `max_property_inspections` (default 10,000, maximum 1,000,000).
 
 Authorization uses the immutable document graph, selected plane, materialization
 and per-occurrence scope ancestry. Contextual roots hide incoming keys; intrinsic
-root tags remain visible. Tag matching streams directly owned `NodeHead` handles
-from existing child storage without cloning the children vector. Scope ancestry
+root tags remain visible. Tag matching reads the selected node's intrinsic tag.
+Scope ancestry
 has depth-dependent cost, which the logical inspection allowance does not bound.
 No performance improvement or new allocation bound is claimed.
 

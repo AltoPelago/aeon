@@ -12,7 +12,7 @@ fn gp_uses_exact_values_across_binding_generic_and_item_contexts() {
     ))
     .expect("fixtures");
     let contexts: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../test-fixtures/gp-radix-contexts.json"
+        "../../../../../test-fixtures/gp-radix-contexts-tagged-nodes.json"
     ))
     .expect("contexts");
     for fixture in fixtures
