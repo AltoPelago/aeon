@@ -6,15 +6,17 @@ import altopelago.aeon as aeon
 
 
 class NativeAeosPropertyTests(unittest.TestCase):
-    def test_source_content_does_not_fabricate_direct_heads(self):
-        for source in ['n=<book("x", "y")>', 'n=<book("x", "y", "z")>']:
+    def test_node_payload_resolves_at_direct_positions(self):
+        for source in ['<book("x", "y")>', '<book("x", "y", "z")>']:
             schema = {'schema_id':'test.actual.targets', 'schema_version':'1', 'rules':[
-                {'selector':'$.n&key("n")[1]', 'constraints':{'required':True, 'type':'StringLiteral'}}]}
+                {'selector':'$.book&tag("book")[1]', 'constraints':{'required':True, 'type':'StringLiteral'}}]}
             result = aeon.load_telex_text(aeon.compile_to_telex(source).decode(), mode='loose', schema=json.dumps(schema))
             self.assertIsNotNone(result.validation, result.error)
-            self.assertEqual([(error['code'], error['path']) for error in result.validation_errors],
-                             [('missing_required_field','$.n&key("n")[1]')])
-            self.assertEqual(result.validation['guarantees'], {})
+            self.assertTrue(result.validation['ok'], result.validation_errors)
+            schema['rules'][0]['selector'] = '$.book&tag("book")[3]'
+            failed = aeon.load_telex_text(aeon.compile_to_telex(source).decode(), mode='loose', schema=json.dumps(schema))
+            self.assertEqual([(error['code'], error['path']) for error in failed.validation_errors],
+                             [('missing_required_field', '$.book&tag("book")[3]')])
 
     def test_qa_regressions_through_actual_telex_loader(self):
         fixtures = Path(__file__).resolve().parents[5] / 'test-fixtures/aeos-property-regressions.json'
@@ -28,6 +30,14 @@ class NativeAeosPropertyTests(unittest.TestCase):
                 schema = {'schema_id':'qa.properties', 'schema_version':'1', **case['schema']}
                 for _ in range(2):
                     loaded = aeon.load_telex_text(case['telex'], mode='loose', schema=json.dumps(schema))
+                    if any(
+                        record.get('kind') == 'NodeHead'
+                        or (record.get('kind') == 'NodeLiteral' and 'tag' not in record)
+                        for record in case['records']
+                    ):
+                        self.assertFalse(loaded.ok)
+                        self.assertIsNone(loaded.validation)
+                        continue
                     self.assertIsNotNone(loaded.validation, loaded.error)
                     self.assertEqual(loaded.validation['ok'], case['expected']['ok'], loaded.validation_errors)
                     self.assertEqual(sorted((error['code'], error['path']) for error in loaded.validation_errors),
@@ -54,11 +64,11 @@ class NativeAeosPropertyTests(unittest.TestCase):
         self.assertEqual(failed.validation['guarantees'], {})
         self.assertTrue(any(error['code'] == 'invalid_schema_policy' for error in failed.validation_errors))
 
-    def test_portable_node_and_head_validation_targets(self):
-        wire = aeon.compile_to_telex('n=<book("yes")>').decode()
+    def test_portable_node_and_child_validation_targets(self):
+        wire = aeon.compile_to_telex('<book("yes")>').decode()
         schema = {'schema_id':'test.property.nodes', 'schema_version':'1', 'rules':[
             {'selector':'$.*&tag("book")', 'constraints':{'required':True, 'type':'NodeLiteral'}},
-            {'selector':'$.n[0]&headTag("book")', 'constraints':{'required':True, 'type':'NodeHead'}},
+            {'selector':'$.book[0]', 'constraints':{'required':True, 'type':'StringLiteral'}},
         ]}
         loaded = aeon.load_telex_text(wire, mode='loose', schema=json.dumps(schema))
         self.assertIsNotNone(loaded.validation)
@@ -66,4 +76,4 @@ class NativeAeosPropertyTests(unittest.TestCase):
         schema['rules'][1]['constraints']['type'] = 'NumberLiteral'
         failed = aeon.load_telex_text(wire, mode='loose', schema=json.dumps(schema))
         self.assertFalse(failed.validation['ok'])
-        self.assertEqual([(error['code'], error['path']) for error in failed.validation_errors], [('type_mismatch','$.n[0]')])
+        self.assertEqual([(error['code'], error['path']) for error in failed.validation_errors], [('type_mismatch','$.book[0]')])

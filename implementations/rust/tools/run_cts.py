@@ -16,17 +16,17 @@ from repo_paths import repo_path_env
 class LaneCommand:
     name: str
     command: list[str]
-    default: bool = True
+    default: bool = False
 
 
 def main() -> int:
     rust_root = repo_root / "implementations" / "rust"
-    sut = rust_root / "target" / "debug" / "aeon-rust"
     env = repo_path_env()
+    sut = rust_root / env.get("CARGO_TARGET_DIR", "target") / "debug" / "aeon-rust"
     cts_root = get_aeonite_cts_root()
 
     build = subprocess.run(
-        ["cargo", "build", "-p", "aeon-cli"],
+        ["cargo", "build", "--locked", "-p", "aeon-cli"],
         cwd=rust_root,
         env=env,
     )
@@ -37,6 +37,31 @@ def main() -> int:
         return str(cts_root.joinpath(*parts))
 
     lanes = [
+        *[
+            LaneCommand(
+                name=f"node-model-{area}",
+                default=True,
+                command=[
+                    "node",
+                    str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                    "--sut",
+                    str(sut),
+                    "--cts",
+                    cts_manifest(area, "v1", f"{area}-node-model-revision-cts.v1.next.json"),
+                    "--lane",
+                    lane,
+                ],
+            )
+            for area, lane in (("core", "core"), ("aes", "inspect-json"), ("canonical", "canonical"))
+        ],
+        LaneCommand(
+            name="node-model-sansa",
+            default=True,
+            command=[
+                "cargo", "test", "--locked", "--manifest-path", str(rust_root / "Cargo.toml"),
+                "-p", "altopelago-aeon", "--features", "sansa", "--test", "tagged_node_cts", "--", "--ignored",
+            ],
+        ),
         LaneCommand(
             name="core",
             command=[
@@ -294,7 +319,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core core-released core-legacy core-next aes aes-released aes-legacy aes-next canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa annotations aeos aeos-next", file=sys.stderr)
+            print(f"Valid lanes: {' '.join(lane.name for lane in lanes)}", file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
     else:

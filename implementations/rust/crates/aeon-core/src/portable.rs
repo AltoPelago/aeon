@@ -10,10 +10,10 @@ use aes_telex::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::pathing::{format_path, render_member_segment};
+use crate::pathing::{format_path, format_reference_target};
 use crate::{
-    AssignmentEvent, AttributeValue, Binding, CanonicalPath, PathSegment, ReferenceSegment, Span,
-    Value, normalize_number_literal,
+    AssignmentEvent, AttributeValue, Binding, CanonicalPath, PathSegment, Span, Value,
+    normalize_number_literal,
 };
 
 /// Encoding-neutral AES event shape used by the portable projection work.
@@ -21,6 +21,7 @@ use crate::{
 pub struct PortableAesEvent {
     pub path: String,
     pub kind: &'static str,
+    pub tag: Option<String>,
     pub identity: Option<String>,
     pub datatype: Option<String>,
     pub generics: Vec<GenericArgument>,
@@ -32,6 +33,7 @@ pub struct PortableAesEvent {
 struct ProjectedAesEvent {
     path: AesCanonicalPath,
     kind: &'static str,
+    tag: Option<String>,
     identity: Option<String>,
     datatype: Option<String>,
     generics: Vec<GenericArgument>,
@@ -45,6 +47,7 @@ impl ProjectedAesEvent {
         PortableAesEvent {
             path: self.path.as_str().to_owned(),
             kind: self.kind,
+            tag: self.tag,
             identity: self.identity,
             datatype: self.datatype,
             generics: self.generics,
@@ -78,6 +81,7 @@ pub struct PortableAesCompatibilityEvent {
     pub path: Option<String>,
     pub header: Option<String>,
     pub kind: &'static str,
+    pub tag: Option<String>,
     pub identity: Option<String>,
     pub datatype: Option<String>,
     pub generics: Vec<GenericArgument>,
@@ -179,7 +183,6 @@ pub fn adapt_rust_assignment_events_to_portable_aes(
     );
     let mut changes = compatibility_changes(
         events,
-        &body,
         &projected,
         options.include_headers,
         source_context.is_some(),
@@ -521,22 +524,20 @@ pub fn project_aes_event_records_taken(events: &mut [AssignmentEvent]) -> Vec<Ae
         return project_aes_event_records(events);
     }
 
-    let node_source_paths = collect_node_source_paths(events);
     let mut records = Vec::with_capacity(events.len());
     for event in events {
-        let translated_path = aes_canonical_path(&event.path, &node_source_paths);
+        let translated_path = aes_canonical_path(&event.path);
         if matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }) {
             emit_projected_assignment(
                 event,
                 translated_path,
                 &mut AesEventRecordSink(&mut records),
-                &node_source_paths,
             );
             continue;
         }
 
         let address = AesEventAddress::Path(translated_path);
-        let (kind, value) = project_taken_value(&mut event.value, &node_source_paths);
+        let (kind, value) = project_taken_value(&mut event.value);
         let datatype = event.datatype.take().map(|raw| {
             parse_datatype_descriptor(&raw, &TelexLimits::default()).unwrap_or(DatatypeDescriptor {
                 datatype: raw,
@@ -547,6 +548,7 @@ pub fn project_aes_event_records_taken(events: &mut [AssignmentEvent]) -> Vec<Ae
         records.push(AesEventRecord {
             address,
             kind,
+            tag: None,
             datatype,
             identity: event.structural_id.take(),
             value,
@@ -582,6 +584,9 @@ fn portable_body_event_to_telex(event: PortableAesEvent) -> TelexRecord {
         ("path".to_owned(), event.path),
         ("kind".to_owned(), event.kind.to_owned()),
     ];
+    if let Some(tag) = event.tag {
+        fields.push(("tag".to_owned(), tag));
+    }
     let datatype = event.datatype.map(|datatype| DatatypeDescriptor {
         datatype,
         generics: event.generics,
@@ -604,7 +609,6 @@ fn portable_body_event_to_telex(event: PortableAesEvent) -> TelexRecord {
 
 fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> {
     let mut projected = Vec::new();
-    let node_source_paths = NodeSourcePaths::default();
     let mut emitted = HashSet::new();
     for key in header.order.iter().chain(header.fields.keys()) {
         if !emitted.insert(key.as_str()) {
@@ -626,7 +630,6 @@ fn project_header_fields(header: &crate::HeaderFields) -> Vec<PortableAesEvent> 
                 span: header.spans.get(key).copied(),
             },
             &mut projected,
-            &node_source_paths,
         );
     }
     split_projected_datatypes(&mut projected);
@@ -676,6 +679,9 @@ fn compatibility_event_to_telex(
         (address_field.to_owned(), address.clone()),
         ("kind".to_owned(), event.kind.to_owned()),
     ];
+    if let Some(tag) = &event.tag {
+        fields.push(("tag".to_owned(), tag.clone()));
+    }
     let datatype = event.datatype.as_ref().map(|datatype| DatatypeDescriptor {
         datatype: datatype.clone(),
         generics: event.generics.clone(),
@@ -704,10 +710,9 @@ fn compatibility_event_to_telex(
 
 /// Project legacy Rust assignment events into the portable flat AES shape.
 ///
-/// Node values become a value-less `NodeLiteral` event followed by a synthetic
-/// `NodeHead` event. Each crossed node boundary inserts the head index into
-/// descendant and reference paths. Attributes are emitted as ordinary events
-/// in source preorder beneath their owner's `.@` address space.
+/// Nodes carry their tag on `NodeLiteral`. Children and reference targets keep
+/// their source paths. Attributes are emitted in source order under the owner's
+/// `.@` address space.
 #[must_use]
 pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEvent> {
     let mut projected = Vec::with_capacity(events.len());
@@ -716,54 +721,6 @@ pub fn project_portable_events(events: &[AssignmentEvent]) -> Vec<PortableAesEve
     projected
 }
 
-#[derive(Default)]
-enum StructuralNodeSourcePaths {
-    #[default]
-    None,
-    One(Vec<PathSegment>),
-    Many(HashSet<Vec<PathSegment>>),
-}
-
-impl FromIterator<Vec<PathSegment>> for StructuralNodeSourcePaths {
-    fn from_iter<T: IntoIterator<Item = Vec<PathSegment>>>(iter: T) -> Self {
-        let mut paths = iter.into_iter();
-        let Some(first) = paths.next() else {
-            return Self::None;
-        };
-        let Some(second) = paths.next() else {
-            return Self::One(first);
-        };
-        let mut many = HashSet::from([first, second]);
-        many.extend(paths);
-        Self::Many(many)
-    }
-}
-
-impl StructuralNodeSourcePaths {
-    fn contains(&self, path: &[PathSegment]) -> bool {
-        match self {
-            Self::None => false,
-            Self::One(single) => single == path,
-            Self::Many(many) => many.contains(path),
-        }
-    }
-}
-
-#[derive(Default)]
-struct NodeSourcePaths {
-    structural: StructuralNodeSourcePaths,
-    references: HashSet<String>,
-}
-
-impl NodeSourcePaths {
-    fn contains(&self, path: &[PathSegment]) -> bool {
-        self.structural.contains(path)
-    }
-
-    fn contains_reference(&self, path: &str) -> bool {
-        self.references.contains(path)
-    }
-}
 const MIN_REUSABLE_AES_PATH_DEPTH: usize = 8;
 const MAX_REUSABLE_AES_PATH_EVENTS: usize = 1_024;
 const MIN_TAKEN_AES_EVENT_RECORDS: usize = 1_024;
@@ -815,6 +772,7 @@ impl PortableEventSink for AesEventRecordSink<'_> {
         self.0.push(AesEventRecord {
             address: AesEventAddress::Path(event.path),
             kind: aes_value_kind(event.kind),
+            tag: event.tag,
             datatype,
             identity: event.identity,
             value: event.value,
@@ -847,7 +805,6 @@ fn aes_value_kind(kind: &str) -> AesValueKind {
         "ListNode" => AesValueKind::ListNode,
         "TupleLiteral" => AesValueKind::TupleLiteral,
         "NodeLiteral" => AesValueKind::NodeLiteral,
-        "NodeHead" => AesValueKind::NodeHead,
         "CloneReference" => AesValueKind::CloneReference,
         "PointerReference" => AesValueKind::PointerReference,
         _ => unreachable!("Sofia projected an unknown AES value kind"),
@@ -858,7 +815,6 @@ fn project_portable_events_into<S>(events: &[AssignmentEvent], emit: &mut S)
 where
     S: PortableEventSink + ?Sized,
 {
-    let node_source_paths = collect_node_source_paths(events);
     emit.reserve(events.len());
     if events.len() > MAX_REUSABLE_AES_PATH_EVENTS
         || !events
@@ -866,8 +822,8 @@ where
             .any(|event| event.path.segments.len() >= MIN_REUSABLE_AES_PATH_DEPTH)
     {
         for event in events {
-            let translated_path = aes_canonical_path(&event.path, &node_source_paths);
-            emit_projected_assignment(event, translated_path, emit, &node_source_paths);
+            let translated_path = aes_canonical_path(&event.path);
+            emit_projected_assignment(event, translated_path, emit);
         }
         return;
     }
@@ -889,12 +845,10 @@ where
                         .segments
                         .last()
                         .expect("a direct child path has a final segment"),
-                    &event.path.segments[..source_path.len()],
-                    &node_source_paths,
                 );
                 path
             }
-            _ => aes_canonical_path(&event.path, &node_source_paths),
+            _ => aes_canonical_path(&event.path),
         };
         let next_is_direct_child = event.path.segments.len() >= MIN_REUSABLE_AES_PATH_DEPTH
             && events
@@ -910,71 +864,38 @@ where
             reusable_source_path = None;
             reusable_aes_path = None;
         }
-        emit_projected_assignment(event, translated_path, emit, &node_source_paths);
+        emit_projected_assignment(event, translated_path, emit);
     }
 }
 
 #[inline]
-fn emit_projected_assignment<S>(
-    event: &AssignmentEvent,
-    translated_path: AesCanonicalPath,
-    emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
-) where
+fn emit_projected_assignment<S>(event: &AssignmentEvent, path: AesCanonicalPath, emit: &mut S)
+where
     S: PortableEventSink + ?Sized,
 {
     let value = unwrap_typed_value(&event.value);
+    // Anonymous scalar events inherit their owner's span. Nodes retain their own span.
+    let span =
+        (!matches!(event.path.segments.last(), Some(PathSegment::Index(_)))).then_some(event.span);
+    let metadata = ValueTreeMetadata {
+        identity: event.structural_id.as_ref(),
+        datatype: event.datatype.as_ref(),
+        attributes: None,
+        span,
+    };
     if event.annotations.is_empty() && !matches!(value, Value::NodeLiteral { .. }) {
-        emit.push(project_event(
-            event,
-            translated_path,
-            value,
-            node_source_paths,
-        ));
+        emit.push(project_value_event(path, Some(value), &metadata));
         return;
     }
-    emit.push(project_event(
-        event,
-        translated_path.clone(),
-        value,
-        node_source_paths,
-    ));
-    project_attributes(
-        &event.annotations,
-        &event.annotation_order,
-        &translated_path,
-        emit,
-        node_source_paths,
-    );
-
+    emit.push(project_value_event(path.clone(), Some(value), &metadata));
+    project_attributes(&event.annotations, &event.annotation_order, &path, emit);
     if let Value::NodeLiteral {
-        tag,
-        structural_id,
         attributes,
         attribute_order,
-        datatype,
-        head_span,
         ..
     } = value
     {
-        let head_path = append_index(&translated_path, 0);
-        emit.push(ProjectedAesEvent {
-            path: head_path.clone(),
-            kind: "NodeHead",
-            identity: structural_id.clone(),
-            datatype: datatype.clone(),
-            generics: Vec::new(),
-            clarifiers: Vec::new(),
-            value: Some(tag.clone()),
-            span: Some(*head_span),
-        });
-        project_node_attributes(
-            attributes,
-            attribute_order,
-            &head_path,
-            emit,
-            node_source_paths,
-        );
+        project_node_attributes(attributes, attribute_order, &path, emit);
     }
 }
 
@@ -995,27 +916,37 @@ fn split_projected_datatype(event: &mut PortableAesEvent) {
     }
 }
 
-fn project_event(
-    event: &AssignmentEvent,
+fn project_value_event(
     path: AesCanonicalPath,
-    value: &Value,
-    node_source_paths: &NodeSourcePaths,
+    value: Option<&Value>,
+    metadata: &ValueTreeMetadata<'_>,
 ) -> ProjectedAesEvent {
-    let (kind, projected_value) = project_value(value, node_source_paths);
-    // Rust v0 assignment events inherit their owner's span for anonymous
-    // sequence occurrences. That range is not occurrence-exact provenance.
-    let span =
-        (!matches!(event.path.segments.last(), Some(PathSegment::Index(_)))).then_some(event.span);
-    ProjectedAesEvent {
+    let (kind, payload) = value.map_or(("ObjectNode", None), project_value);
+    let mut event = ProjectedAesEvent {
         path,
         kind,
-        identity: event.structural_id.clone(),
-        datatype: event.datatype.clone(),
+        tag: None,
+        identity: metadata.identity.cloned(),
+        datatype: metadata.datatype.cloned(),
         generics: Vec::new(),
         clarifiers: Vec::new(),
-        value: projected_value,
+        value: payload,
+        span: metadata.span,
+    };
+    if let Some(Value::NodeLiteral {
+        tag,
+        structural_id,
+        datatype,
         span,
+        ..
+    }) = value
+    {
+        event.tag = Some(tag.clone());
+        event.identity = structural_id.clone();
+        event.datatype = datatype.clone();
+        event.span = Some(*span);
     }
+    event
 }
 
 fn project_attributes<S>(
@@ -1023,7 +954,6 @@ fn project_attributes<S>(
     order: &[String],
     owner_path: &AesCanonicalPath,
     emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -1033,7 +963,7 @@ fn project_attributes<S>(
             continue;
         };
         let path = append_attribute(owner_path, key);
-        project_attribute_value(path, entry, emit, node_source_paths);
+        project_attribute_value(path, entry, emit);
     }
 }
 
@@ -1042,7 +972,6 @@ fn project_node_attributes<S>(
     order: &[String],
     owner_path: &AesCanonicalPath,
     emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
@@ -1052,56 +981,35 @@ fn project_node_attributes<S>(
             if index == 0 { order } else { &[] },
             owner_path,
             emit,
-            node_source_paths,
         );
     }
 }
 
-fn project_attribute_value<S>(
-    path: AesCanonicalPath,
-    entry: &AttributeValue,
-    emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
-) where
+fn project_attribute_value<S>(path: AesCanonicalPath, entry: &AttributeValue, emit: &mut S)
+where
     S: PortableEventSink + ?Sized,
 {
-    let (kind, value) = entry
-        .value
-        .as_ref()
-        .map_or(("ObjectNode", None), |raw_value| {
-            project_value(unwrap_typed_value(raw_value), node_source_paths)
-        });
-    emit.push(ProjectedAesEvent {
-        path: path.clone(),
-        kind,
-        identity: entry.structural_id.clone(),
-        datatype: entry.datatype.clone(),
-        generics: Vec::new(),
-        clarifiers: Vec::new(),
+    let value = entry.value.as_ref().map(unwrap_typed_value);
+    emit.push(project_value_event(
+        path.clone(),
         value,
-        span: entry.span,
-    });
-    project_attributes(
-        &entry.nested_attrs,
-        &entry.nested_attr_order,
-        &path,
-        emit,
-        node_source_paths,
-    );
+        &ValueTreeMetadata {
+            identity: entry.structural_id.as_ref(),
+            datatype: entry.datatype.as_ref(),
+            attributes: None,
+            span: entry.span,
+        },
+    ));
+    project_attributes(&entry.nested_attrs, &entry.nested_attr_order, &path, emit);
 
     if let Some(raw_value) = &entry.value {
-        project_value_children(
-            &path,
-            unwrap_typed_value(raw_value),
-            emit,
-            node_source_paths,
-        );
+        project_value_children(&path, unwrap_typed_value(raw_value), emit);
     } else {
         for key in ordered_keys(&entry.object_members, &entry.object_member_order) {
             let Some(member) = entry.object_members.get(key) else {
                 continue;
             };
-            project_attribute_value(append_member(&path, key), member, emit, node_source_paths);
+            project_attribute_value(append_member(&path, key), member, emit);
         }
     }
 }
@@ -1118,102 +1026,52 @@ fn project_value_tree<S>(
     raw_value: &Value,
     metadata: ValueTreeMetadata<'_>,
     emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
 ) where
     S: PortableEventSink + ?Sized,
 {
     let value = unwrap_typed_value(raw_value);
-    let (kind, projected_value) = project_value(value, node_source_paths);
-    emit.push(ProjectedAesEvent {
-        path: path.clone(),
-        kind,
-        identity: metadata.identity.cloned(),
-        datatype: metadata.datatype.cloned(),
-        generics: Vec::new(),
-        clarifiers: Vec::new(),
-        value: projected_value,
-        span: metadata.span,
-    });
+    emit.push(project_value_event(path.clone(), Some(value), &metadata));
     if let Some((mapped, order)) = metadata.attributes {
-        project_attributes(mapped, order, &path, emit, node_source_paths);
+        project_attributes(mapped, order, &path, emit);
     }
-    project_value_children(&path, value, emit, node_source_paths);
+    project_value_children(&path, value, emit);
 }
 
-fn project_value_children<S>(
-    path: &AesCanonicalPath,
-    value: &Value,
-    emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
-) where
+fn project_value_children<S>(path: &AesCanonicalPath, value: &Value, emit: &mut S)
+where
     S: PortableEventSink + ?Sized,
 {
     match value {
         Value::ObjectNode { bindings } => {
             emit.reserve(bindings.len());
             for binding in bindings {
-                project_binding_tree(
-                    append_member(path, &binding.key),
-                    binding,
-                    emit,
-                    node_source_paths,
-                );
+                project_binding_tree(append_member(path, &binding.key), binding, emit);
             }
         }
         Value::ListNode { items } | Value::TupleLiteral { items } => {
             emit.reserve(items.len());
             for (index, item) in items.iter().enumerate() {
-                project_anonymous_tree(append_index(path, index), item, emit, node_source_paths);
+                project_anonymous_tree(append_index(path, index), item, emit);
             }
         }
         Value::NodeLiteral {
-            tag,
-            structural_id,
             attributes,
             attribute_order,
-            datatype,
             children,
-            head_span,
             ..
         } => {
-            emit.reserve(children.len().saturating_add(1));
-            let head_path = append_index(path, 0);
-            emit.push(ProjectedAesEvent {
-                path: head_path.clone(),
-                kind: "NodeHead",
-                identity: structural_id.clone(),
-                datatype: datatype.clone(),
-                generics: Vec::new(),
-                clarifiers: Vec::new(),
-                value: Some(tag.clone()),
-                span: Some(*head_span),
-            });
-            project_node_attributes(
-                attributes,
-                attribute_order,
-                &head_path,
-                emit,
-                node_source_paths,
-            );
+            project_node_attributes(attributes, attribute_order, path, emit);
+            emit.reserve(children.len());
             for (index, child) in children.iter().enumerate() {
-                project_anonymous_tree(
-                    append_index(&head_path, index),
-                    child,
-                    emit,
-                    node_source_paths,
-                );
+                project_anonymous_tree(append_index(path, index), child, emit);
             }
         }
         _ => {}
     }
 }
 
-fn project_binding_tree<S>(
-    path: AesCanonicalPath,
-    binding: &Binding,
-    emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
-) where
+fn project_binding_tree<S>(path: AesCanonicalPath, binding: &Binding, emit: &mut S)
+where
     S: PortableEventSink + ?Sized,
 {
     project_value_tree(
@@ -1226,16 +1084,11 @@ fn project_binding_tree<S>(
             span: Some(binding.span),
         },
         emit,
-        node_source_paths,
     );
 }
 
-fn project_anonymous_tree<S>(
-    path: AesCanonicalPath,
-    raw_value: &Value,
-    emit: &mut S,
-    node_source_paths: &NodeSourcePaths,
-) where
+fn project_anonymous_tree<S>(path: AesCanonicalPath, raw_value: &Value, emit: &mut S)
+where
     S: PortableEventSink + ?Sized,
 {
     if let Value::TypedValue {
@@ -1256,7 +1109,6 @@ fn project_anonymous_tree<S>(
                 span: None,
             },
             emit,
-            node_source_paths,
         );
     } else {
         project_value_tree(
@@ -1269,17 +1121,13 @@ fn project_anonymous_tree<S>(
                 span: None,
             },
             emit,
-            node_source_paths,
         );
     }
 }
 
-fn project_value(
-    value: &Value,
-    node_source_paths: &NodeSourcePaths,
-) -> (&'static str, Option<String>) {
+fn project_value(value: &Value) -> (&'static str, Option<String>) {
     match value {
-        Value::TypedValue { value, .. } => project_value(value, node_source_paths),
+        Value::TypedValue { value, .. } => project_value(value),
         Value::StringLiteral { value, .. } => ("StringLiteral", Some(value.clone())),
         Value::NumberLiteral { raw } => ("NumberLiteral", Some(normalize_number_literal(raw))),
         Value::InfinityLiteral { raw, .. } => ("InfinityLiteral", Some(raw.clone())),
@@ -1326,23 +1174,18 @@ fn project_value(
         Value::ListNode { .. } => ("ListNode", None),
         Value::TupleLiteral { .. } => ("TupleLiteral", None),
         Value::NodeLiteral { .. } => ("NodeLiteral", None),
-        Value::CloneReference { segments, .. } => (
-            "CloneReference",
-            Some(translate_reference_target(segments, node_source_paths)),
-        ),
-        Value::PointerReference { segments, .. } => (
-            "PointerReference",
-            Some(translate_reference_target(segments, node_source_paths)),
-        ),
+        Value::CloneReference { segments, .. } => {
+            ("CloneReference", Some(format_reference_target(segments)))
+        }
+        Value::PointerReference { segments, .. } => {
+            ("PointerReference", Some(format_reference_target(segments)))
+        }
     }
 }
 
-fn project_taken_value(
-    value: &mut Value,
-    node_source_paths: &NodeSourcePaths,
-) -> (AesValueKind, Option<String>) {
+fn project_taken_value(value: &mut Value) -> (AesValueKind, Option<String>) {
     match value {
-        Value::TypedValue { value, .. } => project_taken_value(value, node_source_paths),
+        Value::TypedValue { value, .. } => project_taken_value(value),
         Value::StringLiteral { value, .. } => {
             (AesValueKind::StringLiteral, Some(std::mem::take(value)))
         }
@@ -1426,14 +1269,14 @@ fn project_taken_value(
             let segments = std::mem::take(segments);
             (
                 AesValueKind::CloneReference,
-                Some(translate_reference_target(&segments, node_source_paths)),
+                Some(format_reference_target(&segments)),
             )
         }
         Value::PointerReference { segments, .. } => {
             let segments = std::mem::take(segments);
             (
                 AesValueKind::PointerReference,
-                Some(translate_reference_target(&segments, node_source_paths)),
+                Some(format_reference_target(&segments)),
             )
         }
     }
@@ -1457,18 +1300,10 @@ fn ordered_keys<'a>(
     keys
 }
 
-fn aes_canonical_path(
-    path: &CanonicalPath,
-    node_source_paths: &NodeSourcePaths,
-) -> AesCanonicalPath {
+fn aes_canonical_path(path: &CanonicalPath) -> AesCanonicalPath {
     let mut rendered = AesCanonicalPath::root_with_capacity(estimated_aes_path_capacity(path));
-    for (index, segment) in path.segments.iter().enumerate() {
-        push_aes_path_segment(
-            &mut rendered,
-            segment,
-            &path.segments[..index],
-            node_source_paths,
-        );
+    for segment in &path.segments {
+        push_aes_path_segment(&mut rendered, segment);
     }
     rendered
 }
@@ -1478,33 +1313,20 @@ fn estimated_aes_path_capacity(path: &CanonicalPath) -> usize {
         let additional = match segment {
             PathSegment::Root => 0,
             PathSegment::Member(member) => member.len().saturating_add(1),
-            // Leave room for the index punctuation, its decimal digits, and
-            // the optional synthetic node-head `[0]` segment.
             PathSegment::Index(index) => {
                 let digits = if *index == 0 {
                     1
                 } else {
                     index.ilog10() as usize + 1
                 };
-                digits.saturating_add(5)
+                digits.saturating_add(2)
             }
         };
         capacity.saturating_add(additional)
     })
 }
 
-fn push_aes_path_segment(
-    rendered: &mut AesCanonicalPath,
-    segment: &PathSegment,
-    parent_segments: &[PathSegment],
-    node_source_paths: &NodeSourcePaths,
-) {
-    if matches!(segment, PathSegment::Index(_))
-        && !parent_segments.is_empty()
-        && node_source_paths.contains(parent_segments)
-    {
-        rendered.push_index(0);
-    }
+fn push_aes_path_segment(rendered: &mut AesCanonicalPath, segment: &PathSegment) {
     match segment {
         PathSegment::Root => {}
         PathSegment::Member(member) => rendered
@@ -1538,138 +1360,6 @@ fn unwrap_typed_value(value: &Value) -> &Value {
     match value {
         Value::TypedValue { value, .. } => unwrap_typed_value(value),
         _ => value,
-    }
-}
-
-fn translate_node_path(path: &CanonicalPath, node_source_paths: &NodeSourcePaths) -> CanonicalPath {
-    let mut target_segments = Vec::with_capacity(path.segments.len().saturating_add(1));
-
-    for (index, segment) in path.segments.iter().enumerate() {
-        if matches!(segment, PathSegment::Index(_))
-            && index > 0
-            && node_source_paths.contains(&path.segments[..index])
-        {
-            target_segments.push(PathSegment::Index(0));
-        }
-        target_segments.push(segment.clone());
-    }
-
-    CanonicalPath {
-        segments: target_segments,
-    }
-}
-
-fn translate_reference_target(
-    segments: &[ReferenceSegment],
-    node_source_paths: &NodeSourcePaths,
-) -> String {
-    let mut source_path = String::from("$");
-    let mut output = String::from("$");
-
-    for segment in segments {
-        match segment {
-            ReferenceSegment::Key(key) => {
-                let member = render_member_segment(key);
-                output.push_str(&member);
-                source_path.push_str(&member);
-            }
-            ReferenceSegment::Index(index) => {
-                if node_source_paths.contains_reference(&source_path) {
-                    output.push_str("[0]");
-                }
-                let position = format!("[{index}]");
-                output.push_str(&position);
-                source_path.push_str(&position);
-            }
-            ReferenceSegment::Attr(key) => {
-                output.push_str(".@");
-                source_path.push_str(".@");
-                let member = render_member_segment(key);
-                output.push_str(&member);
-                source_path.push_str(&member);
-            }
-        }
-    }
-
-    output
-}
-
-fn collect_node_source_paths(events: &[AssignmentEvent]) -> NodeSourcePaths {
-    let structural = events
-        .iter()
-        .filter(|event| matches!(unwrap_typed_value(&event.value), Value::NodeLiteral { .. }))
-        .map(|event| event.path.segments.clone())
-        .collect::<StructuralNodeSourcePaths>();
-    let mut references = HashSet::new();
-
-    for event in events {
-        let path = AesCanonicalPath::parse(format_path(&event.path))
-            .expect("validated assignment paths are canonical AES paths");
-        collect_value_node_source_paths(&event.value, &path, &mut references);
-        collect_attribute_node_source_paths(&event.annotations, &path, &mut references);
-    }
-
-    NodeSourcePaths {
-        structural,
-        references,
-    }
-}
-
-fn collect_value_node_source_paths(
-    raw_value: &Value,
-    path: &AesCanonicalPath,
-    paths: &mut HashSet<String>,
-) {
-    match raw_value {
-        Value::TypedValue {
-            attributes, value, ..
-        } => {
-            collect_attribute_node_source_paths(attributes, path, paths);
-            collect_value_node_source_paths(value, path, paths);
-        }
-        Value::ObjectNode { bindings } => {
-            for binding in bindings {
-                let child_path = append_member(path, &binding.key);
-                collect_attribute_node_source_paths(&binding.attributes, &child_path, paths);
-                collect_value_node_source_paths(&binding.value, &child_path, paths);
-            }
-        }
-        Value::ListNode { items } | Value::TupleLiteral { items } => {
-            for (index, item) in items.iter().enumerate() {
-                collect_value_node_source_paths(item, &append_index(path, index), paths);
-            }
-        }
-        Value::NodeLiteral { children, .. } => {
-            paths.insert(path.as_str().to_owned());
-            for (index, child) in children.iter().enumerate() {
-                collect_value_node_source_paths(child, &append_index(path, index), paths);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_attribute_node_source_paths(
-    attributes: &BTreeMap<String, AttributeValue>,
-    owner_path: &AesCanonicalPath,
-    paths: &mut HashSet<String>,
-) {
-    for (key, entry) in attributes {
-        collect_attribute_value_node_source_paths(entry, &append_attribute(owner_path, key), paths);
-    }
-}
-
-fn collect_attribute_value_node_source_paths(
-    entry: &AttributeValue,
-    path: &AesCanonicalPath,
-    paths: &mut HashSet<String>,
-) {
-    if let Some(value) = &entry.value {
-        collect_value_node_source_paths(value, path, paths);
-    }
-    collect_attribute_node_source_paths(&entry.nested_attrs, path, paths);
-    for (member, value) in &entry.object_members {
-        collect_attribute_value_node_source_paths(value, &append_member(path, member), paths);
     }
 }
 
@@ -1719,6 +1409,7 @@ fn compatibility_event(
         path: (!header).then(|| event.path.clone()),
         header: header.then_some(event.path),
         kind: event.kind,
+        tag: event.tag,
         identity: event.identity,
         datatype: event.datatype,
         generics: event.generics,
@@ -1781,32 +1472,16 @@ fn compatibility_change(
 
 fn compatibility_changes(
     source_events: &[AssignmentEvent],
-    body_events: &[AssignmentEvent],
     projected: &[PortableAesCompatibilityEvent],
     include_headers: bool,
     source_backed: bool,
     header: Option<&crate::HeaderFields>,
 ) -> Vec<PortableAesConversionChange> {
     let mut changes = Vec::new();
-    let node_source_paths = collect_node_source_paths(body_events);
-    let path_map = body_events
-        .iter()
-        .map(|event| {
-            (
-                format_path(&event.path),
-                format_path(&translate_node_path(&event.path, &node_source_paths)),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
     for event in source_events {
         let source_path = format_path(&event.path);
         let header_event = is_legacy_header_event(event, header);
-        let target_path = if header_event && include_headers {
-            Some(source_path.clone())
-        } else {
-            path_map.get(&source_path).cloned()
-        };
+        let target_path = (!header_event || include_headers).then(|| source_path.clone());
         if !source_backed {
             changes.push(compatibility_change(
                 "omitted",
@@ -1845,35 +1520,6 @@ fn compatibility_changes(
                 Some(source_path.clone()),
                 Some(source_path.clone()),
             ));
-        } else if target_path.as_deref() != Some(source_path.as_str()) {
-            changes.push(compatibility_change(
-                "transformed",
-                "AES_COMPAT_PATH_TRANSLATED",
-                "path",
-                "The source occurrence path is translated through the explicit portable node-head level.",
-                Some(source_path.clone()),
-                target_path.clone(),
-            ));
-        }
-        match unwrap_typed_value(&event.value) {
-            Value::CloneReference { segments, .. } | Value::PointerReference { segments, .. } => {
-                let source_target =
-                    translate_reference_target(segments, &NodeSourcePaths::default());
-                let portable_target = translate_reference_target(segments, &node_source_paths);
-                if source_target != portable_target {
-                    changes.push(compatibility_change(
-                        "transformed",
-                        "AES_COMPAT_REFERENCE_TRANSLATED",
-                        "value.segments",
-                        format!(
-                            "The reference target is translated from {source_target} to {portable_target}."
-                        ),
-                        Some(source_path),
-                        target_path,
-                    ));
-                }
-            }
-            _ => {}
         }
     }
 
@@ -1907,16 +1553,6 @@ fn compatibility_changes(
                 "AES_COMPAT_HEADER_PROJECTED",
                 "header",
                 "The recognized AEON header field is emitted in the header address plane.",
-                None,
-                target_path.clone(),
-            ));
-        }
-        if event.kind == "NodeHead" {
-            changes.push(compatibility_change(
-                "synthesized",
-                "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
-                "NodeHead",
-                "The implicit implementation node tag is emitted as an explicit portable NodeHead event.",
                 None,
                 target_path.clone(),
             ));
@@ -1972,18 +1608,18 @@ mod tests {
             let quoted = serde_json::to_string(&key).expect("JSON key");
             let path = format!("$.[{quoted}]");
             let events = project(&format!(
-                "{quoted}@{{{quoted}=1}}=<outer(<inner(\"leaf\")>)>\ncopy=~[{quoted}][0][0]\npointer=~>[{quoted}].@.[{quoted}]"
+                "<{quoted}@{{{quoted}=1}}(<inner(\"leaf\")>)>\ncopy=~[{quoted}][0][0]\npointer=~>[{quoted}].@.[{quoted}]"
             ));
             assert_eq!(events[0].path, path);
             assert_eq!(events[1].path, format!("{path}.@.[{quoted}]"));
             assert!(
                 events
                     .iter()
-                    .any(|event| event.path == format!("{path}[0][0][0][0]"))
+                    .any(|event| event.path == format!("{path}[0][0]"))
             );
             assert_eq!(
                 events[events.len() - 2].value,
-                Some(format!("{path}[0][0][0][0]"))
+                Some(format!("{path}[0][0]"))
             );
             assert_eq!(
                 events.last().expect("pointer").value,
@@ -1995,7 +1631,7 @@ mod tests {
     #[test]
     fn named_legacy_adapter_returns_an_explicit_conversion_report() {
         let result = compile(
-            "a@{role = \"root\"} = <tag(\"child\")>\ncopy = ~a[0]\nitems:list<int> = [1]",
+            "<a@{role = \"root\"}(\"child\")>\ncopy = ~a[0]\nitems:list<int> = [1]",
             CompileOptions {
                 max_attribute_depth: 8,
                 ..CompileOptions::default()
@@ -2026,10 +1662,8 @@ mod tests {
             .map(|change| change.code)
             .collect::<HashSet<_>>();
         for expected in [
-            "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
             "AES_COMPAT_ATTRIBUTE_FLATTENED",
             "AES_COMPAT_DATATYPE_EXPANDED",
-            "AES_COMPAT_REFERENCE_TRANSLATED",
             "AES_COMPAT_PROVENANCE_OMITTED",
         ] {
             assert!(codes.contains(expected), "missing {expected}: {codes:?}");
@@ -2252,39 +1886,38 @@ mod tests {
     }
 
     #[test]
-    fn separates_node_identities_at_expanded_paths() {
-        let source = r#"a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>"#;
+    fn retains_node_and_child_identities_at_direct_paths() {
+        let source = r#"<a\NODE\(\CHILD\ = "value")>"#;
         let events = project(source);
         assert_eq!(
             shapes(&events),
             vec![
-                ("$.a", "NodeLiteral", Some("BINDING")),
-                ("$.a[0]", "NodeHead", Some("HEAD")),
-                ("$.a[0][0]", "StringLiteral", Some("CHILD")),
+                ("$.a", "NodeLiteral", Some("NODE")),
+                ("$.a[0]", "StringLiteral", Some("CHILD")),
             ]
         );
         assert_eq!(events[0].value, None);
-        assert_eq!(events[1].value.as_deref(), Some("tag"));
-        let span = events[1].span.expect("node-head span");
-        assert_eq!(&source[span.start.offset..span.end.offset], r#"tag\HEAD\"#);
+        assert_eq!(events[0].tag.as_deref(), Some("a"));
+        let span = events[0].span.expect("node span");
+        assert_eq!(&source[span.start.offset..span.end.offset], source);
     }
 
     #[test]
-    fn translates_reference_targets_across_nodes_inside_attribute_value_trees() {
-        let events = project("a@{x = <tag(1, ~a.@.x[0])>} = 1\ncopy = ~a.@.x[0]");
+    fn preserves_reference_targets_inside_attribute_node_children() {
+        let events = project("a@{<x(1, ~a.@.x[0])>} = 1\ncopy = ~a.@.x[0]");
         let nested_reference = events
             .iter()
-            .find(|event| event.path == "$.a.@.x[0][1]")
+            .find(|event| event.path == "$.a.@.x[1]")
             .expect("nested backward reference");
-        assert_eq!(nested_reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+        assert_eq!(nested_reference.value.as_deref(), Some("$.a.@.x[0]"));
         let external_reference = events
             .iter()
             .find(|event| event.path == "$.copy")
             .expect("external reference");
-        assert_eq!(external_reference.value.as_deref(), Some("$.a.@.x[0][0]"));
+        assert_eq!(external_reference.value.as_deref(), Some("$.a.@.x[0]"));
 
         let forward = compile(
-            "a@{x = <tag(~a.@.x[1], 1)>} = 1",
+            "a@{<x(~a.@.x[1], 1)>} = 1",
             CompileOptions {
                 max_attribute_depth: 8,
                 ..CompileOptions::default()
@@ -2295,22 +1928,22 @@ mod tests {
     }
 
     #[test]
-    fn node_head_span_excludes_layout_after_datatype() {
-        let source = "a = <tag:node\n(\"value\")>";
+    fn node_record_span_covers_the_full_declaration() {
+        let source = "<a:node\n(\"value\")>";
         let events = project(source);
-        let head = events
+        let node = events
             .iter()
-            .find(|event| event.path == "$.a[0]")
-            .expect("node head");
-        let span = head.span.expect("node-head span");
-        assert_eq!(&source[span.start.offset..span.end.offset], "tag:node");
+            .find(|event| event.path == "$.a")
+            .expect("node");
+        let span = node.span.expect("node span");
+        assert_eq!(&source[span.start.offset..span.end.offset], source);
     }
 
     #[test]
     fn retains_exact_utf8_byte_ranges_and_unicode_scalar_columns() {
         let source = concat!(
             "\u{feff}",
-            r#"a = <tag\HEAD\@{role = "café"}:node("😀")>"#,
+            r#"<a\NODE\@{role = "café"}:node("😀")>"#,
             "\r\n",
             "b = \"nai\u{308}ve\"",
         );
@@ -2330,25 +1963,25 @@ mod tests {
             .iter()
             .find(|event| format_path(&event.path) == "$.b")
             .expect("b event");
-        assert_eq!(b_event.span.start.offset, 50);
+        assert_eq!(b_event.span.start.offset, 44);
         assert_eq!(b_event.span.start.line, 2);
         assert_eq!(b_event.span.start.column, 1);
 
         let projected = project_portable_events(&result.events);
-        let head = projected
+        let node = projected
             .iter()
-            .find(|event| event.path == "$.a[0]")
-            .expect("node head");
-        let head_span = head.span.expect("node-head span");
-        assert_eq!((head_span.start.offset, head_span.end.offset), (8, 39));
-        assert_eq!(head_span.start.column, 7);
+            .find(|event| event.path == "$.a")
+            .expect("node");
+        let node_span = node.span.expect("node span");
+        assert_eq!((node_span.start.offset, node_span.end.offset), (3, 42));
+        assert_eq!(node_span.start.column, 2);
         let role = projected
             .iter()
-            .find(|event| event.path == "$.a[0].@.role")
+            .find(|event| event.path == "$.a.@.role")
             .expect("role attribute");
         assert_eq!(
             role.span.map(|span| (span.start.offset, span.end.offset)),
-            Some((19, 33))
+            Some((13, 27))
         );
 
         let converted = adapt_rust_assignment_events_to_portable_aes(
@@ -2359,22 +1992,23 @@ mod tests {
             },
         )
         .expect("source-backed projection");
-        let origin = "sha256:c9063ff2481e76331f175afa8a6bd4d7f850048591e737047d8a0b6fc2a701b7";
+        let origin = create_source_context(source.as_bytes())
+            .expect("origin")
+            .origin;
         assert!(
             converted
                 .events
                 .iter()
-                .all(|event| event.origin.as_deref() == Some(origin))
+                .all(|event| event.origin.as_deref() == Some(origin.as_str()))
         );
-        assert_eq!(converted.events[0].span.as_deref(), Some("3:48"));
-        assert_eq!(converted.events[1].span.as_deref(), Some("8:39"));
-        assert_eq!(converted.events[2].span.as_deref(), Some("19:33"));
-        assert_eq!(converted.events[3].span, None);
-        assert_eq!(converted.events[4].span.as_deref(), Some("50:63"));
+        assert_eq!(converted.events[0].span.as_deref(), Some("3:42"));
+        assert_eq!(converted.events[1].span.as_deref(), Some("13:27"));
+        assert_eq!(converted.events[2].span, None);
+        assert_eq!(converted.events[3].span.as_deref(), Some("44:57"));
         assert!(!converted.report.provenance_lossless);
         assert!(converted.report.changes.iter().any(|change| {
             change.code == "AES_COMPAT_PROVENANCE_RANGE_OMITTED"
-                && change.target_path.as_deref() == Some("$.a[0][0]")
+                && change.target_path.as_deref() == Some("$.a[0]")
         }));
     }
 
@@ -2416,29 +2050,27 @@ mod tests {
 
     #[test]
     fn expands_nested_nodes_and_reference_targets() {
-        let events = project("a = <outer(<inner(\"leaf\")>)>\ncopy = ~a[0]\nalias = ~>a[0]");
+        let events = project("<a(<inner(\"leaf\")>)>\ncopy = ~a[0]\nalias = ~>a[0]");
         let paths = events
             .iter()
             .map(|event| (event.path.as_str(), event.kind))
             .collect::<Vec<_>>();
         assert_eq!(
-            &paths[..5],
+            &paths[..3],
             &[
                 ("$.a", "NodeLiteral"),
-                ("$.a[0]", "NodeHead"),
-                ("$.a[0][0]", "NodeLiteral"),
-                ("$.a[0][0][0]", "NodeHead"),
-                ("$.a[0][0][0][0]", "StringLiteral"),
+                ("$.a[0]", "NodeLiteral"),
+                ("$.a[0][0]", "StringLiteral"),
             ]
         );
-        assert_eq!(events[5].value.as_deref(), Some("$.a[0][0]"));
-        assert_eq!(events[6].value.as_deref(), Some("$.a[0][0]"));
+        assert_eq!(events[3].value.as_deref(), Some("$.a[0]"));
+        assert_eq!(events[4].value.as_deref(), Some("$.a[0]"));
     }
 
     #[test]
     fn flattens_attributes_in_source_preorder() {
         let events = project(
-            r#"a\ROOT\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }} = <tag\HEAD\@{role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>"#,
+            r#"<a\ROOT\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }, role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>"#,
         );
         assert_eq!(
             shapes(&events),
@@ -2447,28 +2079,22 @@ mod tests {
                 ("$.a.@.x", "ObjectNode", Some("X")),
                 ("$.a.@.x.@.deep", "NumberLiteral", Some("D")),
                 ("$.a.@.x.b", "NumberLiteral", Some("B")),
-                ("$.a[0]", "NodeHead", Some("HEAD")),
-                ("$.a[0].@.role", "StringLiteral", Some("R")),
-                ("$.a[0][0]", "StringLiteral", Some("CHILD")),
-                ("$.a[0][0].@.unit", "StringLiteral", Some("U")),
+                ("$.a.@.role", "StringLiteral", Some("R")),
+                ("$.a[0]", "StringLiteral", Some("CHILD")),
+                ("$.a[0].@.unit", "StringLiteral", Some("U")),
             ]
         );
     }
 
     #[test]
     fn expands_nodes_and_quoted_members_inside_attribute_space() {
-        let events = project(r#"a@{"x.y" = <inner\HEAD\(\CHILD\ = "value")>} = 1"#);
+        let events = project(r#"a@{<"x.y"\NODE\(\CHILD\ = "value")>} = 1"#);
         assert_eq!(
             events
                 .iter()
                 .map(|event| event.path.as_str())
                 .collect::<Vec<_>>(),
-            vec![
-                "$.a",
-                "$.a.@.[\"x.y\"]",
-                "$.a.@.[\"x.y\"][0]",
-                "$.a.@.[\"x.y\"][0][0]",
-            ]
+            vec!["$.a", "$.a.@.[\"x.y\"]", "$.a.@.[\"x.y\"][0]",]
         );
     }
 
@@ -2507,7 +2133,7 @@ mod tests {
     #[test]
     fn direct_body_telex_projection_matches_the_named_compatibility_adapter() {
         let source = concat!(
-            "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>\n",
+            "<a\\NODE\\@{role = \"root\"}(\"child\")>\n",
             "copy = ~a[0]\n",
             "items:list<int> = [1, 2]\n",
             "metadata = { enabled = true }",
@@ -2530,7 +2156,7 @@ mod tests {
     #[test]
     fn typed_body_export_matches_extensible_telex_record_encoding() {
         let source = concat!(
-            "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>\n",
+            "<a\\NODE\\@{role = \"root\"}(\"child\")>\n",
             "copy = ~a[0]\n",
             "items:list<int> = [1, 2]\n",
             "metadata = { enabled = true }",
@@ -2569,7 +2195,7 @@ mod tests {
                 .join(",")
         );
         let wide_node = format!(
-            "root:node = <row({})>",
+            "<row:node({})>",
             (0..MIN_TAKEN_AES_EVENT_RECORDS)
                 .map(|index| index.to_string())
                 .collect::<Vec<_>>()
@@ -2578,7 +2204,7 @@ mod tests {
         for source in [
             wide.as_str(),
             wide_node.as_str(),
-            "a@{role = \"root\"} = <tag\\HEAD\\(\"child\")>",
+            "<a\\NODE\\@{role = \"root\"}(\"child\")>",
         ] {
             let result = compile(
                 source,
@@ -2597,7 +2223,7 @@ mod tests {
     #[test]
     fn taken_aes_projection_moves_scalar_children_beside_a_node() {
         let source = format!(
-            "root:node = <row({})>",
+            "<row:node({})>",
             (0..MIN_TAKEN_AES_EVENT_RECORDS)
                 .map(|index| index.to_string())
                 .collect::<Vec<_>>()
@@ -2771,7 +2397,7 @@ mod tests {
         // Caller-supplied raw partial events can still refer to an external body.
         let mut external = compile("copy=1", crate::CompileOptions::default()).events;
         external[0].value = Value::PointerReference {
-            segments: vec![ReferenceSegment::Key(String::from("aeon:external"))],
+            segments: vec![crate::ReferenceSegment::Key(String::from("aeon:external"))],
             span: external[0].span,
         };
         assert!(

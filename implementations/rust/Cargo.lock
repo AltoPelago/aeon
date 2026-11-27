@@ -135,8 +135,7 @@ dependencies = [
 [[package]]
 name = "altopelago-aes-telex"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92dc30084fa184c00afabbfb17838dd1b869fb9f2f8e870b6aa98c4f05a77aa1"
+source = "git+https://github.com/AltoPelago/aes?rev=4276bfb240986e93d9b5c1995121a1fd8c2da03d#4276bfb240986e93d9b5c1995121a1fd8c2da03d"
 dependencies = [
  "sha2",
 ]
@@ -144,8 +143,7 @@ dependencies = [
 [[package]]
 name = "altopelago-sansa-runtime"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9198dbb6a0a4700512408e6483279324dca4106f8aa3dd7c02d0e1064f7fbefa"
+source = "git+https://github.com/AltoPelago/sansa?rev=e21811f08cfefddaa7e4991652b83218acb3829f#e21811f08cfefddaa7e4991652b83218acb3829f"
 
 [[package]]
 name = "base64ct"

@@ -277,6 +277,18 @@ mod tests {
             };
             let expected = &case["expected"];
             let result = parse_address(&text);
+            if matches!(
+                case["id"].as_str(),
+                Some(
+                    "sansa-properties-member-tag-head-tag" | "sansa-properties-empty-tag-head-tag"
+                )
+            ) {
+                assert_eq!(
+                    result.expect_err("retired selector").code,
+                    "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+                );
+                continue;
+            }
             assert_eq!(
                 result.is_ok(),
                 expected["ok"].as_bool().expect("ok"),
@@ -379,12 +391,29 @@ mod tests {
         .expect("literal fixture");
         for input in fixture["addresses"].as_array().expect("addresses") {
             let address = input.as_str().expect("address");
-            let expected = parse_address(address).expect("address").canonical;
+            let parsed = parse_address(address);
+            if matches!(
+                address,
+                "$.*&headTag(\"book\")" | r#"?&headTag("\u{1F600}")"#
+            ) {
+                assert_eq!(
+                    parsed.expect_err("retired selector").code,
+                    "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+                );
+                let source = format!("p:sansa={address}");
+                assert!(
+                    !crate::compile(&source, crate::CompileOptions::default())
+                        .errors
+                        .is_empty()
+                );
+                continue;
+            }
+            let expected = parsed.expect("address").canonical;
             for source in [
                 format!("p:sansa={address}// outside\nx=1"),
                 format!("p:sansa={address}/* outside */\nx=1"),
                 format!("p=[{address},2]"),
-                format!("p=<tag({address})>"),
+                format!("<p({address})>"),
             ] {
                 let result = crate::compile(&source, crate::CompileOptions::default());
                 assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);

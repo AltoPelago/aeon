@@ -842,7 +842,7 @@ fn value_to_json_with_active_key(
             output.insert(String::from("$node"), JsonValue::String(tag.clone()));
             let attr_json = node_attributes_to_json(
                 attributes,
-                &format!("{path}.@"),
+                path,
                 projection,
                 path_values,
                 mode,
@@ -1265,13 +1265,7 @@ fn measure_materialized_weight(
             let attributes_weight: usize = attributes
                 .iter()
                 .map(|block| {
-                    measure_attribute_weight(
-                        block,
-                        &format!("{current_path}@"),
-                        path_values,
-                        tracker,
-                        stack,
-                    )
+                    measure_attribute_weight(block, current_path, path_values, tracker, stack)
                 })
                 .sum();
             1 + attributes_weight
@@ -1279,7 +1273,7 @@ fn measure_materialized_weight(
                     .iter()
                     .enumerate()
                     .map(|(index, child)| {
-                        let child_path = format!("{current_path}<{index}>");
+                        let child_path = format!("{current_path}[{index}]");
                         measure_materialized_weight(child, &child_path, path_values, tracker, stack)
                     })
                     .sum::<usize>()
@@ -2126,7 +2120,7 @@ mod tests {
 
     #[test]
     fn finalizes_anonymous_typed_values_without_reference_cycles() {
-        let source = "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>\n";
+        let source = "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\n<page(:string = \"hello\", <tag>, :int32 = 3)>\n";
         let result = compile(source, CompileOptions::default());
         assert!(result.errors.is_empty(), "{:?}", result.errors);
 
@@ -2241,14 +2235,14 @@ mod tests {
     }
 
     #[test]
-    fn projected_json_keeps_exact_node_head_attribute_selection_without_siblings() {
-        let source = "badge = <pill@{id = \"main\", class = \"hero\"}(\"new\")>\n";
+    fn projected_json_keeps_exact_node_attribute_selection_without_siblings() {
+        let source = "<badge@{id = \"main\", class = \"hero\"}(\"new\")>\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(
             &result.events,
             FinalizeOptions {
                 materialization: Materialization::Projected,
-                include_paths: vec![String::from("$.badge.@.@.[\"id\"]")],
+                include_paths: vec![String::from("$.badge.@.id")],
                 ..FinalizeOptions::default()
             },
         );
@@ -2256,7 +2250,7 @@ mod tests {
             finalized.document,
             json!({
                 "badge": {
-                    "$node": "pill",
+                    "$node": "badge",
                     "@": {
                         "id": "main"
                     },
@@ -2268,7 +2262,7 @@ mod tests {
 
     #[test]
     fn projected_map_preserves_assignment_chain_for_attribute_paths() {
-        let source = "title@{lang = \"en\", meta = { keep = 2 }} = \"Hello\"\ncard = { label@{meta = { keep = 3, \"x.y\" = 4 }} = \"Hi\" }\nrich = <pill@{id = \"main\", meta = { keep = 5 }}(\"new\")>\n";
+        let source = "title@{lang = \"en\", meta = { keep = 2 }} = \"Hello\"\ncard = { label@{meta = { keep = 3, \"x.y\" = 4 }} = \"Hi\" }\n<rich@{id = \"main\", meta = { keep = 5 }}(\"new\")>\n";
         let result = compile(source, CompileOptions::default());
 
         let top_level = finalize_map(
@@ -2318,8 +2312,8 @@ mod tests {
             FinalizeOptions {
                 materialization: Materialization::Projected,
                 include_paths: vec![
-                    String::from("$.rich.@.@.id"),
-                    String::from("$.rich.@.@.meta.keep"),
+                    String::from("$.rich.@.id"),
+                    String::from("$.rich.@.meta.keep"),
                 ],
                 ..FinalizeOptions::default()
             },
@@ -2393,7 +2387,7 @@ mod tests {
     #[test]
     fn surfaced_node_and_attribute_ast_preserves_structural_identity() {
         let result = compile(
-            "value = <tag\\HEAD\\@{source\\META\\ = \"user\"}>\n",
+            "<value\\HEAD\\@{source\\META\\ = \"user\"}>\n",
             CompileOptions::default(),
         );
         assert!(result.errors.is_empty(), "{:?}", result.errors);
@@ -2924,7 +2918,7 @@ mod tests {
 
     #[test]
     fn projects_indexed_child_attributes_under_at_items_for_node_children() {
-        let source = "page:node = <page(@{role:string = \"title\"} = \"Hello\")>\n";
+        let source = "<page(@{role:string = \"title\"} = \"Hello\")>\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(
@@ -2949,14 +2943,14 @@ mod tests {
 
     #[test]
     fn materializes_node_literals_with_reserved_projection_keys() {
-        let source = "view = <div@{id = \"main\"}(\"hello\")>\n";
+        let source = "<view@{id = \"main\"}(\"hello\")>\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(&result.events, FinalizeOptions::default());
         assert_eq!(
             finalized.document,
             json!({
                 "view": {
-                    "$node": "div",
+                    "$node": "view",
                     "@": {
                         "id": "main"
                     },
@@ -2968,7 +2962,7 @@ mod tests {
 
     #[test]
     fn materializes_nested_node_list_and_tuple_children_like_typescript() {
-        let source = "b = <a(<a(1,2,3)>)>\nc = <a([1,2])>\nd = <a((1,2))>\n";
+        let source = "<b(<a(1,2,3)>)>\n<c([1,2])>\n<d((1,2))>\n";
         let result = compile(source, CompileOptions::default());
         let finalized = finalize_json(
             &result.events,
@@ -2981,7 +2975,7 @@ mod tests {
             finalized.document,
             json!({
                 "b": {
-                    "$node": "a",
+                    "$node": "b",
                     "$children": [
                         {
                             "$node": "a",
@@ -2990,13 +2984,13 @@ mod tests {
                     ]
                 },
                 "c": {
-                    "$node": "a",
+                    "$node": "c",
                     "$children": [
                         [1, 2]
                     ]
                 },
                 "d": {
-                    "$node": "a",
+                    "$node": "d",
                     "$children": [
                         [1, 2]
                     ]

@@ -180,8 +180,14 @@ impl<'a> Iterator for FlattenValidationCursor<'a> {
                             path,
                             key: binding.key.clone(),
                             source_plane,
-                            structural_id: binding.structural_id.clone(),
-                            datatype: binding.datatype.clone(),
+                            structural_id: binding
+                                .structural_id
+                                .clone()
+                                .or_else(|| typed_structural_id(&binding.value)),
+                            datatype: binding
+                                .datatype
+                                .clone()
+                                .or_else(|| typed_datatype(&binding.value)),
                             annotations: if self.include_event_annotations {
                                 binding.attributes.clone()
                             } else {
@@ -392,8 +398,10 @@ impl Iterator for FlattenEventCursor {
                     path: path.clone(),
                     key: binding.key,
                     source_plane,
-                    structural_id: binding.structural_id,
-                    datatype: binding.datatype,
+                    structural_id: binding
+                        .structural_id
+                        .or_else(|| typed_structural_id(&binding.value)),
+                    datatype: binding.datatype.or_else(|| typed_datatype(&binding.value)),
                     annotations: if self.include_event_annotations {
                         binding.attributes
                     } else {
@@ -488,14 +496,18 @@ pub(crate) enum ValidationReferenceStep<'a> {
 
 fn typed_datatype(value: &Value) -> Option<String> {
     match value {
-        Value::TypedValue { datatype, .. } => datatype.clone(),
+        Value::TypedValue { datatype, .. } | Value::NodeLiteral { datatype, .. } => {
+            datatype.clone()
+        }
         _ => None,
     }
 }
 
 fn typed_structural_id(value: &Value) -> Option<String> {
     match value {
-        Value::TypedValue { structural_id, .. } => structural_id.clone(),
+        Value::TypedValue { structural_id, .. } | Value::NodeLiteral { structural_id, .. } => {
+            structural_id.clone()
+        }
         _ => None,
     }
 }
@@ -715,6 +727,35 @@ pub(crate) fn flatten_validation_document<'a>(
     }
 }
 
+fn ordered_node_attributes(
+    value: &Value,
+) -> impl Iterator<Item = (&BTreeMap<String, AttributeValue>, &[String])> {
+    let (blocks, order) = match unwrap_typed_value(value) {
+        Value::NodeLiteral {
+            attributes,
+            attribute_order,
+            ..
+        } => (attributes.as_slice(), attribute_order.as_slice()),
+        _ => (&[][..], &[][..]),
+    };
+    blocks
+        .iter()
+        .enumerate()
+        .map(move |(index, block)| (block, if index == 0 { order } else { &[] }))
+}
+
+fn track_node_attributes<'a>(
+    value: &'a Value,
+    path: &str,
+    targets: &mut HashSet<String>,
+    steps: &mut Vec<ValidationReferenceStep<'a>>,
+) {
+    for (attributes, order) in ordered_node_attributes(value) {
+        collect_attribute_targets(path, attributes, order, targets, String::new());
+        collect_attribute_reference_steps(path, attributes, order, steps, String::new());
+    }
+}
+
 fn track_reference_binding<'a>(
     reference_targets: &mut HashSet<String>,
     reference_steps: &mut Vec<ValidationReferenceStep<'a>>,
@@ -743,6 +784,7 @@ fn track_reference_binding<'a>(
         reference_steps,
         String::new(),
     );
+    track_node_attributes(value, path_text, reference_targets, reference_steps);
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: String::from(path_text),
         owner_path: String::from(path_text),
@@ -779,6 +821,7 @@ fn track_reference_sequence_item<'a>(
             String::new(),
         );
     }
+    track_node_attributes(value, &item_target, reference_targets, reference_steps);
     reference_steps.push(ValidationReferenceStep::ValidateValue {
         path: item_target.clone(),
         owner_path: String::from(parent_path),
@@ -828,6 +871,9 @@ impl<'a> CompactReferences<'a> {
             &binding.attribute_order,
             shallow_event_values,
         );
+        for (attributes, order) in ordered_node_attributes(&binding.value) {
+            self.metadata(path_text, visible, attributes, order, shallow_event_values);
+        }
         append_compact_value_references(
             unwrap_typed_value(&binding.value),
             path_text,
@@ -859,6 +905,15 @@ impl<'a> CompactReferences<'a> {
                 visible,
                 attributes,
                 attribute_order,
+                shallow_event_values,
+            );
+        }
+        for (attributes, order) in ordered_node_attributes(value) {
+            self.metadata(
+                &item_target,
+                visible,
+                attributes,
+                order,
                 shallow_event_values,
             );
         }
@@ -970,7 +1025,10 @@ fn flatten_validation_bindings<'a>(
             events.push(ValidationEvent {
                 path: path_text.clone(),
                 source_plane,
-                datatype: binding.datatype.clone(),
+                datatype: binding
+                    .datatype
+                    .clone()
+                    .or_else(|| typed_datatype(&binding.value)),
                 value: unwrap_typed_value(&binding.value),
                 span: binding.span,
             });
@@ -1272,8 +1330,14 @@ fn flatten_bindings(
                 path: path.clone(),
                 key: binding.key.clone(),
                 source_plane,
-                structural_id: binding.structural_id.clone(),
-                datatype: binding.datatype.clone(),
+                structural_id: binding
+                    .structural_id
+                    .clone()
+                    .or_else(|| typed_structural_id(&binding.value)),
+                datatype: binding
+                    .datatype
+                    .clone()
+                    .or_else(|| typed_datatype(&binding.value)),
                 annotations: if include_event_annotations {
                     binding.attributes.clone()
                 } else {
@@ -1291,7 +1355,10 @@ fn flatten_bindings(
             if emit_binding_projections {
                 bindings_out.push(BindingProjection {
                     path: String::new(),
-                    datatype: binding.datatype.clone(),
+                    datatype: binding
+                        .datatype
+                        .clone()
+                        .or_else(|| typed_datatype(&binding.value)),
                     kind: "binding",
                 });
             }
@@ -1680,6 +1747,7 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
             attribute_order,
             datatype,
             head_span,
+            span,
             ..
         } => Value::NodeLiteral {
             raw: raw.clone(),
@@ -1690,6 +1758,7 @@ fn clone_event_value(value: &Value, shallow_event_values: bool) -> Value {
             datatype: datatype.clone(),
             children: Vec::new(),
             head_span: *head_span,
+            span: *span,
         },
         _ => value.clone(),
     }
@@ -1987,6 +2056,15 @@ fn append_ordered_validation_value_steps<'a>(
     }
     match value {
         Value::NodeLiteral { children, .. } => {
+            for (attributes, order) in ordered_node_attributes(value) {
+                collect_attribute_reference_steps(
+                    current_path,
+                    attributes,
+                    order,
+                    steps,
+                    String::new(),
+                );
+            }
             steps.push(ValidationReferenceStep::ValidateValue {
                 path: current_path.to_owned(),
                 owner_path: owner_path.to_owned(),
@@ -2079,11 +2157,16 @@ fn append_ordered_compact_value_steps(
     }
     match value {
         Value::NodeLiteral { children, .. } => {
-            let mut head = value.clone();
-            if let Value::NodeLiteral { children, .. } = &mut head {
-                children.clear();
+            for (attributes, order) in ordered_node_attributes(value) {
+                collect_compact_attribute_reference_steps(
+                    current_path,
+                    attributes,
+                    order,
+                    steps,
+                    false,
+                    String::new(),
+                );
             }
-            append_compact_value_references(&head, current_path, owner_path, false, steps);
             for (index, child) in children.iter().enumerate() {
                 let child_path = format!("{current_path}[{index}]");
                 append_ordered_compact_value_steps(child, &child_path, current_path, false, steps);
@@ -2141,6 +2224,13 @@ fn collect_value_target_paths(raw_value: &Value, base: &str, emit: &mut impl FnM
             emit(target);
         }
     }
+    for (attributes, order) in ordered_node_attributes(raw_value) {
+        let mut targets = HashSet::new();
+        collect_attribute_targets(base, attributes, order, &mut targets, String::new());
+        for target in targets {
+            emit(target);
+        }
+    }
     match unwrap_typed_value(raw_value) {
         Value::ObjectNode { bindings } => {
             for binding in bindings {
@@ -2192,7 +2282,7 @@ mod tests {
     fn reference_free_documents_skip_reference_tracking_state() {
         let bindings = parse_test_document(
             "payload@{nested = {leaf = 1}}:wrapper = {items = [1, 2, 3]}\n\
-             widget:node = <card@{label = \"ready\"}:node>\n",
+             <widget@{label = \"ready\"}:node>\n",
         );
 
         assert!(!bindings_contain_references(&bindings));
@@ -2213,7 +2303,7 @@ mod tests {
             "anchor = 1\n\
              payload@{back = ~anchor, nested = { leaf = ~anchor }} = ~anchor\n\
              items = [~anchor, ~items[0]]\n\
-             widget:node = <card@{ \"a.b\":lookup = ~$.widget }:node>\n",
+             <widget@{ \"a.b\":lookup = ~$.widget }:node>\n",
         );
 
         let flattened = flatten_document(&bindings, &CanonicalPath::root(), false, true, true);

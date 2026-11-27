@@ -1030,6 +1030,88 @@ mod tests {
     }
 
     #[test]
+    fn loads_tagged_nodes_after_aes_film_transcoding() {
+        let source = "<book@{edition:number=2}(\"hello\", <chapter>)>\ncopy = ~book[0]";
+        let compiled = aeon_to_telex(source, CompileToTelexOptions::default());
+        assert!(
+            compiled.compile.errors.is_empty(),
+            "{:?}",
+            compiled.compile.errors
+        );
+        let telex = compiled.telex.expect("portable Telex");
+        let film = aes_telex::film::telex_to_film(&telex, &[]).expect("encode Film");
+        let replay = aes_telex::film::film_to_telex(&film, &[]).expect("decode Film");
+        assert_eq!(replay, telex);
+        let loaded =
+            load_telex_str::<JsonValue>(&replay, TelexLoadOptions::default()).expect("load replay");
+        assert_eq!(loaded.document["book"]["$node"], "book");
+        assert_eq!(loaded.document["book"]["$children"][0], "hello");
+        assert_eq!(loaded.document["book"]["$children"][1]["$node"], "chapter");
+        assert_eq!(loaded.document["book"]["@"]["edition"], 2);
+        assert_eq!(loaded.document["copy"], "hello");
+    }
+
+    #[test]
+    fn projects_named_header_nodes_with_their_lowered_tag() {
+        for source in [
+            "aeon:header = { <extra(\"note\")> }\n<main>",
+            "aeon:header = { <\"aeon:extra\"(\"note\")> }\n<main>",
+        ] {
+            let mut options = CompileToTelexOptions::default();
+            options.telex.include_headers = true;
+            let compiled = aeon_to_telex(source, options);
+            let wire = compiled.telex.expect("Telex with the header plane");
+            let node = compiled
+                .records
+                .iter()
+                .find(|record| record.get("header") == Some(r#"$.["aeon:extra"]"#))
+                .expect("named header node");
+            assert_eq!(node.get("tag"), Some("aeon:extra"));
+
+            let mut load_options = TelexLoadOptions::default();
+            load_options.finalize.scope = aeon_finalize::FinalizeScope::Full;
+            let document =
+                load_telex_str::<JsonValue>(&wire, load_options).expect("load header node");
+            assert_eq!(document.document["header"]["extra"]["$node"], "aeon:extra");
+            assert_eq!(document.document["header"]["extra"]["$children"][0], "note");
+            assert_eq!(document.document["payload"]["main"]["$node"], "main");
+            aeon_document::AeonDocument::compile(source, CompileOptions::default())
+                .expect("SDK accepts the compiled header plane");
+        }
+    }
+
+    #[test]
+    fn rejects_header_node_aliases_with_the_same_portable_name() {
+        for (header, path) in [
+            (r#"<extra>, <"aeon:extra">"#, r#"$.["aeon:extra"]"#),
+            ("extra=1, <extra>", r#"$.["aeon:extra"]"#),
+            ("<extra>, extra=1", r#"$.["aeon:extra"]"#),
+            (r#""aeon:"=1, <"aeon:">"#, r#"$.["aeon:aeon:"]"#),
+            (r#"<"aeon:">, "aeon:"=1"#, r#"$.["aeon:aeon:"]"#),
+        ] {
+            let source = format!("aeon:header = {{ {header} }}\n<main>");
+            let compiled = aeon_to_telex(&source, CompileToTelexOptions::default());
+            assert!(compiled.telex.is_none());
+            assert_eq!(compiled.compile.errors[0].code, "DUPLICATE_KEY");
+            assert_eq!(compiled.compile.errors[0].path.as_deref(), Some(path));
+        }
+    }
+
+    #[test]
+    fn preserves_a_header_node_named_like_the_namespace_prefix() {
+        let source = "aeon:header = { <\"aeon:\"(\"note\")> }\n<main>";
+        let mut options = CompileToTelexOptions::default();
+        options.telex.include_headers = true;
+        let compiled = aeon_to_telex(source, options);
+        let wire = compiled.telex.expect("Telex with the header plane");
+        let mut load_options = TelexLoadOptions::default();
+        load_options.finalize.scope = aeon_finalize::FinalizeScope::Full;
+        let document = load_telex_str::<JsonValue>(&wire, load_options).expect("load header node");
+        assert_eq!(document.document["header"]["aeon:"]["$node"], "aeon:aeon:");
+        assert_eq!(document.document["header"]["aeon:"]["$children"][0], "note");
+    }
+
+    #[test]
     fn returns_compile_errors_for_invalid_source() {
         let error = load_str::<GreetingDoc>("greeting = {\n", LoadOptions::default())
             .expect_err("compile failure");

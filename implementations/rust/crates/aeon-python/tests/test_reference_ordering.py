@@ -87,8 +87,11 @@ class ReferenceOrderingTests(unittest.TestCase):
         self.assertEqual(output, self.canonical(output))
 
     def test_shared_rendering_regressions_and_fixed_points(self):
-        fixtures = json.loads((ROOT / "test-fixtures/canonical-rendering-boundaries.json").read_text(encoding="utf-8"))
-        for fixture in fixtures:
+        root = ROOT / "test-fixtures"
+        fixtures = {}
+        for name in ("canonical-rendering-boundaries.json", "canonical-rendering-boundaries-tagged-nodes.json"):
+            fixtures.update((case["id"], case) for case in json.loads((root / name).read_text(encoding="utf-8")))
+        for fixture in fixtures.values():
             with self.subTest(fixture=fixture["id"]):
                 output = self.canonical(fixture["source"], max_attribute_depth=2)
                 self.assertIn(fixture["fragment"], output)

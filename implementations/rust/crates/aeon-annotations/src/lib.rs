@@ -250,6 +250,17 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
     infix_containing.sort_by_key(|bindable| span_length(bindable.span));
 
     for container in &infix_containing {
+        if container.kind == BindableKind::Attribute
+            && comment_span.end.offset <= container.value_start.offset
+            && container.landmarks.iter().any(|landmark| {
+                landmark.part == AnnotationPlacementPart::AttributeEquals
+                    && landmark.span.end.offset <= comment_span.start.offset
+            })
+        {
+            return AnnotationTarget::Path {
+                path: container.path.clone(),
+            };
+        }
         let descendants = bindables
             .iter()
             .filter(|candidate| bindable_descends_from(container, candidate))
@@ -590,40 +601,50 @@ fn block_kind(marker: char) -> (&'static str, &'static str, Option<&'static str>
 }
 
 fn collect_bindables(source: &str) -> Vec<Bindable> {
-    let mut parser = AnnotationParser::new(source);
+    let positions = SourcePositions::new(source);
+    let mut parser = AnnotationParser::new(source, &positions);
     let mut bindables = parser.parse_document();
-    let attribute_bindables = collect_attribute_bindables(source, &bindables);
+    let attribute_bindables = collect_attribute_bindables(source, &bindables, &positions);
     bindables.extend(attribute_bindables);
     bindables
 }
 
-fn collect_attribute_bindables(source: &str, bindables: &[Bindable]) -> Vec<Bindable> {
+fn collect_attribute_bindables(
+    source: &str,
+    bindables: &[Bindable],
+    positions: &SourcePositions,
+) -> Vec<Bindable> {
     let mut out = Vec::new();
     let mut order = bindables.len() + 1;
-    let positions = SourcePositions::new(source);
-    for bindable in bindables {
-        if bindable.kind != BindableKind::Binding {
-            continue;
+    let mut index = 0;
+    while let Some(bindable) = bindables.get(index).or_else(|| {
+        index
+            .checked_sub(bindables.len())
+            .and_then(|index| out.get(index))
+    }) {
+        let mut attributes = Vec::new();
+        if bindable.span.start.offset < bindable.value_start.offset {
+            attributes.extend(attribute_bindables_in_range(
+                source,
+                &bindable.path,
+                bindable.span.start.offset,
+                bindable.value_start.offset,
+                &mut order,
+                positions,
+            ));
         }
-        let head_end = bindable.value_start.offset;
-        out.extend(attribute_bindables_in_range(
-            source,
-            &bindable.path,
-            bindable.span.start.offset,
-            head_end,
-            &mut order,
-            &positions,
-        ));
         if bindable.value_kind == BindableValueKind::Node {
-            out.extend(node_head_attribute_bindables(
+            attributes.extend(node_head_attribute_bindables(
                 source,
                 &bindable.path,
                 bindable.value_start.offset,
                 bindable.span.end.offset,
                 &mut order,
-                &positions,
+                positions,
             ));
         }
+        out.extend(attributes);
+        index += 1;
     }
     out
 }
@@ -700,6 +721,23 @@ fn scan_attribute_bindables_at(
         if source_char(source, offset) == Some('}') {
             return (entries, offset + 1);
         }
+        if source_char(source, offset) == Some('<') {
+            let start = positions.position_at(offset);
+            let mut parser = AnnotationParser {
+                scanner: Scanner::new_at(&source[..end], start),
+                positions,
+            };
+            if let Some(mut node) = parser.parse_node_binding(&format!("{owner_path}.@"), start) {
+                node[0].kind = BindableKind::Attribute;
+                offset = skip_source_trivia(source, node[0].span.end.offset, end);
+                if source_char(source, offset) == Some(',') {
+                    offset += 1;
+                }
+                *order += node.len();
+                entries.extend(node);
+                continue;
+            }
+        }
         let key_start = offset;
         let key_end = scan_source_key_end(source, key_start, end);
         if key_end <= key_start {
@@ -709,11 +747,13 @@ fn scan_attribute_bindables_at(
         let key = source_key(source, key_start, key_end);
         let entry_end = scan_attribute_entry_end(source, key_end, end);
         let landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
-        let value_span = attribute_entry_value_span(source, key_end, entry_end, positions)
-            .unwrap_or(Span {
-                start: positions.position_at(key_start),
-                end: positions.position_at(key_end),
-            });
+        let value_start = landmarks
+            .iter()
+            .find(|landmark| landmark.part == AnnotationPlacementPart::AttributeValue)
+            .map_or_else(
+                || positions.position_at(key_start),
+                |landmark| landmark.span.start,
+            );
         let span = Span {
             start: positions.position_at(key_start),
             end: positions.position_at(entry_end),
@@ -721,7 +761,7 @@ fn scan_attribute_bindables_at(
         entries.push(Bindable {
             path: format_attribute_path(owner_path, &key),
             span,
-            value_start: value_span.start,
+            value_start,
             value_kind: BindableValueKind::Other,
             kind: BindableKind::Attribute,
             landmarks,
@@ -835,53 +875,41 @@ fn attribute_entry_landmarks(
             end: positions.position_at(key_end),
         },
     });
-    let mut offset = key_end;
-    while offset < end {
-        offset = skip_source_trivia(source, offset, end);
-        match source_char(source, offset) {
-            Some(':') => {
-                landmarks.push(PlacementLandmark {
-                    part: AnnotationPlacementPart::AttributeDatatypeColon,
-                    span: Span {
-                        start: positions.position_at(offset),
-                        end: positions.position_at(offset + 1),
-                    },
-                });
-                let dtype_start = skip_source_trivia(source, offset + 1, end);
-                let dtype_end = scan_source_datatype_end(source, dtype_start, end);
-                if dtype_start < dtype_end {
-                    landmarks.push(PlacementLandmark {
-                        part: AnnotationPlacementPart::AttributeDatatype,
-                        span: Span {
-                            start: positions.position_at(dtype_start),
-                            end: positions.position_at(dtype_end),
-                        },
-                    });
-                }
-                offset = dtype_end;
-            }
-            Some('=') => {
-                landmarks.push(PlacementLandmark {
-                    part: AnnotationPlacementPart::AttributeEquals,
-                    span: Span {
-                        start: positions.position_at(offset),
-                        end: positions.position_at(offset + 1),
-                    },
-                });
-                if let Some(value_span) =
-                    attribute_entry_value_span(source, offset + 1, end, positions)
-                {
-                    landmarks.push(PlacementLandmark {
-                        part: AnnotationPlacementPart::AttributeValue,
-                        span: value_span,
-                    });
-                    offset = value_span.end.offset;
-                } else {
-                    offset += 1;
-                }
-            }
-            Some(ch) => offset += ch.len_utf8(),
-            None => break,
+    let equals = find_top_level_source_char(source, '=', key_end, end);
+    let head_end = equals.unwrap_or(end);
+    if let Some(colon) = find_top_level_source_char(source, ':', key_end, head_end) {
+        landmarks.push(PlacementLandmark {
+            part: AnnotationPlacementPart::AttributeDatatypeColon,
+            span: Span {
+                start: positions.position_at(colon),
+                end: positions.position_at(colon + 1),
+            },
+        });
+        let datatype_start = skip_source_trivia(source, colon + 1, head_end);
+        let datatype_end = scan_source_datatype_end(source, datatype_start, head_end);
+        if datatype_start < datatype_end {
+            landmarks.push(PlacementLandmark {
+                part: AnnotationPlacementPart::AttributeDatatype,
+                span: Span {
+                    start: positions.position_at(datatype_start),
+                    end: positions.position_at(datatype_end),
+                },
+            });
+        }
+    }
+    if let Some(equals) = equals {
+        landmarks.push(PlacementLandmark {
+            part: AnnotationPlacementPart::AttributeEquals,
+            span: Span {
+                start: positions.position_at(equals),
+                end: positions.position_at(equals + 1),
+            },
+        });
+        if let Some(span) = attribute_entry_value_span(source, equals + 1, end, positions) {
+            landmarks.push(PlacementLandmark {
+                part: AnnotationPlacementPart::AttributeValue,
+                span,
+            });
         }
     }
     landmarks
@@ -1164,18 +1192,18 @@ impl SourcePositions {
     }
 }
 
-struct AnnotationParser<'a> {
+struct AnnotationParser<'a, 'positions> {
     scanner: Scanner<'a>,
-    positions: SourcePositions,
+    positions: &'positions SourcePositions,
 }
 
 const AEON_HEADER_CHILD_PARENT: &str = "$<aeon_header>";
 
-impl<'a> AnnotationParser<'a> {
-    fn new(source: &'a str) -> Self {
+impl<'a, 'positions> AnnotationParser<'a, 'positions> {
+    fn new(source: &'a str, positions: &'positions SourcePositions) -> Self {
         Self {
             scanner: Scanner::new(source),
-            positions: SourcePositions::new(source),
+            positions,
         }
     }
 
@@ -1196,6 +1224,9 @@ impl<'a> AnnotationParser<'a> {
     fn parse_binding(&mut self, parent_path: &str) -> Option<Vec<Bindable>> {
         self.skip_trivia(false);
         let start = self.scanner.position();
+        if self.scanner.peek() == Some('<') {
+            return self.parse_node_binding(parent_path, start);
+        }
         let (key, key_span) = self.parse_key_with_span()?;
         let mut landmarks = vec![PlacementLandmark {
             part: AnnotationPlacementPart::Key,
@@ -1289,6 +1320,49 @@ impl<'a> AnnotationParser<'a> {
                 value_kind,
                 kind: BindableKind::Binding,
                 landmarks,
+            },
+        );
+        Some(bindables)
+    }
+
+    fn parse_node_binding(&mut self, parent_path: &str, start: Position) -> Option<Vec<Bindable>> {
+        self.scanner.bump();
+        self.skip_trivia(true);
+        let tag_start = self.scanner.index;
+        if matches!(self.scanner.peek(), Some('"' | '\'')) {
+            self.scanner.read_string();
+        } else {
+            while self
+                .scanner
+                .peek()
+                .is_some_and(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            {
+                self.scanner.bump();
+            }
+        }
+        let fragment = format!("<{}>", &self.scanner.source[tag_start..self.scanner.index]);
+        let mut parsed = aeon_core::parse_document(&fragment, &Default::default()).ok()?;
+        let tag = parsed.pop()?.key;
+        let key = if parent_path == AEON_HEADER_CHILD_PARENT {
+            tag.strip_prefix("aeon:")
+                .filter(|suffix| !suffix.is_empty())
+                .unwrap_or(&tag)
+        } else {
+            &tag
+        };
+        let path = format_path(parent_path, key);
+        self.scanner = Scanner::new_at(self.scanner.source, start);
+        let mut bindables = Vec::new();
+        let end = self.capture_node(&path, &mut bindables);
+        bindables.insert(
+            0,
+            Bindable {
+                path,
+                span: Span { start, end },
+                value_start: start,
+                value_kind: BindableValueKind::Node,
+                kind: BindableKind::Binding,
+                landmarks: self.node_value_landmarks(start, end),
             },
         );
         Some(bindables)
@@ -1397,6 +1471,9 @@ impl<'a> AnnotationParser<'a> {
                 }
                 Some(_) => {
                     let end = self.capture_scalar();
+                    if end.offset == start.offset {
+                        break;
+                    }
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
@@ -1506,13 +1583,22 @@ impl<'a> AnnotationParser<'a> {
             return self.scanner.position();
         }
         self.scanner.bump();
+        let mut generics = 0usize;
         while !self.scanner.is_eof() {
             match self.scanner.peek() {
-                Some('>') => {
+                Some('>') if generics == 0 => {
                     self.scanner.bump();
                     return self.scanner.position();
                 }
-                Some('(') => {
+                Some('<') => {
+                    generics += 1;
+                    self.scanner.bump();
+                }
+                Some('>') => {
+                    generics -= 1;
+                    self.scanner.bump();
+                }
+                Some('(') if generics == 0 => {
                     let _ = self.capture_sequence('(', ')', parent_path, bindables);
                     self.skip_trivia(true);
                     if self.scanner.peek() == Some('>') {
@@ -1559,6 +1645,12 @@ impl<'a> AnnotationParser<'a> {
                     });
                     angle_depth = 1;
                     state = NodeValueState::Tag;
+                }
+                NodeValueTokenKind::LeftAngle if paren_depth == 0 => {
+                    angle_depth += 1;
+                }
+                NodeValueTokenKind::RightAngle if angle_depth > 1 && paren_depth == 0 => {
+                    angle_depth -= 1;
                 }
                 NodeValueTokenKind::RightAngle if angle_depth == 1 && paren_depth == 0 => {
                     landmarks.push(PlacementLandmark {
@@ -1746,6 +1838,26 @@ impl<'a> AnnotationParser<'a> {
     fn capture_scalar(&mut self) -> Position {
         match self.scanner.peek() {
             Some('"') | Some('\'') | Some('`') => self.scanner.read_string(),
+            Some('$' | '?') => {
+                while let Some(ch) = self.scanner.peek() {
+                    match ch {
+                        ' ' | '\t' | '\n' | '\r' | ',' | '/' | '}' | ']' | ')' => break,
+                        '[' => {
+                            self.capture_balanced('[', ']');
+                        }
+                        '(' => {
+                            self.capture_balanced('(', ')');
+                        }
+                        '<' => {
+                            self.capture_balanced('<', '>');
+                        }
+                        '"' => self.scanner.read_string(),
+                        _ => {
+                            self.scanner.bump();
+                        }
+                    }
+                }
+            }
             Some('~') => {
                 self.scanner.bump();
                 self.skip_trivia(true);
@@ -1760,7 +1872,9 @@ impl<'a> AnnotationParser<'a> {
                             bracket_depth = bracket_depth.saturating_sub(1);
                             self.scanner.bump();
                         }
-                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') if bracket_depth == 0 => {
+                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']' | ')')
+                            if bracket_depth == 0 =>
+                        {
                             break;
                         }
                         Some('/') if self.scanner.peek_n(1) == Some('?') => {
@@ -1957,7 +2071,7 @@ impl<'a> AnnotationParser<'a> {
                 self.scanner.source,
                 attr_start,
                 attr_end,
-                &self.positions,
+                self.positions,
             ));
             end = Some(attr_end);
             self.skip_trivia(false);
@@ -2157,7 +2271,25 @@ fn is_identifier(value: &str) -> bool {
 }
 
 fn escape_key(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    use std::fmt::Write;
+
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{08}' => escaped.push_str("\\b"),
+            '\u{0c}' => escaped.push_str("\\f"),
+            ch if ch < '\u{20}' => {
+                write!(&mut escaped, "\\u{:04x}", u32::from(ch)).expect("write to a String");
+            }
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -2280,6 +2412,90 @@ mod tests {
                 before: Some(AnnotationPlacementPart::Value),
             })
         );
+    }
+
+    #[test]
+    fn binds_comments_on_named_nodes_and_following_bindings() {
+        let records = extract_annotations(
+            "//# root\n<page:node<string>(1, /? child ?/ 2)>\n//# later\nlater=3",
+        );
+        let paths: Vec<_> = records
+            .iter()
+            .map(|record| match &record.target {
+                AnnotationTarget::Path { path } => path.as_str(),
+                target => panic!("unbound annotation: {target:?}"),
+            })
+            .collect();
+        assert_eq!(paths, ["$.page", "$.page[1]", "$.later"]);
+    }
+
+    #[test]
+    fn binds_comments_inside_standalone_nodes_in_attributes() {
+        let records = extract_annotations(
+            r#"host@{<"line\nbreak"@{badge=/? badge ?/ 1}(1, /? child ?/ 2)>}=0"#,
+        );
+        let paths: Vec<_> = records
+            .iter()
+            .map(|record| match &record.target {
+                AnnotationTarget::Path { path } => path.as_str(),
+                target => panic!("unbound annotation: {target:?}"),
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                r#"$.host.@.["line\nbreak"].@.badge"#,
+                r#"$.host.@.["line\nbreak"][1]"#
+            ]
+        );
+    }
+
+    #[test]
+    fn binds_comments_after_a_structured_scalar_inside_an_attribute_node() {
+        for members in [
+            "<glyph($.items[0], /? child ?/ 2)>",
+            "flag=1, <glyph($.items[0], /? child ?/ 2)>",
+            "<glyph($.items[0], /? child ?/ 2)>, flag=1",
+        ] {
+            let source = format!("host@{{group@{{{members}}}=1}}=0");
+            let records = extract_annotations(&source);
+            assert_eq!(
+                records[0].target,
+                AnnotationTarget::Path {
+                    path: "$.host.@.group.@.glyph[1]".to_owned(),
+                },
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_hints_after_the_assignment_on_the_enclosing_attribute() {
+        for members in [
+            "flag=1, <glyph(2)>",
+            "<glyph(2)>, flag=1",
+            "flag=1",
+            r#"<"glyph=a">"#,
+            r#"<"glyph:a">"#,
+        ] {
+            let source = format!("host@{{group@{{{members}}}=/? group ?/ 1}}=0");
+            let records = extract_annotations(&source);
+            assert_eq!(
+                records[0].target,
+                AnnotationTarget::Path {
+                    path: "$.host.@.group".to_owned()
+                },
+                "{source}"
+            );
+            assert_eq!(
+                records[0].placement,
+                Some(AnnotationPlacement {
+                    after: Some(AnnotationPlacementPart::AttributeEquals),
+                    before: Some(AnnotationPlacementPart::AttributeValue),
+                }),
+                "{source}"
+            );
+        }
     }
 
     #[test]

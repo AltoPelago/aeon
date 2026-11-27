@@ -476,14 +476,6 @@ impl runtime::property::PropertyAccess for AeonSansaNamespace {
         {
             return Ok(PropertyScopeRole::Outside);
         }
-        if let Some(owner) = context.direct_head_of
-            && (!self.property_descendant(owner, context.scope_root)
-                || owner.node().representation_kind() != "NodeLiteral"
-                || binding.node().parent() != Some(owner.id)
-                || binding.node().representation_kind() != "NodeHead")
-        {
-            return Ok(PropertyScopeRole::Outside);
-        }
         Ok(if binding == context.scope_root {
             PropertyScopeRole::Root
         } else {
@@ -513,7 +505,6 @@ impl runtime::property::PropertyAccess for AeonSansaNamespace {
         }
         Ok(match binding.node().representation_kind() {
             "NodeLiteral" => PropertyNodeKind::NodeLiteral,
-            "NodeHead" => PropertyNodeKind::NodeHead,
             _ => PropertyNodeKind::Other,
         })
     }
@@ -526,33 +517,10 @@ impl runtime::property::PropertyAccess for AeonSansaNamespace {
         if !self.owns_property_binding(binding) {
             return Err(runtime::property::PropertyAccessError::ScopeViolation);
         }
-        if binding.node().representation_kind() != "NodeHead" {
-            return Err(runtime::property::PropertyAccessError::InvalidMetadata);
-        }
-        Ok(binding.node().value().map(str::to_owned))
-    }
-
-    fn node_heads<'a>(
-        &'a self,
-        binding: &'a Self::Binding,
-        _context: &'a runtime::property::PropertyAccessContext<'a, Self::Binding>,
-    ) -> Result<
-        runtime::property::PropertyHeads<'a, Self::Binding>,
-        runtime::property::PropertyAccessError,
-    > {
-        if !self.owns_property_binding(binding) {
-            return Err(runtime::property::PropertyAccessError::ScopeViolation);
-        }
         if binding.node().representation_kind() != "NodeLiteral" {
             return Err(runtime::property::PropertyAccessError::InvalidMetadata);
         }
-        Ok(Box::new(
-            binding
-                .node()
-                .children()
-                .iter()
-                .map(|id| Ok(binding.with_id(*id))),
-        ))
+        Ok(binding.node().tag().map(str::to_owned))
     }
 }
 
@@ -727,7 +695,7 @@ impl AeonSansaBinding {
         match node.representation_kind() {
             "StringLiteral" | "DateLiteral" | "DateTimeLiteral" | "TimeLiteral"
             | "WTCDateTimeLiteral" | "HexLiteral" | "RadixLiteral" | "EncodingLiteral"
-            | "SeparatorLiteral" | "SymbolicLiteral" | "ToggleLiteral" | "NodeHead" => {
+            | "SeparatorLiteral" | "SymbolicLiteral" | "ToggleLiteral" => {
                 value.map(|value| AeonSansaValue::Text(value.to_owned()))
             }
             "NumberLiteral" => match self.numeric_materialization {
@@ -796,7 +764,7 @@ impl AeonSansaBinding {
 
         let payload = node.value();
         Some(match node.representation_kind() {
-            "StringLiteral" | "NodeHead" => Value::String(payload?.to_owned()),
+            "StringLiteral" => Value::String(payload?.to_owned()),
             "NumberLiteral" => Value::FiniteNumber(FiniteNumber::parse(payload?).ok()?),
             "InfinityLiteral" if payload == Some("-Infinity") => Value::NegativeInfinity,
             "InfinityLiteral" => Value::PositiveInfinity,
@@ -862,28 +830,20 @@ impl AeonSansaBinding {
 
         use runtime::value_semantics::{ContainerValue, Value};
 
-        let head = self
-            .children()
-            .into_iter()
-            .find(|child| child.representation_kind() == "NodeHead");
         let mut node = BTreeMap::new();
-        let children = if let Some(head) = head {
-            if let Some(tag) = head.node_tag() {
-                node.insert(
-                    String::from("tag"),
-                    ContainerValue::Scalar(Box::new(Value::String(tag.to_owned()))),
-                );
-            }
-            if let Some(attributes) = head.attribute_space() {
-                node.insert(
-                    String::from("attributes"),
-                    attributes.runtime_container_payload(),
-                );
-            }
-            head.children()
-        } else {
-            Vec::new()
-        };
+        if let Some(tag) = self.node_tag() {
+            node.insert(
+                String::from("tag"),
+                ContainerValue::Scalar(Box::new(Value::String(tag.to_owned()))),
+            );
+        }
+        if let Some(attributes) = self.attribute_space() {
+            node.insert(
+                String::from("attributes"),
+                attributes.runtime_container_payload(),
+            );
+        }
+        let children = self.children();
         node.insert(
             String::from("children"),
             ContainerValue::Sequence(
@@ -940,17 +900,7 @@ impl AeonSansaBinding {
 
     #[must_use]
     pub fn node_tag(&self) -> Option<&str> {
-        match self.node().representation_kind() {
-            "NodeHead" => self.node().value(),
-            "NodeLiteral" => self
-                .node()
-                .children()
-                .iter()
-                .filter_map(|id| self.document.node(*id))
-                .find(|child| child.representation_kind() == "NodeHead")
-                .and_then(DocumentNode::value),
-            _ => None,
-        }
+        self.node().tag()
     }
 
     #[must_use]
@@ -1181,11 +1131,12 @@ mod tests {
                 None => None,
                 Some(value) => panic!("unknown datatype policy {value}"),
             };
-            let document = AeonDocument::compile(
-                fixture["source"].as_str().expect("fixture source"),
-                compile_options,
-            )
-            .expect("compile fixture document");
+            let historical_source = fixture["source"].as_str().expect("fixture source");
+            let original = "nodeValue:node = <tag(\"hello\")>";
+            let revised = "<tag:node(\"hello\")>";
+            let source = historical_source.replace(original, revised);
+            let document =
+                AeonDocument::compile(&source, compile_options).expect("compile fixture document");
 
             for (scope_name, expected) in fixture["scopes"].as_object().expect("scopes") {
                 let scope = match scope_name.as_str() {
@@ -1201,6 +1152,14 @@ mod tests {
                 );
                 let mut actual = snapshot_namespace(&namespace);
                 let mut expected = expected.clone();
+                if let Some(start) = historical_source.find(original) {
+                    revise_fixture_node_rows(
+                        &mut expected,
+                        &source,
+                        start,
+                        original.len() - revised.len(),
+                    );
+                }
                 omit_partial_sequence_spans(&mut actual);
                 omit_partial_sequence_spans(&mut expected);
                 assert_eq!(
@@ -1216,7 +1175,7 @@ mod tests {
     #[test]
     fn exposes_only_exact_rust_source_spans() {
         let document = AeonDocument::compile(
-            "named = 1\nsequence = [2]\nnode:node = <tag(\"value\")>",
+            "named = 1\nsequence = [2]\n<node:node(\"value\")>",
             CompileOptions::default(),
         )
         .expect("compile document");
@@ -1241,13 +1200,13 @@ mod tests {
         );
         assert!(
             namespace
-                .at_exact("$.node[0]")
+                .at_exact("$.node")
                 .and_then(|binding| binding.span().map(str::to_owned))
                 .is_some()
         );
         assert_eq!(
             namespace
-                .at_exact("$.node[0][0]")
+                .at_exact("$.node[0]")
                 .and_then(|binding| binding.span().map(str::to_owned)),
             None
         );
@@ -1439,11 +1398,11 @@ pointer = ~>text
 
         let namespace = AeonSansaNamespace::compile(
             r#"
-left:node = <alpha@{tone = "warm"}("x", "y")>
-same:node = <alpha@{tone = "warm"}("x", "y")>
-different_tag:node = <beta@{tone = "warm"}("x", "y")>
-different_attribute:node = <alpha@{tone = "cool"}("x", "y")>
-different_child_order:node = <alpha@{tone = "warm"}("y", "x")>
+left:list = [<alpha@{tone = "warm"}("x", "y")>]
+same:list = [<alpha@{tone = "warm"}("x", "y")>]
+different_tag:list = [<beta@{tone = "warm"}("x", "y")>]
+different_attribute:list = [<alpha@{tone = "cool"}("x", "y")>]
+different_child_order:list = [<alpha@{tone = "warm"}("y", "x")>]
 "#,
             CompileOptions::default(),
             AeonSansaScope::Payload,
@@ -1457,20 +1416,18 @@ different_child_order:node = <alpha@{tone = "warm"}("y", "x")>
             ("different_attribute", 0),
             ("different_child_order", 0),
         ] {
-            let query = format!("from $.left\nwhere . == $.{target}\nselect .");
+            let query = format!("from $.left[0]\nwhere . == $.{target}[0]\nselect .");
             let output = namespace.evaluate_query(&query, &EvaluateOptions::default());
             assert!(output.is_ok(), "{target}: {:?}", output.errors);
             assert_eq!(output.results.len(), expected_matches, "{target}");
         }
 
-        let head = namespace
-            .at_exact("$.left[0]")
-            .expect("node head binding should exist");
+        let node = namespace.at_exact("$.left[0]").expect("node");
+        assert_eq!(node.node_tag(), Some("alpha"));
+        let child = namespace.at_exact("$.left[0][0]").expect("direct child");
         assert_eq!(
-            head.runtime_value(),
-            Some(runtime::value_semantics::Value::String(String::from(
-                "alpha"
-            )))
+            child.runtime_value(),
+            Some(runtime::value_semantics::Value::String("x".to_owned()))
         );
     }
 
@@ -1656,6 +1613,54 @@ right = { code = "same", stage = |approved|, counts = [1, 2] }
         }
     }
 
+    fn revise_fixture_node_rows(snapshot: &mut Value, source: &str, start: usize, removed: usize) {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(source.as_bytes());
+        let origin = format!(
+            "sha256:{}",
+            digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let bindings = snapshot.as_array_mut().expect("scope rows");
+        bindings.retain(|row| row["address"] != "$.containers.nodeValue[0]");
+        for row in bindings {
+            match row["address"].as_str().expect("address") {
+                "$.containers" => {
+                    row["children"] = json!([
+                        "$.containers.series",
+                        "$.containers.pair",
+                        "$.containers.tag"
+                    ])
+                }
+                "$.containers.nodeValue" => {
+                    row["address"] = json!("$.containers.tag");
+                    row["name"] = json!("tag");
+                    row["children"] = json!(["$.containers.tag[0]"]);
+                }
+                "$.containers.nodeValue[0][0]" => {
+                    row["address"] = json!("$.containers.tag[0]");
+                    row["parent"] = json!("$.containers.tag");
+                }
+                _ => {}
+            }
+            if let Some(span) = row["span"].as_str() {
+                let (from, to) = span.split_once(':').expect("span coordinates");
+                let shift = |number: &str| {
+                    let offset: usize = number.parse().expect("offset");
+                    if offset > start {
+                        offset - removed
+                    } else {
+                        offset
+                    }
+                };
+                row["span"] = json!(format!("{}:{}", shift(from), shift(to)));
+                row["origin"] = json!(origin);
+            }
+        }
+    }
+
     fn omit_partial_sequence_spans(snapshot: &mut Value) {
         let Some(bindings) = snapshot.as_array_mut() else {
             return;
@@ -1665,7 +1670,7 @@ right = { code = "same", stage = |approved|, counts = [1, 2] }
                 continue;
             };
             if binding.contains_key("index")
-                && binding.get("representationKind").and_then(Value::as_str) != Some("NodeHead")
+                && binding.get("representationKind").and_then(Value::as_str) != Some("NodeLiteral")
             {
                 binding.remove("span");
             }
@@ -1874,7 +1879,7 @@ mod child_identity_tests {
         for (source, path, address) in [
             ("items=[\\i\\=2]", "$.items.\\i\\", "$.items[0]"),
             ("items=(\\t\\=2)", "$.items.\\t\\", "$.items[0]"),
-            ("node=<tag(\\n\\=2)>", "$.node[0].\\n\\", "$.node[0][0]"),
+            ("<node(\\n\\=2)>", "$.node.\\n\\", "$.node[0]"),
             ("a@{unit\\u\\=\"cm\"}=1", "$.a.@.\\u\\", "$.a.@.unit"),
         ] {
             let ns = AeonSansaNamespace::compile(

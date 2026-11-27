@@ -13,15 +13,14 @@ use super::{AttributeEntry, Binding, CanonicalResult, NodeValue, NullMode, Value
 /// Identifies canonical source bytes; integrity event hashing is independent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CanonicalOrdering {
-    /// Historical lexical sorting, including its existing parser behavior.
+    /// Lexical sorting of all named scopes.
     LexicalV1,
     /// Unicode-scalar smallest-eligible ordering after authored Core validation.
     #[default]
     ReferenceSafeV1,
 }
 
-/// Source canonicalization options. Defaults match immutable canonical CTS 0.4.
-/// Explicit LexicalV1 retains historical source bytes, not a new hash format.
+/// Source canonicalization options for the active AEON grammar.
 #[derive(Debug, Clone)]
 pub struct CanonicalizeOptions {
     pub ordering: CanonicalOrdering,
@@ -43,10 +42,7 @@ impl Default for CanonicalizeOptions {
 
 #[must_use]
 pub fn canonicalize_with_options(source: &str, options: &CanonicalizeOptions) -> CanonicalResult {
-    if options.ordering == CanonicalOrdering::LexicalV1 {
-        return super::canonicalize_lexical(source);
-    }
-    match canonicalize_reference_safe(source, options) {
+    match canonicalize_source(source, options) {
         Ok(text) => CanonicalResult {
             text,
             errors: Vec::new(),
@@ -58,17 +54,24 @@ pub fn canonicalize_with_options(source: &str, options: &CanonicalizeOptions) ->
     }
 }
 
-fn canonicalize_reference_safe(
+fn canonicalize_source(
     source: &str,
     options: &CanonicalizeOptions,
 ) -> Result<String, Vec<Diagnostic>> {
     let authored = aeon_core::parse_document(source, &options.limits)?;
     let (header, mut body) = convert_document(&authored).map_err(|error| vec![error])?;
     let mut header = header;
+    let lexical = options.ordering == CanonicalOrdering::LexicalV1;
     if let Some(header) = header.as_mut() {
-        prepare_bindings(header).map_err(|error| vec![error])?;
+        prepare_bindings(header, lexical).map_err(|error| vec![error])?;
     }
-    prepare_bindings(&mut body).map_err(|error| vec![error])?;
+    prepare_bindings(&mut body, lexical).map_err(|error| vec![error])?;
+    if lexical {
+        return Ok(super::render_document(
+            header.unwrap_or_else(super::default_header),
+            body,
+        ));
+    }
     let mut index = Index::build(header.as_deref().unwrap_or(&[]), &body);
     let errors = index.validate(options.limits.max_attribute_depth);
     if !errors.is_empty() {
@@ -257,20 +260,17 @@ fn convert_value(value: &aeon_core::Value) -> Value {
             attribute_order,
             children,
             ..
-        } => {
-            let entries = attributes
-                .iter()
-                .flat_map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())))
-                .collect();
-            Value::Node(NodeValue {
-                canonical_key: true,
-                tag: tag.clone(),
-                structural_id: structural_id.clone(),
-                datatype: datatype.clone(),
-                attributes: convert_attributes(&entries, attribute_order),
-                children: children.iter().map(convert_value).collect(),
-            })
-        }
+        } => Value::Node(NodeValue {
+            canonical_key: true,
+            tag: tag.clone(),
+            structural_id: structural_id.clone(),
+            datatype: datatype.clone(),
+            attributes: attributes
+                .first()
+                .map(|entries| convert_attributes(entries, attribute_order))
+                .unwrap_or_default(),
+            children: children.iter().map(convert_value).collect(),
+        }),
         Native::CloneReference { segments, span } | Native::PointerReference { segments, span } => {
             Value::Reference {
                 segments: segments.iter().map(Segment::from).collect(),
@@ -580,7 +580,6 @@ impl Index {
                 &node.attributes,
                 path,
                 Context {
-                    targetable: false,
                     actual: false,
                     ..context
                 },
@@ -798,7 +797,21 @@ fn format_datatype(raw: &str) -> Result<String, Diagnostic> {
                 output.push_str(&super::normalize_number(&token.text));
             }
             aeon_core::TokenKind::String => {
-                let decoded = super::Parser::new(&token.text).parse_quoted_string()?;
+                let source = format!("value={}", token.text);
+                let mut bindings =
+                    aeon_core::parse_document(&source, &AeonCompileLimits::default()).map_err(
+                        |errors| {
+                            errors
+                                .into_iter()
+                                .next()
+                                .unwrap_or_else(|| conflict("Cannot decode datatype clarifier"))
+                        },
+                    )?;
+                let Some(aeon_core::Value::StringLiteral { value: decoded, .. }) =
+                    bindings.pop().map(|binding| binding.value)
+                else {
+                    return Err(conflict("Cannot decode datatype clarifier"));
+                };
                 output.push_str(
                     &serde_json::to_string(&decoded)
                         .map_err(|_| conflict("Cannot render datatype clarifier"))?,
@@ -817,25 +830,34 @@ fn prepare_datatype(datatype: &mut Option<String>) -> Result<(), Diagnostic> {
     Ok(())
 }
 
-fn prepare_bindings(entries: &mut [Binding]) -> Result<(), Diagnostic> {
+fn prepare_bindings(entries: &mut [Binding], lexical: bool) -> Result<(), Diagnostic> {
     for entry in entries {
+        if lexical {
+            entry.rank = None;
+        }
         prepare_datatype(&mut entry.datatype)?;
-        prepare_attributes(&mut entry.attributes)?;
-        prepare_value(&mut entry.value)?;
+        prepare_attributes(&mut entry.attributes, lexical)?;
+        prepare_value(&mut entry.value, lexical)?;
     }
     Ok(())
 }
 
-fn prepare_attributes(entries: &mut BTreeMap<String, AttributeEntry>) -> Result<(), Diagnostic> {
-    for entry in entries.values_mut() {
+fn prepare_attributes(
+    entries: &mut BTreeMap<String, AttributeEntry>,
+    lexical: bool,
+) -> Result<(), Diagnostic> {
+    for (index, entry) in entries.values_mut().enumerate() {
+        if lexical {
+            entry.rank = Some(index);
+        }
         prepare_datatype(&mut entry.datatype)?;
-        prepare_attributes(&mut entry.attributes)?;
-        prepare_value(&mut entry.value)?;
+        prepare_attributes(&mut entry.attributes, lexical)?;
+        prepare_value(&mut entry.value, lexical)?;
     }
     Ok(())
 }
 
-fn prepare_value(value: &mut Value) -> Result<(), Diagnostic> {
+fn prepare_value(value: &mut Value, lexical: bool) -> Result<(), Diagnostic> {
     match value {
         Value::Attributed {
             attributes,
@@ -844,20 +866,20 @@ fn prepare_value(value: &mut Value) -> Result<(), Diagnostic> {
             ..
         } => {
             prepare_datatype(datatype)?;
-            prepare_attributes(attributes)?;
-            prepare_value(value)?;
+            prepare_attributes(attributes, lexical)?;
+            prepare_value(value, lexical)?;
         }
-        Value::Object(entries) => prepare_bindings(entries)?,
+        Value::Object(entries) => prepare_bindings(entries, lexical)?,
         Value::List(items) | Value::Tuple(items) => {
             for item in items {
-                prepare_value(item)?;
+                prepare_value(item, lexical)?;
             }
         }
         Value::Node(node) => {
             prepare_datatype(&mut node.datatype)?;
-            prepare_attributes(&mut node.attributes)?;
+            prepare_attributes(&mut node.attributes, lexical)?;
             for child in &mut node.children {
-                prepare_value(child)?;
+                prepare_value(child, lexical)?;
             }
         }
         _ => {}
@@ -970,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn default_contract_is_reference_safe_and_explicit_legacy_preserves_bytes() {
+    fn default_contract_is_reference_safe_and_explicit_lexical_sorts_keys() {
         let source = "z=1\na=~z";
         assert_eq!(
             canonicalize_with_options(source, &CanonicalizeOptions::default()),
@@ -982,17 +1004,28 @@ mod tests {
     }
 
     #[test]
-    fn compact_empty_objects_keep_historical_bytes_in_explicit_legacy() {
-        for (source, suffix) in [
-            ("a@{m={}}=0", "a@{m = {}} = 0\n"),
-            ("a@{m=[{}]}=0", "a@{m = [{}]} = 0\n"),
-            ("a@{m=<tag({})>}=0", "a@{m = <tag({})>} = 0\n"),
+    fn both_orderings_render_compact_empty_objects_and_named_nodes() {
+        for source in ["a@{m={}}=0", "a@{m=[{}]}=0", "a@{<tag({})>}=0"] {
+            let reference_safe = canonical(source);
+            assert!(reference_safe.contains("{  }"), "{reference_safe}");
+            let lexically_ordered = legacy(source);
+            assert!(
+                lexically_ordered.errors.is_empty(),
+                "{:?}",
+                lexically_ordered.errors
+            );
+            assert_eq!(lexically_ordered.text, reference_safe);
+        }
+        for ordering in [
+            CanonicalOrdering::ReferenceSafeV1,
+            CanonicalOrdering::LexicalV1,
         ] {
-            let legacy = legacy(source);
-            assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
-            assert!(legacy.text.ends_with(suffix), "{}", legacy.text);
-            assert_eq!(super::super::canonicalize_lexical(source), legacy);
-            assert!(canonical(source).contains("{  }"));
+            let options = CanonicalizeOptions {
+                ordering,
+                ..options()
+            };
+            let retired = canonicalize_with_options("a=<tag>", &options);
+            assert_eq!(retired.errors[0].code, "SYNTAX_ERROR");
         }
     }
 
@@ -1060,7 +1093,7 @@ mod tests {
             (header, body)
         }
         let fixtures: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../test-fixtures/canonical-rendering-boundaries.json"
+            "../../../../../test-fixtures/canonical-rendering-boundaries-tagged-nodes.json"
         ))
         .expect("shared fixtures");
         for fixture in fixtures.as_array().expect("fixture array") {
@@ -1087,14 +1120,21 @@ mod tests {
         ))
         .expect("generic fixtures");
         let node_bindings: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../test-fixtures/node-binding-generics.json"
+            "../../../../../test-fixtures/node-binding-generics-tagged-nodes.json"
         ))
         .expect("node-binding fixtures");
-        for fixture in fixtures
+        for (fixture, historical) in fixtures
             .as_array()
             .expect("fixture array")
             .iter()
-            .chain(node_bindings.as_array().expect("fixture array"))
+            .map(|fixture| (fixture, true))
+            .chain(
+                node_bindings
+                    .as_array()
+                    .expect("fixture array")
+                    .iter()
+                    .map(|fixture| (fixture, false)),
+            )
         {
             let source = fixture["source"].as_str().expect("source");
             let valid = fixture["ok"].as_bool().expect("ok");
@@ -1122,11 +1162,14 @@ mod tests {
                     );
                 }
             }
-            for result in [
+            let mut results = vec![
                 super::super::canonicalize(source),
                 canonicalize_with_options(source, &options()),
-                legacy(source),
-            ] {
+            ];
+            if historical {
+                results.push(legacy(source));
+            }
+            for result in results {
                 assert_eq!(
                     result.errors.is_empty(),
                     valid,
@@ -1211,7 +1254,7 @@ mod tests {
                 format!("x@{{n:custom[{raw}]={raw}}}=0"),
                 format!("x=[:custom[{raw}]={raw}]"),
                 format!("x=(:custom[{raw}]={raw})"),
-                format!("x=<tag(:custom[{raw}]={raw})>"),
+                format!("<x(:custom[{raw}]={raw})>"),
                 format!("x:list<custom[{raw}]>=[{raw}]"),
                 format!("aeon:header={{x:custom[{raw}]={raw}}}"),
             ] {
@@ -1245,17 +1288,17 @@ mod tests {
     }
 
     #[test]
-    fn head_and_separator_fixes_do_not_change_historical_bytes() {
+    fn lexical_ordering_preserves_head_and_separator_literal_kinds() {
         for (source, suffix) in [
-            (r#""aeon":custom=1"#, "aeon:custom = 1\n"),
-            (r#"a@{"aeon":custom=1}=0"#, "a@{aeon:custom = 1} = 0\n"),
-            (r#"a=<"aeon":custom>"#, "a = <aeon:custom>\n"),
-            (r#"v=^'a.["foo"]'"#, "v = ^'a.foo'\n"),
+            (r#""aeon":custom=1"#, "\"aeon\":custom = 1\n"),
+            (r#"a@{"aeon":custom=1}=0"#, "a@{\"aeon\":custom = 1} = 0\n"),
+            (r#"<"aeon":custom>"#, "<\"aeon\":custom>\n"),
+            (r#"v=^'a.["foo"]'"#, "v = ^'a.[\"foo\"]'\n"),
         ] {
             let legacy = legacy(source);
             assert!(legacy.errors.is_empty(), "{:?}", legacy.errors);
             assert!(legacy.text.ends_with(suffix), "{}", legacy.text);
-            assert_eq!(super::super::canonicalize_lexical(source), legacy);
+            assert_eq!(legacy.text, canonical(source));
         }
     }
 
@@ -1298,7 +1341,7 @@ mod tests {
             "z=1\na@{z=0,b=~z,a=0}=0",
             "a=[@{z={leaf=1}}=~a[0].@.z.leaf,2]\nb=~a[1]",
             "a=(@{z=1}=~>a[0].@.z,2)\nb=~a[1]",
-            "a=<tag(@{z=1}=~a[0].@.z,2)>\nb=~a[1]",
+            "<a(@{z=1}=~a[0].@.z,2)>\nb=~a[1]",
         ] {
             canonical(source);
         }
@@ -1314,8 +1357,8 @@ mod tests {
             ("a=~a", "SELF_REFERENCE"),
             ("a@{x=~a}=0", "SELF_REFERENCE"),
             ("a=~[\"aeon:version\"]", "MISSING_REFERENCE_TARGET"),
-            ("a=<tag@{z=1}>\nb=~a.@.z", "MISSING_REFERENCE_TARGET"),
-            ("a=<tag@{meta={copy=~a}}>", "SELF_REFERENCE"),
+            ("<a@{b=~a.@.z,z=1}>", "FORWARD_REFERENCE"),
+            ("<a@{meta={copy=~a}}>", "SELF_REFERENCE"),
             ("a=[~a]", "SELF_REFERENCE"),
             (
                 "aeon:version=1\na=~[\"aeon:version\"]\n\"aeon:version\"=2",
@@ -1356,14 +1399,14 @@ mod tests {
     #[test]
     fn literal_families_identities_and_nonreference_payloads_are_retained() {
         let output = canonical(
-            "aeon:header={}\na:custom=|~missing|\nb:prose=>`line\nnext`\nc=2024-02-29T23:59:60.1234567890123\nd=`ordinary`\ne=^~missing\nf=$.missing\nz\\TARGET\\@{meta\\META\\=1}=<tag\\HEAD\\@{x=2}>\ny\\REF\\=~>z.@.meta",
+            "aeon:header={}\na:custom=|~missing|\nb:prose=>`line\nnext`\nc=2024-02-29T23:59:60.1234567890123\nd=`ordinary`\ne=^~missing\nf=$.missing\n<z\\TARGET\\@{meta\\META\\=1, x=2}>\ny\\REF\\=~>z.@.meta",
         );
         assert!(output.contains("a:custom = |~missing|"));
         assert!(output.contains("b:prose = >`"));
         assert!(output.contains("d = \"ordinary\""));
-        assert!(output.contains("<tag\\HEAD\\@{x = 2}>"));
+        assert!(output.contains("<z\\TARGET\\@{meta\\META\\ = 1, x = 2}>"));
         // Node heads rendered inside inline metadata also retain identity.
-        assert!(canonical("a@{m=<tag\\HEAD\\>}=0").contains("<tag\\HEAD\\>"));
+        assert!(canonical("a@{<m\\HEAD\\>}=0").contains("<m\\HEAD\\>"));
         canonical("aeon:profile=\"aeon.gp.profile.v1\"\na=23:59:60.123456789012345\nb:custom=|x|");
     }
 

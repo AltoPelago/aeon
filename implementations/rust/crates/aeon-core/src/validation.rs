@@ -338,14 +338,11 @@ fn validate_duplicate_object_member_keys_in_value(
             children,
             ..
         } => {
-            // Implicit node heads have no source-path spelling. Locate a
-            // diagnostic at the owning payload, not a fictitious attribute
-            // selector that aliases binding or anonymous-value metadata.
             for attributes in attributes {
                 found_duplicate |= validate_duplicate_object_member_keys_in_attributes(
                     attributes,
                     path,
-                    Some(diagnostic_owner.unwrap_or(path)),
+                    diagnostic_owner,
                     errors,
                 );
             }
@@ -520,17 +517,7 @@ fn collect_compact_value_references(
             });
         }
         Value::ObjectNode { .. } | Value::ListNode { .. } | Value::TupleLiteral { .. } => {}
-        Value::NodeLiteral { attributes, .. } => {
-            for attribute in attributes {
-                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
-                collect_compact_attribute_references(
-                    attribute,
-                    &attribute_order,
-                    current_path,
-                    compact,
-                );
-            }
-        }
+
         _ => {}
     }
 }
@@ -551,77 +538,6 @@ pub(crate) fn append_compact_value_references(
         return;
     }
     collect_compact_value_references(value, current_path, owner_path, compact);
-}
-
-fn collect_compact_attribute_references(
-    attributes: &BTreeMap<String, AttributeValue>,
-    attribute_order: &[String],
-    current_path: &str,
-    compact: &mut Vec<CompactReferenceStep>,
-) {
-    for key in attribute_order {
-        let Some(entry) = attributes.get(key) else {
-            continue;
-        };
-        collect_compact_attribute_references(
-            &entry.object_members,
-            &entry.object_member_order,
-            current_path,
-            compact,
-        );
-        collect_compact_attribute_references(
-            &entry.nested_attrs,
-            &entry.nested_attr_order,
-            current_path,
-            compact,
-        );
-        if let Some(value) = &entry.value {
-            collect_unaddressable_value_references(value, current_path, compact);
-        }
-    }
-}
-
-// Node-head metadata has no source address of its own, but every reference in
-// its payload still needs validation. Keep it separate from binding targets.
-fn collect_unaddressable_value_references(
-    value: &Value,
-    owner: &str,
-    compact: &mut Vec<CompactReferenceStep>,
-) {
-    match value {
-        Value::TypedValue {
-            attributes,
-            attribute_order,
-            value,
-            ..
-        } => {
-            collect_compact_attribute_references(attributes, attribute_order, owner, compact);
-            collect_unaddressable_value_references(value, owner, compact);
-        }
-        Value::ObjectNode { bindings } => {
-            for binding in bindings {
-                collect_compact_attribute_references(
-                    &binding.attributes,
-                    &binding.attribute_order,
-                    owner,
-                    compact,
-                );
-                collect_unaddressable_value_references(&binding.value, owner, compact);
-            }
-        }
-        Value::ListNode { items } | Value::TupleLiteral { items } => {
-            for item in items {
-                collect_unaddressable_value_references(item, owner, compact);
-            }
-        }
-        Value::NodeLiteral { children, .. } => {
-            collect_compact_value_references(value, owner, owner, compact);
-            for child in children {
-                collect_unaddressable_value_references(child, owner, compact);
-            }
-        }
-        _ => collect_compact_value_references(value, owner, owner, compact),
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -738,6 +654,12 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
         let path = path.as_ref();
         if let Some(datatype) = &event.datatype {
             if let Some(error) =
+                invalid_inline_node_datatype(&event.value, datatype, path, event.span, mode)
+            {
+                errors.push(error);
+                continue;
+            }
+            if let Some(error) =
                 validate_datatype_shape(datatype, event, max_separator_depth, max_generic_depth)
             {
                 let path_override = match error.code.as_str() {
@@ -793,6 +715,11 @@ pub(crate) fn validate_direct_event_datatype(
     max_generic_depth: usize,
 ) -> Option<Diagnostic> {
     let datatype = event.datatype.as_deref()?;
+    if let Some(error) =
+        invalid_inline_node_datatype(&event.value, datatype, path, event.span, mode)
+    {
+        return Some(error);
+    }
     if matches!(
         event.value,
         Value::CloneReference { .. } | Value::PointerReference { .. }
@@ -990,7 +917,7 @@ pub(crate) fn collect_attribute_datatype_checks(
     validate_attribute_datatypes_in_scope(
         bindings,
         "$",
-        None,
+        AttributeValueScope::Projected,
         mode,
         effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
@@ -1016,6 +943,12 @@ pub(crate) fn validate_datatypes_light(
     let mut authored_targets = AuthoredDatatypeTargets::new(bindings, false);
     for event in events {
         if let Some(datatype) = &event.datatype {
+            if let Some(error) =
+                invalid_inline_node_datatype(event.value, datatype, &event.path, event.span, mode)
+            {
+                errors.push(error);
+                continue;
+            }
             if let Some(error) = validate_datatype_shape_light(
                 datatype,
                 event.value,
@@ -1313,7 +1246,14 @@ fn resolve_reference_remainder_target<'a>(
     }
     match &remainder[0] {
         ReferenceSegment::Attr(key) => {
-            let attr = annotations?.get(key)?;
+            let attr = annotations
+                .and_then(|entries| entries.get(key))
+                .or_else(|| {
+                    let Value::NodeLiteral { attributes, .. } = value else {
+                        return None;
+                    };
+                    attributes.iter().find_map(|entries| entries.get(key))
+                })?;
             resolve_reference_remainder_from_attr_target(attr, &remainder[1..], member)
         }
         ReferenceSegment::Key(key) => {
@@ -1357,11 +1297,13 @@ fn resolve_reference_remainder_from_attr_target<'a>(
         return Some(AssignmentReferenceTarget::Attribute(attr));
     }
     match &remainder[0] {
-        ReferenceSegment::Attr(key) => resolve_reference_remainder_from_attr_target(
-            attr.nested_attrs.get(key)?,
-            &remainder[1..],
-            member,
-        ),
+        ReferenceSegment::Attr(key) => {
+            if let Some(entry) = attr.nested_attrs.get(key) {
+                resolve_reference_remainder_from_attr_target(entry, &remainder[1..], member)
+            } else {
+                resolve_reference_remainder_target(attr.value.as_ref()?, None, remainder, member)
+            }
+        }
         ReferenceSegment::Key(key) => {
             if let Some(entry) = attr.object_members.get(key) {
                 resolve_reference_remainder_from_attr_target(entry, &remainder[1..], member)
@@ -1386,11 +1328,10 @@ fn validate_typed_mode_rules_in_scope(
         if matches!(parent.segments.as_slice(), [crate::PathSegment::Root]) && binding.is_header {
             continue;
         }
-        let should_emit_untyped_value_error = !binding.is_header
-            && binding.datatype.is_none()
-            && !(matches!(mode, BehaviorMode::Strict)
-                && matches!(binding.value, Value::ToggleLiteral { .. }));
-        if should_emit_untyped_value_error {
+        let strict_toggle =
+            mode == BehaviorMode::Strict && matches!(binding.value, Value::ToggleLiteral { .. });
+        let implicitly_typed = matches!(binding.value, Value::NodeLiteral { .. }) || strict_toggle;
+        if !binding.is_header && binding.datatype.is_none() && !implicitly_typed {
             errors.push(
                 Diagnostic::new(
                     "UNTYPED_VALUE_IN_STRICT_MODE",
@@ -1411,75 +1352,25 @@ fn validate_typed_mode_rules_in_scope(
             mode,
             errors,
         );
-        validate_node_head_datatypes_in_value(&binding.value, &path, binding.span, mode, errors);
         if let Value::ObjectNode { bindings: nested } = &binding.value {
             validate_typed_mode_rules_in_scope(nested, &path, mode, errors);
         }
     }
 }
 
-fn validate_node_head_datatypes_in_value(
+fn invalid_inline_node_datatype(
     value: &Value,
-    path: &CanonicalPath,
-    owner_span: Span,
+    datatype: &str,
+    path: &str,
+    span: Span,
     mode: BehaviorMode,
-    errors: &mut Vec<Diagnostic>,
-) {
-    match value {
-        Value::NodeLiteral {
-            datatype, children, ..
-        } => {
-            if matches!(mode, BehaviorMode::Strict)
-                && let Some(datatype) = datatype
-                && datatype_base(datatype) != "node"
-            {
-                errors.push(
-                    Diagnostic::new(
-                        "INVALID_NODE_HEAD_DATATYPE",
-                        format!(
-                            "Invalid node head datatype in strict mode at '{}': node heads must use ':node', got ':{}'",
-                            format_path(path),
-                            datatype
-                        ),
-                    )
-                    .at_path(format_path(path))
-                    .with_span(owner_span),
-                );
-            }
-            for (index, child) in children.iter().enumerate() {
-                validate_node_head_datatypes_in_value(
-                    child,
-                    &path.index(index),
-                    owner_span,
-                    mode,
-                    errors,
-                );
-            }
-        }
-        Value::ObjectNode { bindings } => {
-            for binding in bindings {
-                validate_node_head_datatypes_in_value(
-                    &binding.value,
-                    &path.member(binding.key.clone()),
-                    binding.span,
-                    mode,
-                    errors,
-                );
-            }
-        }
-        Value::ListNode { items } | Value::TupleLiteral { items } => {
-            for (index, item) in items.iter().enumerate() {
-                validate_node_head_datatypes_in_value(
-                    item,
-                    &path.index(index),
-                    owner_span,
-                    mode,
-                    errors,
-                );
-            }
-        }
-        _ => {}
-    }
+) -> Option<Diagnostic> {
+    (matches!(mode, BehaviorMode::Strict) && matches!(value, Value::NodeLiteral { .. })
+        && datatype_base(datatype) != "node")
+        .then(|| Diagnostic::new(
+            "INVALID_NODE_DATATYPE",
+            format!("Invalid node datatype in strict mode at '{path}': expected ':node', got ':{datatype}'"),
+        ).at_path(path).with_span(span))
 }
 
 fn validate_switch_literal_in_value(
@@ -2794,10 +2685,59 @@ fn validate_resolved_attribute_datatypes(
     }
 }
 
+#[derive(Clone, Copy)]
+enum AttributeValueScope {
+    Projected,
+    Metadata,
+    NodePayload(Span),
+}
+
+fn check_metadata_payload_type(
+    datatype: &str,
+    value: &Value,
+    path: &str,
+    span: Span,
+    mode: BehaviorMode,
+    datatype_policy: DatatypePolicy,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+) -> Option<AttributeDatatypeCheck> {
+    if let Some(error) =
+        invalid_inline_node_datatype(value, datatype, path, span, mode).or_else(|| {
+            validate_datatype_shape_light(datatype, value, max_separator_depth, max_generic_depth)
+                .map(|error| error.at_path(path).with_span(span))
+        })
+    {
+        return Some(AttributeDatatypeCheck::Error(error));
+    }
+    if is_reserved_datatype(datatype)
+        && matches!(
+            value,
+            Value::CloneReference { .. } | Value::PointerReference { .. }
+        )
+    {
+        return Some(AttributeDatatypeCheck::Reference {
+            path: path.to_owned(),
+            datatype: datatype.to_owned(),
+            value: value.clone(),
+            profile_custom: false,
+        });
+    }
+    datatype_value_error(
+        datatype,
+        &CompactDatatypeValue::from_value(value),
+        path,
+        span,
+        mode,
+        datatype_policy,
+    )
+    .map(AttributeDatatypeCheck::Error)
+}
+
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &str,
-    node_head_owner: Option<&str>,
+    scope: AttributeValueScope,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2806,11 +2746,33 @@ fn validate_attribute_datatypes_in_scope(
 ) {
     for binding in bindings {
         let path = render_child_member_path(parent, &binding.key);
+        if matches!(scope, AttributeValueScope::NodePayload(_))
+            && !matches!(binding.value, Value::NodeLiteral { .. })
+        {
+            if let Some(datatype) = binding.datatype.as_deref() {
+                checks.extend(check_metadata_payload_type(
+                    datatype,
+                    &binding.value,
+                    &path,
+                    binding.span,
+                    mode,
+                    datatype_policy,
+                    max_separator_depth,
+                    max_generic_depth,
+                ));
+            } else if matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom) {
+                checks.push(AttributeDatatypeCheck::Error(
+                    Diagnostic::new(
+                        "UNTYPED_VALUE_IN_STRICT_MODE",
+                        format!("Untyped value in typed mode: '{path}' requires explicit type annotation"),
+                    ).at_path(&path).with_span(binding.span),
+                ));
+            }
+        }
         validate_attribute_datatype_map(
             &binding.attributes,
             &binding.attribute_order,
             format_args!("{path}.@"),
-            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2820,7 +2782,7 @@ fn validate_attribute_datatypes_in_scope(
         validate_value_attribute_datatypes(
             &binding.value,
             &path,
-            node_head_owner,
+            scope,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2833,7 +2795,7 @@ fn validate_attribute_datatypes_in_scope(
 fn validate_value_attribute_datatypes(
     value: &Value,
     path: &str,
-    node_head_owner: Option<&str>,
+    scope: AttributeValueScope,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2844,7 +2806,7 @@ fn validate_value_attribute_datatypes(
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
             bindings,
             path,
-            node_head_owner,
+            scope,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2856,7 +2818,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     item,
                     &render_child_index_path(path, index),
-                    node_head_owner,
+                    scope,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2867,16 +2829,39 @@ fn validate_value_attribute_datatypes(
         }
         Value::NodeLiteral {
             attributes,
+            attribute_order,
             children,
+            datatype,
+            span,
             ..
         } => {
-            for attribute in attributes {
-                let attribute_order = attribute.keys().cloned().collect::<Vec<_>>();
+            let child_scope = if matches!(scope, AttributeValueScope::Projected) {
+                scope
+            } else {
+                if let Some(datatype) = datatype {
+                    checks.extend(check_metadata_payload_type(
+                        datatype,
+                        value,
+                        path,
+                        *span,
+                        mode,
+                        datatype_policy,
+                        max_separator_depth,
+                        max_generic_depth,
+                    ));
+                }
+                AttributeValueScope::NodePayload(*span)
+            };
+            for (index, attribute) in attributes.iter().enumerate() {
+                let order = if index == 0 {
+                    attribute_order.as_slice()
+                } else {
+                    &[]
+                };
                 validate_attribute_datatype_map(
                     attribute,
-                    &attribute_order,
+                    order,
                     format_args!("{path}.@"),
-                    node_head_owner.or(Some(path)),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2888,7 +2873,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     child,
                     &render_child_index_path(path, index),
-                    node_head_owner,
+                    child_scope,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2896,6 +2881,51 @@ fn validate_value_attribute_datatypes(
                     checks,
                 );
             }
+        }
+        Value::TypedValue {
+            datatype,
+            attributes,
+            attribute_order,
+            value,
+            ..
+        } => {
+            if matches!(scope, AttributeValueScope::Projected) {
+                return;
+            }
+            if let AttributeValueScope::NodePayload(span) = scope
+                && let Some(datatype) = datatype
+            {
+                checks.extend(check_metadata_payload_type(
+                    datatype,
+                    value,
+                    path,
+                    span,
+                    mode,
+                    datatype_policy,
+                    max_separator_depth,
+                    max_generic_depth,
+                ));
+            }
+            validate_attribute_datatype_map(
+                attributes,
+                attribute_order,
+                format_args!("{path}.@"),
+                mode,
+                datatype_policy,
+                max_separator_depth,
+                max_generic_depth,
+                checks,
+            );
+            validate_value_attribute_datatypes(
+                value,
+                path,
+                scope,
+                mode,
+                datatype_policy,
+                max_separator_depth,
+                max_generic_depth,
+                checks,
+            );
         }
         _ => {}
     }
@@ -2905,7 +2935,6 @@ fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
     parent_path: std::fmt::Arguments<'_>,
-    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2924,6 +2953,7 @@ fn validate_attribute_datatype_map(
         if entry.datatype.is_none()
             && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
             && let Some(value) = &entry.value
+            && !matches!(value, Value::NodeLiteral { .. })
         {
             if matches!(mode, BehaviorMode::Strict) && matches!(value, Value::ToggleLiteral { .. })
             {
@@ -2950,15 +2980,12 @@ fn validate_attribute_datatype_map(
                 ));
             }
         } else if let Some(datatype) = &entry.datatype {
-            // An implicit node head cannot be addressed through its owner.
-            // Locate a bare object on the owning value and its authored span.
-            let object_owner = node_head_owner.filter(|_| entry.value.is_none());
-            let datatype_path = object_owner.unwrap_or(&attr_path);
+            let datatype_path = attr_path.as_str();
             let locate = |error: Diagnostic, path: &str| {
                 let error = error.at_path(path);
-                match (object_owner, entry.span) {
-                    (Some(_), Some(span)) => error.with_span(span),
-                    _ => error,
+                match entry.span {
+                    Some(span) => error.with_span(span),
+                    None => error,
                 }
             };
             let value = entry.datatype_value();
@@ -3015,7 +3042,6 @@ fn validate_attribute_datatype_map(
             &entry.nested_attrs,
             &entry.nested_attr_order,
             format_args!("{attr_path}.@"),
-            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -3026,7 +3052,6 @@ fn validate_attribute_datatype_map(
             &entry.object_members,
             &entry.object_member_order,
             format_args!("{attr_path}"),
-            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -3037,7 +3062,7 @@ fn validate_attribute_datatype_map(
             validate_value_attribute_datatypes(
                 value,
                 &attr_path,
-                node_head_owner,
+                AttributeValueScope::Metadata,
                 mode,
                 datatype_policy,
                 max_separator_depth,

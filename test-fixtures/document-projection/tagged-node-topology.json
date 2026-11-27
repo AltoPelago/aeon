@@ -1,0 +1,64 @@
+[
+  {
+    "id": "named-node-metadata-and-child",
+    "source": "<tag\\NODE\\@{keyMeta\\KEY_META\\ = \"outer\", role\\ROLE\\ = \"button\"}:node(\\CHILD\\ = \"hello\")>",
+    "events": [
+      {
+        "path": "$.tag",
+        "kind": "NodeLiteral",
+        "identity": "NODE",
+        "datatype": "node",
+        "tag": "tag"
+      },
+      {
+        "path": "$.tag.@.keyMeta",
+        "kind": "StringLiteral",
+        "identity": "KEY_META",
+        "value": "outer"
+      },
+      {
+        "path": "$.tag.@.role",
+        "kind": "StringLiteral",
+        "identity": "ROLE",
+        "value": "button"
+      },
+      {
+        "path": "$.tag[0]",
+        "kind": "StringLiteral",
+        "identity": "CHILD",
+        "value": "hello"
+      }
+    ]
+  },
+  {
+    "id": "attribute-node-reference-paths",
+    "source": "a@{<tag(1, ~a.@.tag[0])>} = 1\ncopy = ~a.@.tag[0]",
+    "events": [
+      {
+        "path": "$.a",
+        "kind": "NumberLiteral",
+        "value": "1"
+      },
+      {
+        "path": "$.a.@.tag",
+        "kind": "NodeLiteral",
+        "tag": "tag"
+      },
+      {
+        "path": "$.a.@.tag[0]",
+        "kind": "NumberLiteral",
+        "value": "1"
+      },
+      {
+        "path": "$.a.@.tag[1]",
+        "kind": "CloneReference",
+        "value": "$.a.@.tag[0]"
+      },
+      {
+        "path": "$.copy",
+        "kind": "CloneReference",
+        "value": "$.a.@.tag[0]"
+      }
+    ]
+  }
+]

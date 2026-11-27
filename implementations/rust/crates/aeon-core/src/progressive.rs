@@ -2669,19 +2669,14 @@ mod tests {
     }
 
     #[test]
-    fn bare_node_head_metadata_diagnostic_locates_the_authored_entry() {
-        for (source, attribute) in [
+    fn node_metadata_diagnostic_locates_the_authored_entry() {
+        for (source, attribute, path) in [
+            ("<a@{m:number = {}}>", "m:number = {}", "$.a.@.m"),
+            ("<a@{<m@{q:number = {}}>}>", "q:number = {}", "$.a.@.m.@.q"),
             (
-                "a@{m:object = {}}:node = <tag@{m:number = {}}>\nb:object = ~a.@.m",
-                "m:number = {}",
-            ),
-            (
-                "a@{m:node = <good>}:node = <tag@{m:node = <inner@{q:number = {}}>}>\nb:node = ~a.@.m",
-                "q:number = {}",
-            ),
-            (
-                "a@{m:list = [{q@{n:object = {}}:number = 1}]}:node = <tag@{m:list = [{q@{n:number = {}}:number = 1}]}>\nb:object = ~a.@.m[0]",
+                "<a@{m:list = [{q@{n:number = {}}:number = 1}]}>",
                 "n:number = {}",
+                "$.a.@.m[0].q.@.n",
             ),
         ] {
             let options = CompileOptions {
@@ -2700,9 +2695,45 @@ mod tests {
                     panic!("one datatype diagnostic expected: {errors:?}");
                 };
                 assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
-                assert_eq!(error.path.as_deref(), Some("$.a"));
+                assert_eq!(error.path.as_deref(), Some(path));
                 let span = error.span.expect("authored attribute span");
                 assert_eq!(&source[span.start.offset..span.end.offset], attribute);
+            }
+        }
+    }
+
+    #[test]
+    fn node_payloads_in_metadata_enforce_published_child_datatypes() {
+        for (source, path) in [
+            (
+                "host@{<glyph(:number = \"oops\")>} = 0",
+                "$.host.@.glyph[0]",
+            ),
+            (
+                "host@{<glyph({leaf:number = \"oops\"})>} = 0",
+                "$.host.@.glyph[0].leaf",
+            ),
+            (
+                "<anchor(\"text\")>\nhost@{<glyph(:number = ~anchor[0])>} = 0",
+                "$.host.@.glyph[0]",
+            ),
+            (
+                "host@{data=[:object={<glyph(:number=\"oops\")>}]} = 0",
+                "$.host.@.data[0].glyph[0]",
+            ),
+        ] {
+            let options = CompileOptions::default();
+            let baseline = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Baseline,
+            );
+            let sofia = compile_owned_sofia_streaming(source.to_owned(), options.clone());
+            let (_, streamed) = collect_progressive(source, &options, 1);
+            for errors in [baseline.errors, sofia.errors, streamed.prevalidation_errors] {
+                assert_eq!(errors.len(), 1, "{errors:?}");
+                assert_eq!(errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+                assert_eq!(errors[0].path.as_deref(), Some(path));
             }
         }
     }
@@ -3996,14 +4027,14 @@ mod tests {
             ),
             (
                 "late GP node-head validation",
-                "value:node=<tag:node<radix[2.5]>>\naeon:profile=\"aeon.gp.profile.v1\"",
+                "<value:node<radix[2.5]>>\naeon:profile=\"aeon.gp.profile.v1\"",
                 CompileOptions::default(),
             ),
             (
                 "GP payload errors precede node-head and metadata errors across chunks",
                 concat!(
                     "aeon:profile=\"aeon.gp.profile.v1\"\n",
-                    "first:node=<tag:node<radix[2.5]>>\n",
+                    "<first:node<radix[2.5]>>\n",
                     "second@{base:radix[2.5]=%1}:n[3]=0",
                 ),
                 CompileOptions::default(),
@@ -4170,7 +4201,7 @@ mod tests {
             ),
             (
                 "node attribute self reference",
-                "widget:node = <card@{lookup = ~widget}:node>",
+                "<widget@{lookup = ~widget}:node>",
                 CompileOptions::default(),
             ),
             (
@@ -4279,7 +4310,7 @@ mod tests {
                 for index in 0..width {
                     compiler
                         .push_str(&format!(
-                            "value{index}@{{meta:list=[:rational<symbol<time>>=|1/3|]}}:node=<tag:Pair<Item>[\"profile\"]>\n"
+                            "<value{index}@{{meta:list=[:rational<symbol<time>>=|1/3|]}}:Pair<Item>[\"profile\"]>\n"
                         ))
                         .expect("accept input row");
                     while compiler.pull_batch().is_some() {}
@@ -4313,7 +4344,7 @@ mod tests {
         );
         compiler
             .push_str(concat!(
-                "first:node=<tag:node<radix[2.5]>>\n",
+                "<first:node<radix[2.5]>>\n",
                 "second@{base:radix[2.5]=%1}:n=0\n",
                 "aeon:profile =",
             ))
@@ -4341,7 +4372,7 @@ mod tests {
                 .map(|error| (error.code.as_str(), error.path.as_deref()))
                 .collect::<Vec<_>>(),
             vec![
-                ("PROFILE_DATATYPE_CLARIFIER_INVALID", Some("$.first[0]")),
+                ("PROFILE_DATATYPE_CLARIFIER_INVALID", Some("$.first")),
                 (
                     "PROFILE_DATATYPE_CLARIFIER_INVALID",
                     Some("$.second.@.base")

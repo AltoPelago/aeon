@@ -208,7 +208,7 @@ class MutationPlanningTests(unittest.TestCase):
         self.assertTrue(accepted.ok, accepted.errors)
 
     def test_json_property_names_attributes_nodes_and_scopes(self) -> None:
-        document = pytonic.loads('"literal.@key"@{note = "old"} = 1\nnode:node = <tag("text")>\n')
+        document = pytonic.loads('"literal.@key"@{note = "old"} = 1\n<node:node("text")>\n')
         for address, json_ok in (('$.["literal.@key"]', True), ('$.["literal.@key"].@.note', False), ("$.node", False)):
             planned = document.plan_mutation({"op": "remove", "target": address})
             self.assertTrue(planned.ok, planned.errors)

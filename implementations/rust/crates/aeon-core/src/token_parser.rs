@@ -1,6 +1,52 @@
 #![allow(clippy::result_large_err)]
 
 mod sofia;
+
+const NODE_DECLARATION_MESSAGE: &str = "A node declaration carries its own tag and metadata";
+
+fn node_binding(value: Value) -> Binding {
+    let Value::NodeLiteral { tag, span, .. } = &value else {
+        unreachable!("node binding requires a node");
+    };
+    Binding {
+        key: tag.clone(),
+        is_header: false,
+        structural_id: None,
+        datatype: None,
+        attributes: BTreeMap::new(),
+        attribute_order: Vec::new(),
+        span: *span,
+        value,
+    }
+}
+
+fn node_attribute(
+    value: Value,
+    metadata_key: bool,
+) -> Result<(String, Span, AttributeValue), Diagnostic> {
+    let Value::NodeLiteral {
+        tag,
+        span,
+        head_span,
+        ..
+    } = &value
+    else {
+        unreachable!("node attribute requires a node");
+    };
+    if metadata_key && RESERVED_ATTRIBUTE_KEYS.contains(&tag.as_str()) {
+        return Err(
+            Diagnostic::new("SYNTAX_ERROR", format!("Reserved attribute key: {tag}"))
+                .at_path("$")
+                .with_span(*head_span),
+        );
+    }
+    let key = tag.clone();
+    let key_span = *head_span;
+    let mut attribute = AttributeValue::leaf();
+    attribute.span = Some(*span);
+    attribute.value = Some(value);
+    Ok((key, key_span, attribute))
+}
 use crate::sansa_path::{
     MemberContext, StructuralCursor, StructuralStep, parse_dot_step, parse_member_step,
     parse_position_step,
@@ -581,10 +627,17 @@ impl<'a> TokenParser<'a> {
         let mut errors = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() {
+            let binding_start = self.current;
             match self.parse_binding(true) {
                 Ok(binding) => bindings.push(binding),
                 Err(error) => {
+                    let depth_rejected_node = error.code == "NESTING_DEPTH_EXCEEDED"
+                        && self.check(TokenKind::LeftAngle)
+                        && error.span == Some(self.peek().span);
                     errors.push(error);
+                    if depth_rejected_node || (self.current == binding_start && !self.is_at_end()) {
+                        self.advance();
+                    }
                     if !self.synchronize_to_next_binding() {
                         break;
                     }
@@ -604,6 +657,9 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_binding(&mut self, at_document_root: bool) -> Result<Binding, Diagnostic> {
+        if self.check(TokenKind::LeftAngle) {
+            return self.parse_value().map(node_binding);
+        }
         let start = self.peek().span.start;
         let (key, is_header) = self.parse_key()?;
         self.skip_newlines();
@@ -645,7 +701,7 @@ impl<'a> TokenParser<'a> {
         {
             self.parse_object()?
         } else {
-            self.parse_value()?
+            self.parse_assigned_value()?
         };
         let end = self.previous().span.end;
         Ok(Binding {
@@ -889,6 +945,20 @@ impl<'a> TokenParser<'a> {
     }
 
     fn parse_value(&mut self) -> Result<Value, Diagnostic> {
+        self.parse_value_at_attribute_depth(1)
+    }
+
+    fn parse_assigned_value(&mut self) -> Result<Value, Diagnostic> {
+        if self.check(TokenKind::LeftAngle) {
+            return Err(self.error_at_current(NODE_DECLARATION_MESSAGE));
+        }
+        self.parse_value()
+    }
+
+    fn parse_value_at_attribute_depth(
+        &mut self,
+        node_attribute_depth: usize,
+    ) -> Result<Value, Diagnostic> {
         let counts_toward_nesting = matches!(
             self.peek().kind,
             TokenKind::LeftBracket
@@ -928,7 +998,7 @@ impl<'a> TokenParser<'a> {
                 });
             }
         }
-        let result = self.do_parse_value();
+        let result = self.do_parse_value(node_attribute_depth);
         if counts_toward_nesting {
             self.current_nesting_depth -= 1;
         }
@@ -972,7 +1042,7 @@ impl<'a> TokenParser<'a> {
         self.skip_newlines();
         self.consume(TokenKind::Equals, "Expected `=` after anonymous value head")?;
         self.skip_newlines();
-        let value = self.parse_value()?;
+        let value = self.parse_assigned_value()?;
         Ok(Value::TypedValue {
             structural_id,
             datatype,
@@ -1016,7 +1086,7 @@ impl<'a> TokenParser<'a> {
         (projected_depth > self.max_value_nesting_depth).then_some(projected_depth)
     }
 
-    fn do_parse_value(&mut self) -> Result<Value, Diagnostic> {
+    fn do_parse_value(&mut self, node_attribute_depth: usize) -> Result<Value, Diagnostic> {
         let token = self.peek();
         match token.kind {
             TokenKind::String => {
@@ -1145,7 +1215,7 @@ impl<'a> TokenParser<'a> {
             TokenKind::LeftBracket => self.parse_list(),
             TokenKind::LeftParen => self.parse_tuple(),
             TokenKind::LeftBrace => self.parse_object(),
-            TokenKind::LeftAngle => self.parse_node_literal(),
+            TokenKind::LeftAngle => self.parse_node_literal(node_attribute_depth),
             TokenKind::RightAngle => self.parse_trimtick(),
             TokenKind::Tilde | TokenKind::TildeArrow => self.parse_reference(),
             _ => Err(self.error_at_current(&format!("Unexpected token '{}'", token.text))),
@@ -1405,9 +1475,12 @@ impl<'a> TokenParser<'a> {
         }
     }
 
-    fn parse_node_literal(&mut self) -> Result<Value, Diagnostic> {
+    fn parse_node_literal(&mut self, attribute_depth: usize) -> Result<Value, Diagnostic> {
         let start_index = self.current;
-        self.consume(TokenKind::LeftAngle, "Expected `<`")?;
+        let start = self
+            .consume(TokenKind::LeftAngle, "Expected `<`")?
+            .span
+            .start;
         self.skip_newlines();
         let head_start = self.peek().span.start;
         let tag = self.parse_node_tag()?;
@@ -1422,7 +1495,7 @@ impl<'a> TokenParser<'a> {
         let mut attribute_order = Vec::new();
         self.skip_newlines();
         if self.check(TokenKind::At) {
-            let (attribute_map, parsed_order) = self.parse_attribute_block(1)?;
+            let (attribute_map, parsed_order) = self.parse_attribute_block(attribute_depth)?;
             head_end = self.previous().span.end;
             attributes.push(attribute_map);
             attribute_order = parsed_order;
@@ -1457,6 +1530,10 @@ impl<'a> TokenParser<'a> {
                     start: head_start,
                     end: head_end,
                 },
+                span: Span {
+                    start,
+                    end: self.previous().span.end,
+                },
             });
         }
 
@@ -1479,6 +1556,10 @@ impl<'a> TokenParser<'a> {
             head_span: Span {
                 start: head_start,
                 end: head_end,
+            },
+            span: Span {
+                start,
+                end: self.previous().span.end,
             },
         })
     }
@@ -1524,7 +1605,7 @@ impl<'a> TokenParser<'a> {
                 member_order,
             ));
         }
-        let value = self.parse_value()?;
+        let value = self.parse_assigned_value()?;
         Ok(AttributeValue::with_parts(
             None,
             None,
@@ -1589,10 +1670,26 @@ impl<'a> TokenParser<'a> {
         let mut member_order = Vec::new();
         self.skip_newlines();
         while !self.check(terminator) {
+            if self.check(TokenKind::LeftAngle) {
+                let node = self.parse_value_at_attribute_depth(depth + 1)?;
+                let (key, key_span, entry) = node_attribute(node, depth > 0)?;
+                if members.contains_key(&key) {
+                    return Err(Diagnostic::new(
+                        "DUPLICATE_KEY",
+                        format!("Duplicate key: '{key}'"),
+                    )
+                    .at_path("$")
+                    .with_span(key_span));
+                }
+                member_order.push(key.clone());
+                members.insert(key, entry);
+                self.consume_member_delimiter(terminator, delimiter_message)?;
+                continue;
+            }
             let key_span = self.peek().span;
             let entry_start = key_span.start;
             let (key, _) = self.parse_key()?;
-            if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+            if depth > 0 && RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                 return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
             }
             self.skip_newlines();
@@ -1719,6 +1816,11 @@ impl<'a> TokenParser<'a> {
     fn synchronize_to_next_binding(&mut self) -> bool {
         while !self.is_at_end() {
             let token = self.peek();
+            if token.kind == TokenKind::LeftAngle
+                && matches!(self.previous().kind, TokenKind::Newline | TokenKind::Comma)
+            {
+                return true;
+            }
             let is_binding_key = is_bare_key_kind(token.kind)
                 || (token.kind == TokenKind::String && token.quote != Some('`'));
             if is_binding_key {
@@ -2329,10 +2431,71 @@ mod tests {
                 assert!(result.is_ok(), "{source}: {result:?}");
             } else {
                 assert_eq!(
-                    result.unwrap_err().code,
+                    result
+                        .expect_err("header exceeds the configured depth")
+                        .code,
                     "NESTING_DEPTH_EXCEEDED",
                     "{source}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_progresses_past_a_rejected_node() {
+        let limits = ParserLimits::new(0, 8, 8, 8, 32, 64);
+        for source in ["before=1\n<entry>\nafter=2", "before=1,<entry>,after=2"] {
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let recovered = parse_document_from_tokens_recovery_with_implementation(
+                    source,
+                    limits,
+                    implementation,
+                );
+                assert_eq!(
+                    recovered
+                        .bindings
+                        .iter()
+                        .map(|binding| binding.key.as_str())
+                        .collect::<Vec<_>>(),
+                    ["before", "after"]
+                );
+                assert_eq!(recovered.errors.len(), 1);
+                assert_eq!(recovered.errors[0].code, "NESTING_DEPTH_EXCEEDED");
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_keeps_rejected_nested_nodes_outside_the_root_scope() {
+        let source = "before=1\n<outer(\n<inner>\n)>\nafter=2";
+        let limits = ParserLimits::new(1, 8, 8, 8, 32, 64);
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let recovered = parse_document_from_tokens_recovery_with_implementation(
+                source,
+                limits,
+                implementation,
+            );
+            assert_eq!(
+                recovered
+                    .bindings
+                    .iter()
+                    .map(|binding| binding.key.as_str())
+                    .collect::<Vec<_>>(),
+                ["before", "after"]
+            );
+            assert_eq!(recovered.errors.len(), 1);
+            assert_eq!(recovered.errors[0].code, "NESTING_DEPTH_EXCEEDED");
+        }
+    }
+
+    #[test]
+    fn node_metadata_uses_the_reserved_keys_of_its_actual_scope() {
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let accepted = "host@{data={<constructor>, prototype=1}}=0";
+            assert!(parse_with(accepted, implementation).is_ok());
+            for denied in ["host@{<constructor>}=0", "host@{<node@{prototype=1}>}=0"] {
+                let error = parse_with(denied, implementation).expect_err("reserved attribute key");
+                assert!(error.message.starts_with("Reserved attribute key"));
             }
         }
     }
@@ -2345,7 +2508,7 @@ mod tests {
                 ParserLimits::new(1, 8, 8, 8, 32, 64),
             ),
             (
-                "tree = <root(<leaf>)>\nlater = true",
+                "<root(<leaf>)>\nlater = true",
                 ParserLimits::new(1, 8, 8, 8, 32, 64),
             ),
             (
@@ -2443,14 +2606,14 @@ literal = ~true.off"#,
             "bad = { first = 1 second = 2 }\nlater = true",
             "bad = { first = 1 ]\nlater = true",
             "bad = [^0,0,0,1]\nlater = true",
-            "bad = <root(1 2)>\nlater = true",
-            "bad = <root(1]>\nlater = true",
-            "bad = <root(1)\nlater = true",
-            "bad = <>\nlater = true",
-            "bad = <\"\">\nlater = true",
-            "bad = <`root`>\nlater = true",
-            "bad = <root garbage>\nlater = true",
-            "bad = <root@{first=1}@{second=2}>\nlater = true",
+            "<root(1 2)>\nlater = true",
+            "<root(1]>\nlater = true",
+            "<root(1)\nlater = true",
+            "<>\nlater = true",
+            "<\"\">\nlater = true",
+            "<`root`>\nlater = true",
+            "<root garbage>\nlater = true",
+            "<root@{first=1}@{second=2}>\nlater = true",
             "bad = [@{first=1}@{second=2} = 3]\nlater = true",
             "bad = [:number 1]\nlater = true",
             "bad@{first=1}@{second=2} = 3\nlater = true",
@@ -2466,18 +2629,18 @@ literal = ~true.off"#,
             "bad:custom[\"first\"][\"second\"] = 1\nlater = true",
             "bad:radix<10> = 1\nlater = true",
             "bad:\"string\" = 1\nlater = true",
-            r#"tree = <"root tag"\root\@{class:string = "top"}:node<custom>(
+            r#"<"root tag"\root\@{class:string = "top"}:node<custom>(
   "text"
   \child\:string = "typed"
   <leaf>
 )>"#,
-            "empty:node = <glyph:node>\nexplicit:node = <br()>",
-            "words:node = <on(off, <true>)>",
-            "multiline:node = <span\n@\n{class = \"line-4\"}\n(\"world\")\n>",
-            "tree:node = <root(child, :string = \"typed\")>",
-            "broken:node = <span(\"hello\")\nnext = true",
-            "bad:node = <tag:pair<int32,string>(\"x\")>",
-            "bad:node = <tag@{first=1}@{second=2}>",
+            "<glyph:node>\nexplicit:<br()>",
+            "<on(off, <true>)>",
+            "<span\n@\n{class = \"line-4\"}\n(\"world\")\n>",
+            "<root(child, :string = \"typed\")>",
+            "<span(\"hello\")\nnext = true",
+            "<tag:pair<int32,string>(\"x\")>",
+            "<tag@{first=1}@{second=2}>",
             "broken = [1,,2]\nlater = true",
             "quoted = \"unterminated",
         ];
@@ -2489,7 +2652,7 @@ literal = ~true.off"#,
 
     #[test]
     fn parser_selector_preserves_utf8_offsets_scalar_columns_and_crlf() {
-        let source = "\u{feff}\"café😀\" = \"nai\u{308}ve\"\r\n\"次\" = <\"タグ\"(\"🙂\")>";
+        let source = "\u{feff}\"café😀\" = \"nai\u{308}ve\"\r\n<\"タグ\"(\"🙂\")>";
         assert_parser_parity(source);
 
         let bindings = parse_with(source, ParserImplementation::Sofia).expect("Sofia parse");
@@ -2505,8 +2668,8 @@ literal = ~true.off"#,
         assert_eq!(bindings[0].span.end.line, 1);
         assert_eq!(bindings[0].span.end.column, 20);
 
-        let second_offset = source.find("\"次\"").expect("second binding");
-        assert_eq!(bindings[1].key, "次");
+        let second_offset = source.find('<').expect("second binding");
+        assert_eq!(bindings[1].key, "タグ");
         assert_eq!(bindings[1].span.start.offset, second_offset);
         assert_eq!(bindings[1].span.start.line, 2);
         assert_eq!(bindings[1].span.start.column, 1);
@@ -2533,7 +2696,7 @@ literal = ~true.off"#,
         let source = concat!(
             "\u{feff}\"café\u{301}😀\" = [1 2]\r\n",
             "\"次\" = true\r\n",
-            "\"broken\" = <\"タグ\"(1 2)>\r\n",
+            "<\"タグ\"(1 2)>\r\n",
             "\"終\" = false",
         );
         assert_parser_parity(source);
@@ -2572,10 +2735,10 @@ literal = ~true.off"#,
             source.rfind("2)>").expect("node child error"),
         );
         assert_eq!(node_span.start.line, 3);
-        assert_eq!(node_span.start.column, 20);
+        assert_eq!(node_span.start.column, 9);
         assert_eq!(node_span.end.offset, node_span.start.offset + 1);
         assert_eq!(node_span.end.line, 3);
-        assert_eq!(node_span.end.column, 21);
+        assert_eq!(node_span.end.column, 10);
     }
 
     #[test]
@@ -2720,7 +2883,7 @@ literal = ~true.off"#,
             r#"yes:string = "top"
 copy:string = ~yes
 true@{no:string = "attr"}:string = "named true"
-node:node = <on(off)>
+<on(off)>
 group:object = {
   false:boolean = true
   off:toggle = yes
@@ -2827,15 +2990,14 @@ group:object = {
 
     #[test]
     fn parses_node_literals_from_tokens() {
-        let bindings =
-            parse("content:node = <div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>")
-                .expect("token parse");
+        let bindings = parse("<div(\n  <span@{id = \"text\"}:node(\"hello\")>,\n  <br()>\n)>")
+            .expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
     }
 
     #[test]
     fn rejects_repeated_node_head_attribute_blocks_from_tokens() {
-        let error = parse("content:node = <span@{id = \"text\"}@{class = \"body\"}:node>")
+        let error = parse("<span@{id = \"text\"}@{class = \"body\"}:node>")
             .expect_err("repeated node head attributes should fail");
         assert_eq!(error.code, "SYNTAX_ERROR");
     }
@@ -2843,7 +3005,7 @@ group:object = {
     #[test]
     fn parses_anonymous_typed_container_values_from_tokens() {
         let bindings = parse(
-            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\npage:node = <page(:string = \"hello\", <tag>, :int32 = 3)>",
+            "values:list = [:int32 = 3, :string = \"4\"]\npair:tuple = (:float64 = 10.5, :float64 = 2.0)\n<page(:string = \"hello\", <tag>, :int32 = 3)>",
         )
         .expect("token parse");
         match &bindings[0].value {
@@ -2933,7 +3095,7 @@ group:object = {
             ":n = 3",
             "a:n = :n = 3",
             "a:list = [:n = :n = 3]",
-            "a:node = <tag(:n = :n = 3)>",
+            "<tag(:n = :n = 3)>",
             "a:object = { :n = 3 }",
             "a:list[ :n = :n = 3 ]",
             "a:list[ n = 3 ]",
@@ -2948,14 +3110,13 @@ group:object = {
 
     #[test]
     fn rejects_node_literals_without_trailing_right_angle_after_children() {
-        let err = parse("content:node = <span(\"hello\")\n")
-            .expect_err("missing closing angle should fail");
+        let err = parse("<span(\"hello\")\n").expect_err("missing closing angle should fail");
         assert_eq!(err.code, "SYNTAX_ERROR");
     }
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_datatype() {
-        let bindings = parse("v:node = <glyph:node>\n").expect("token parse");
+        let bindings = parse("<glyph:node>\n").expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral {
                 tag,
@@ -2973,7 +3134,7 @@ group:object = {
 
     #[test]
     fn parses_empty_node_shorthand_after_node_head_attributes_and_datatype() {
-        let bindings = parse("v:node = <glyph@{id=\"x\"}:node>\n").expect("token parse");
+        let bindings = parse("<glyph@{id=\"x\"}:node>\n").expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral {
                 tag,
@@ -2993,7 +3154,7 @@ group:object = {
 
     #[test]
     fn parses_parameterized_node_head_datatypes() {
-        let bindings = parse("v:node = <title:node<string>(\"Hello\")>\n").expect("token parse");
+        let bindings = parse("<title:node<string>(\"Hello\")>\n").expect("token parse");
         match &bindings[0].value {
             Value::NodeLiteral { datatype, .. } => {
                 assert_eq!(datatype.as_deref(), Some("node<string>"));
@@ -3004,9 +3165,8 @@ group:object = {
 
     #[test]
     fn preserves_generics_and_clarifiers_in_binding_and_node_head_datatypes() {
-        let bindings =
-            parse(r#"tag:node<string> = <tag:pair<int32,string>["x"]("x")>"#).expect("token parse");
-        assert_eq!(bindings[0].datatype.as_deref(), Some("node<string>"));
+        let bindings = parse(r#"<tag:pair<int32,string>["x"]("x")>"#).expect("token parse");
+        assert_eq!(bindings[0].datatype, None);
         let Value::NodeLiteral { datatype, .. } = &bindings[0].value else {
             panic!("expected node literal");
         };
@@ -3094,7 +3254,7 @@ items:list<string> = ["one", "two"]"#;
             "value:outer<inner = 1",
             "value:custom<1.00>[1.00] = 0",
             "value:custom<child<1>> = 0",
-            "value = <tag:node<1.00>>",
+            "<tag:node<1.00>>",
         ] {
             let mut splits = source
                 .char_indices()
@@ -3272,9 +3432,9 @@ context = ?.name"#;
     #[test]
     fn decodes_standard_and_unicode_quoted_escapes() {
         let bindings = parse(
-            "\"a\\n\" = 1\nvalue = \"x\\u0041\"\nemoji = \"\\uD83D\\uDE00\"\ntag:node = <\"a\\u{41}\">\n",
+            "\"a\\n\" = 1\nvalue = \"x\\u0041\"\nemoji = \"\\uD83D\\uDE00\"\n<\"a\\u{41}\">\n",
         )
-            .expect("token parse");
+        .expect("token parse");
         assert_eq!(bindings[0].key, "a\n");
         assert_eq!(
             bindings[1].value,
@@ -3305,7 +3465,7 @@ context = ?.name"#;
         for (source, message) in [
             ("value = \"x\\q\"\n", "Invalid escape sequence"),
             ("value = \"x\\u{110000}\"\n", "Invalid unicode escape"),
-            ("tag:node = <\"a\\q\">\n", "Invalid escape sequence"),
+            ("<\"a\\q\">\n", "Invalid escape sequence"),
         ] {
             let error = parse(source).expect_err("expected syntax error");
             assert_eq!(error.code, "INVALID_ESCAPE");
@@ -3391,8 +3551,8 @@ context = ?.name"#;
 
     #[test]
     fn parses_multiline_node_attributes_from_tokens() {
-        let bindings = parse("s:node = <span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n")
-            .expect("token parse");
+        let bindings =
+            parse("<span\n  @\n  {class = \"line-4\"}\n  (\"world\")\n>\n").expect("token parse");
         assert!(matches!(bindings[0].value, Value::NodeLiteral { .. }));
     }
 

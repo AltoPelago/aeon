@@ -6,7 +6,7 @@ use serde_json::Value;
 fn fixture() -> Value {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../../test-fixtures/property-resolve-sdk.json"
+        "/../../../../test-fixtures/property-resolve-sdk-tagged-nodes.json"
     )))
     .expect("SDK property fixture")
 }
@@ -33,7 +33,12 @@ fn authoritative_properties_match_shared_text_and_native_ast_fixtures() {
         if let Some(limit) = case["limit"].as_u64() {
             options.max_property_inspections = u32::try_from(limit).expect("limit");
         }
-        let parsed = runtime::address::parse_address(text).expect("property address");
+        let parsed = runtime::address::parse_address(text);
+        if let Some(code) = case["parseCode"].as_str() {
+            assert_eq!(parsed.expect_err("removed selector").code, code, "{text}");
+            continue;
+        }
+        let parsed = parsed.expect("property address");
         for result in [
             ns.resolve_address(text, &options),
             runtime::resolve::resolve_parsed_address(&parsed, &ns, &options),
@@ -79,11 +84,11 @@ fn authoritative_properties_match_shared_text_and_native_ast_fixtures() {
 }
 
 #[test]
-fn properties_reject_foreign_document_plane_materialization_and_direct_head() {
+fn properties_reject_foreign_document_plane_materialization_and_scope() {
     let ns = namespace();
     let foreign = namespace();
     let options = ResolveOptions {
-        contextual_root: foreign.at_exact("$.value"),
+        contextual_root: foreign.at_exact("$.tag"),
         ..ResolveOptions::default()
     };
     let result = ns.resolve_address("?&tag(\"tag\")", &options);
@@ -91,21 +96,16 @@ fn properties_reject_foreign_document_plane_materialization_and_direct_head() {
         result.errors[0].code,
         "SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION"
     );
-    let root = ns.root();
-    let value = ns.at_exact("$.value").expect("value");
+    let root = ns.at_exact("$.tag").expect("tag");
     let context = PropertyAccessContext {
         scope_root: &root,
         evaluation_root: &root,
-        direct_head_of: Some(&value),
     };
-    for path in ["$.group.nested[0]", "$.value[0][0]"] {
-        assert_eq!(
-            ns.scope(&ns.at_exact(path).expect("head"), &context),
-            Ok(PropertyScopeRole::Outside)
-        );
-    }
-    let head = ns.at_exact("$.value[0]").expect("direct head");
-    assert_eq!(ns.scope(&head, &context), Ok(PropertyScopeRole::Inside));
+    let outside = ns.at_exact("$.group.inner").expect("other node");
+    let child = ns.at_exact("$.tag[0]").expect("direct child");
+    assert_eq!(ns.scope(&outside, &context), Ok(PropertyScopeRole::Outside));
+    assert_eq!(ns.scope(&root, &context), Ok(PropertyScopeRole::Root));
+    assert_eq!(ns.scope(&child, &context), Ok(PropertyScopeRole::Inside));
     let header = AeonSansaNamespace::from_shared(
         Arc::clone(&ns.document),
         AeonSansaScope::Header,
@@ -130,21 +130,21 @@ fn properties_reject_foreign_document_plane_materialization_and_direct_head() {
 fn properties_admit_direct_query_and_preserve_exact_lookup() {
     let ns = namespace();
     let result = ns.evaluate_query(
-        "from $.*&key(\"value\")\nselect .",
+        "from $.*&key(\"tag\")\nselect .",
         &runtime::evaluate::EvaluateOptions::default(),
     );
     assert!(result.is_ok());
     assert_eq!(result.results.len(), 1);
-    assert!(ns.at_exact("$.value&tag(\"tag\")").is_none());
+    assert!(ns.at_exact("$.tag&tag(\"tag\")").is_none());
 }
 
 #[test]
-fn recursive_predicates_distinguish_containers_heads_and_content() {
+fn recursive_predicates_distinguish_tagged_nodes_and_content() {
     let fixture: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../../test-fixtures/tag-head-split.json"
+        "/../../../../test-fixtures/node-tag-sdk.json"
     )))
-    .expect("tag/head fixture");
+    .expect("tagged node fixture");
     let ns = AeonSansaNamespace::compile(
         fixture["source"].as_str().expect("source"),
         CompileOptions::default(),
@@ -180,7 +180,7 @@ fn shared_property_query_document_cases_preserve_original_targets_and_scope() {
     use runtime::evaluate::{EvaluateOptions, EvaluatedValue};
     let fixture: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../../test-fixtures/property-query-sdk.json"
+        "/../../../../test-fixtures/property-query-sdk-tagged-nodes.json"
     )))
     .expect("query fixture");
     let ns = AeonSansaNamespace::compile(

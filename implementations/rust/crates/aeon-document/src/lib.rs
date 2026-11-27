@@ -79,6 +79,7 @@ pub struct DocumentNode {
     position: Option<usize>,
     source_plane: Option<DocumentSourcePlane>,
     representation_kind: String,
+    tag: Option<String>,
     identity: Option<String>,
     datatype: Option<String>,
     generics: Vec<GenericArgument>,
@@ -141,6 +142,11 @@ impl DocumentNode {
     }
 
     #[must_use]
+    pub fn tag(&self) -> Option<&str> {
+        self.tag.as_deref()
+    }
+
+    #[must_use]
     pub fn identity(&self) -> Option<&str> {
         self.identity.as_deref()
     }
@@ -195,6 +201,9 @@ pub enum DocumentError {
     UnsupportedEventAddress {
         address: String,
     },
+    InvalidNodeRecord {
+        address: String,
+    },
     MissingParent {
         address: String,
         parent: String,
@@ -228,6 +237,9 @@ impl fmt::Display for DocumentError {
                     formatter,
                     "event address '{address}' is not an exact graph address"
                 )
+            }
+            Self::InvalidNodeRecord { address } => {
+                write!(formatter, "invalid tagged node record at '{address}'")
             }
             Self::MissingParent { address, parent } => {
                 write!(formatter, "event '{address}' is missing parent '{parent}'")
@@ -512,6 +524,7 @@ impl DocumentBuilder {
             position: None,
             source_plane,
             representation_kind: representation_kind.to_owned(),
+            tag: None,
             identity: None,
             datatype: None,
             generics: Vec::new(),
@@ -632,6 +645,20 @@ impl DocumentBuilder {
         }
 
         let address = full_address(plane_name, &event_address);
+        let invalid_node = match event.kind {
+            "NodeLiteral" => {
+                event.tag.as_deref().is_none_or(str::is_empty)
+                    || event.value.is_some()
+                    || final_name
+                        .as_deref()
+                        .is_some_and(|name| event.tag.as_deref() != Some(name))
+            }
+            "NodeHead" => true,
+            _ => event.tag.is_some(),
+        };
+        if invalid_node {
+            return Err(DocumentError::InvalidNodeRecord { address });
+        }
         if self.full_index.contains_key(&address) {
             return Err(DocumentError::DuplicateAddress { address });
         }
@@ -647,7 +674,6 @@ impl DocumentBuilder {
             &self.nodes[parent.0],
             final_name.as_deref(),
             final_position,
-            event.kind,
             &address,
         )?;
 
@@ -664,6 +690,7 @@ impl DocumentBuilder {
             position: final_position,
             source_plane: Some(plane),
             representation_kind: event.kind.to_owned(),
+            tag: event.tag,
             identity: event.identity,
             datatype: event.datatype,
             generics: event.generics,
@@ -718,7 +745,6 @@ fn validate_parent_topology(
     parent: &DocumentNode,
     binding_name: Option<&str>,
     position: Option<usize>,
-    child_kind: &str,
     address: &str,
 ) -> Result<(), DocumentError> {
     let invalid = |detail: String| DocumentError::InvalidParentTopology {
@@ -744,11 +770,7 @@ fn validate_parent_topology(
         )));
     };
     match parent.representation_kind.as_str() {
-        "NodeLiteral" if position == 0 && child_kind == "NodeHead" => Ok(()),
-        "NodeLiteral" => Err(invalid(String::from(
-            "a node literal must contain exactly one NodeHead at position 0",
-        ))),
-        "NodeHead" | "ListNode" | "TupleLiteral" => {
+        "NodeLiteral" | "ListNode" | "TupleLiteral" => {
             let expected = parent.children.len();
             if position == expected {
                 Ok(())
@@ -856,7 +878,6 @@ mod tests {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Contract {
-        portable_topology_cases: Vec<TopologyCase>,
         fixtures: Vec<ContractFixture>,
     }
 
@@ -875,6 +896,7 @@ mod tests {
         identity: Option<String>,
         datatype: Option<String>,
         value: Option<String>,
+        tag: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -917,6 +939,7 @@ mod tests {
             path: Some(path.to_owned()),
             header: None,
             kind,
+            tag: None,
             identity: None,
             datatype: None,
             generics: Vec::new(),
@@ -928,8 +951,12 @@ mod tests {
     }
 
     #[test]
-    fn builds_fixture_backed_node_head_topology() {
-        for case in fixture_contract().portable_topology_cases {
+    fn builds_fixture_backed_tagged_node_topology() {
+        let cases: Vec<TopologyCase> = serde_json::from_str(include_str!(
+            "../../../../../test-fixtures/document-projection/tagged-node-topology.json"
+        ))
+        .expect("tagged-node cases");
+        for case in cases {
             let document = AeonDocument::compile(
                 &case.source,
                 CompileOptions {
@@ -949,25 +976,14 @@ mod tests {
                 assert_eq!(node.identity(), expected.identity.as_deref());
                 assert_eq!(node.datatype(), expected.datatype.as_deref());
                 assert_eq!(node.value(), expected.value.as_deref());
+                assert_eq!(node.tag(), expected.tag.as_deref());
             }
 
-            if case.id == "node-head-address-translation" {
-                let head = document
-                    .at(DocumentScope::Payload, "$.value[0]")
-                    .expect("node head");
-                let child = document
-                    .at(DocumentScope::Payload, "$.value[0][0]")
-                    .expect("node child");
-                assert_eq!(document.node(child).expect("child").parent(), Some(head));
-                let navigated_child = document
-                    .payload()
-                    .member("value")
-                    .expect("value member")
-                    .position(0)
-                    .expect("node head")
-                    .position(0)
-                    .expect("node child");
-                assert_eq!(navigated_child.id(), child);
+            if case.id == "named-node-metadata-and-child" {
+                let node = document.payload().member("tag").expect("node");
+                let child = node.position(0).expect("direct child");
+                assert_eq!(child.node().parent(), Some(node.id()));
+                assert!(child.position(0).is_none());
             }
         }
     }
@@ -986,8 +1002,12 @@ mod tests {
                 None => None,
                 Some(policy) => panic!("unknown fixture datatype policy {policy}"),
             };
+            // The shared fixture retains the original generation for older runtimes.
+            let source = fixture
+                .source
+                .replace("nodeValue:node = <tag(\"hello\")>", "<tag:node(\"hello\")>");
             let document =
-                AeonDocument::compile(&fixture.source, options).expect("compile fixture document");
+                AeonDocument::compile(&source, options).expect("compile fixture document");
             for (scope_name, expected_nodes) in fixture.scopes {
                 let scope = match scope_name.as_str() {
                     "payload" => DocumentScope::Payload,
@@ -995,7 +1015,13 @@ mod tests {
                     "full" => DocumentScope::Full,
                     scope => panic!("unknown fixture scope {scope}"),
                 };
-                for expected in expected_nodes {
+                for mut expected in expected_nodes {
+                    expected.address = match expected.address.as_str() {
+                        "$.containers.nodeValue" => "$.containers.tag".to_owned(),
+                        "$.containers.nodeValue[0]" => continue,
+                        "$.containers.nodeValue[0][0]" => "$.containers.tag[0]".to_owned(),
+                        _ => expected.address,
+                    };
                     let id = document.at(scope, &expected.address).unwrap_or_else(|| {
                         panic!("missing {scope_name} fixture node {}", expected.address)
                     });
