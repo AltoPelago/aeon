@@ -190,7 +190,11 @@ export interface EventSummary {
   key: string;
   datatype: string | null;
   valueType: string;
+  /** Intrinsic tag of a node occurrence, including an indexed node. */
+  tag?: string;
   structuralId?: string;
+  /** Header events may share an address with a payload occurrence. */
+  sourcePlane?: 'header';
 }
 
 export interface AeonStreamOptions extends Omit<

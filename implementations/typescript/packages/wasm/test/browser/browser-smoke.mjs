@@ -21,6 +21,14 @@ async function runMainThread() {
   invariant(result.finalized.document?.count === 3, 'main-thread numeric result drifted');
   invariant(result.events.length === 2, 'main-thread event count drifted');
 
+  const tagged = runtime.processAeon('<tag("Hello")>\ncopy:string = ~tag[0]\n', {
+    validationMode: 'strict',
+  });
+  invariant(tagged.ok, 'main-thread tagged node compilation failed');
+  invariant(tagged.events[0]?.tag === 'tag', 'main-thread intrinsic tag drifted');
+  invariant(tagged.events[1]?.path === '$.tag[0]', 'main-thread direct node index drifted');
+  invariant(tagged.finalized.document?.copy === 'Hello', 'main-thread node reference drifted');
+
   const compileOnly = runtime.processAeon('notJson:nan = NaN\n', {
     validationMode: 'declared',
     finalize: false,
@@ -43,13 +51,14 @@ async function runMainThread() {
   return {
     canonical,
     oneShotEvents: result.events.length,
+    taggedNodePath: tagged.events[1]?.path,
     compileOnlyKind: compileOnly.events[0]?.valueType,
     cancellation: terminal.status,
   };
 }
 
 async function runWorker() {
-  const source = 'alpha:int32 = 1\nbeta:string = "Sofía 🌊"\ngamma:boolean = true\n';
+  const source = 'alpha:int32 = 1\nbeta:string = "Sofía 🌊"\ngamma:boolean = true\n<people(<"🌊">)>\n';
   const bytes = new TextEncoder().encode(source);
   const chunkWidths = [1, 2, 5, 3, 8, 13];
   const chunks = [];

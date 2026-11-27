@@ -53,6 +53,12 @@ tools:
 For compatibility, `errors` and `warnings` are also exposed as top-level aliases
 of `diagnostics.errors` and `diagnostics.warnings`.
 
+Node event summaries expose the intrinsic `tag` at the binding's path. For
+example, `<tag("Hello")>` emits the node at `$.tag` and its direct child at
+`$.tag[0]`. An indexed node retains its tag in the summary while its path uses
+the index. Header events in a `header` or `full` one-shot result carry
+`sourcePlane: 'header'` so callers can distinguish paths shared by both planes.
+
 For Core conformance or event-processing workloads that do not need a JSON
 document, pass `finalize: false`. This compiles Sofia directly and returns Core
 events and diagnostics with `canonical.text` empty and
@@ -229,9 +235,12 @@ by `implementations/rust/rust-toolchain.toml`. After generation, the build
 script synchronizes `pkg/package.json` to the TypeScript wrapper version; the
 wrapper and Rust crate can therefore remain separate release units. A Rust
 toolchain or generator-version change is a reviewed build-input change and must
-regenerate the committed `pkg/` artifacts.
+regenerate the committed `pkg/` artifacts. After building the wrapper, run
+`node scripts/test-wasm-node-model-cts.mjs` from the repository root to qualify
+the committed binary against the pinned tagged-node Core and Canonical suites
+used by CI.
 
-## Property address literals (0.17 source line)
+## Property address literals
 
 The generated Rust Core binary accepts inert SANSA `&key("...")` / `&tag("...")`
 values through existing process, canonicalization and Telex operations. Quoted

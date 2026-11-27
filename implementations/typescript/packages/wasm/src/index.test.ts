@@ -3,18 +3,22 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import referenceOrderFixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
-import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
+import referenceOrderFixturesBaseline from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
+import referenceOrderFixturesRevised from '../../../../../test-fixtures/reference-authored-order-tagged-nodes.json' with { type: 'json' };
+import renderingFixturesBaseline from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
+import renderingFixturesRevised from '../../../../../test-fixtures/canonical-rendering-boundaries-tagged-nodes.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
-import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics.json' with { type: 'json' };
+import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics-tagged-nodes.json' with { type: 'json' };
 import transportGenerics from '../../../../../test-fixtures/transport-generic-arguments.json' with { type: 'json' };
 import radixBases from '../../../../../test-fixtures/radix-bases.json' with { type: 'json' };
 import datatypeNames from '../../../../../test-fixtures/radix-datatype-names.json' with { type: 'json' };
-import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts.json' with { type: 'json' };
-import gpAttributeFixtures from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
-import gpTagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers.json' with { type: 'json' };
-import gpDatatypeGenerics from '../../../../../test-fixtures/gp-datatype-generics.json' with { type: 'json' };
+import gpRadixContexts from '../../../../../test-fixtures/gp-radix-contexts-tagged-nodes.json' with { type: 'json' };
+import gpAttributeFixturesBaseline from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
+import gpAttributeFixturesRevised from '../../../../../test-fixtures/gp-attribute-clarifiers-tagged-nodes.json' with { type: 'json' };
+import gpTagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers-tagged-nodes.json' with { type: 'json' };
+import gpDatatypeGenericsBaseline from '../../../../../test-fixtures/gp-datatype-generics.json' with { type: 'json' };
+import gpDatatypeGenericsRevised from '../../../../../test-fixtures/gp-datatype-generics-tagged-nodes.json' with { type: 'json' };
 import propertyLiterals from '../../../../../test-fixtures/property-address-literals.json' with { type: 'json' };
 
 import {
@@ -27,6 +31,30 @@ import {
 } from './index.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+function overlayFixtures<T extends { id: string }>(baseline: readonly T[], revised: readonly T[]): T[] {
+  const revisedById = new Map(revised.map(fixture => [fixture.id, fixture]));
+  return baseline.map(fixture => revisedById.get(fixture.id) ?? fixture);
+}
+
+const referenceOrderFixtures = overlayFixtures<{
+  id: string;
+  source: string;
+  errors: string[];
+  maxAttributeDepth?: number;
+}>(referenceOrderFixturesBaseline, referenceOrderFixturesRevised);
+const renderingFixtures = overlayFixtures(renderingFixturesBaseline, renderingFixturesRevised);
+const gpAttributeFixtures = overlayFixtures(gpAttributeFixturesBaseline, gpAttributeFixturesRevised);
+const gpDatatypeGenerics = overlayFixtures(gpDatatypeGenericsBaseline, gpDatatypeGenericsRevised);
+
+const retiredPropertyAddresses = new Set([
+  '$.*&headTag("book")',
+  String.raw`?&headTag("\u{1F600}")`,
+]);
+const currentPropertyAddresses = propertyLiterals.addresses
+  .map((address, index) => ({ address, canonical: propertyLiterals.canonical[index]! }))
+  .filter(({ address }) => !retiredPropertyAddresses.has(address));
+
 
 test('structured-comment stream limits preserve exact bounds and rejection precedence', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
@@ -113,8 +141,7 @@ test('committed WASM retains physical block-comment newlines across APIs and byt
 
 test('generated WASM preserves inert property address payloads through process, canonical and Telex APIs', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
-  for (const [index, address] of propertyLiterals.addresses.entries()) {
-    const expected = propertyLiterals.canonical[index]!;
+  for (const { address, canonical: expected } of currentPropertyAddresses) {
     const source = `p:sansa=${address}// outside\nx=1`;
     const result = runtime.processAeon(source, {validationMode: 'loose'});
     assert.deepEqual(result.errors, [], address);
@@ -135,7 +162,7 @@ test('generated WASM preserves inert property address payloads through process, 
 
 test('generated WASM streams property quoted payloads at every UTF-8 byte boundary', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
-  for (const address of propertyLiterals.addresses) {
+  for (const { address } of currentPropertyAddresses) {
     const source = `p:sansa=${address}/* outside */\nx=1`;
     const expected = runtime.processAeon(source, {validationMode: 'loose', finalize: false});
     assert.deepEqual(expected.errors, []);
@@ -162,7 +189,7 @@ test('generated WASM streams property quoted payloads at every UTF-8 byte bounda
 test('generated WASM rejects malformed properties and keeps references structural', async () => {
   const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   for (const source of [
-    ...propertyLiterals.invalid.map(address => `p:sansa=${address}`),
+    ...[...propertyLiterals.invalid, ...retiredPropertyAddresses].map(address => `p:sansa=${address}`),
     ...propertyLiterals.addresses.flatMap(address => ['~', '~>'].map(marker => `copy=${marker}${address}`)),
   ]) {
     const result = runtime.processAeon(source, {validationMode: 'none'});
@@ -482,16 +509,16 @@ test('generated wasm rejects metadata object duplicates in one-shot and chunked 
     'a = {b@{m = [{z = 1, z = 2}]} = 0}',
     'a = [@{m = [{z = 1, z = 2}]} = 0]',
     'a = (@{m = [{z = 1, z = 2}]} = 0,)',
-    'a = <tag(@{m = [{z = 1, z = 2}]} = 0)>',
+    '<a(@{m = [{z = 1, z = 2}]} = 0)>',
     'a = [@{m = [{z = 1, z = 2}]} = {leaf = 0}]',
-    'a = <tag@{m = [{z = 1, z = 2}]}>',
+    '<a@{m = [{z = 1, z = 2}]}>',
     'a = [<tag@{m = [{z = 1, z = 2}]}>]',
     'a@{m@{n = [{z = 1, z = 2}]} = 0} = 0',
     'a@{m = {n = [{z = 1, z = 2}]}} = 0',
     'a@{m = {n@{p = [{z = 1, z = 2}]} = 0}} = 0',
     'a@{m = ({z = 1, z = 2},)} = 0',
-    'a@{m = <tag({z = 1, z = 2})>} = 0',
-    'a@{m = <tag@{n = [{z = 1, z = 2}]}>} = 0',
+    'a@{<m({z = 1, z = 2})>} = 0',
+    'a@{<m@{n = [{z = 1, z = 2}]}>} = 0',
     'aeon:header = {x@{m = [{z = 1, z = 2}]} = 0}',
     'aeon:header = {x = {leaf@{m = [{z = 1, z = 2}]} = 0}}',
     'aeon:header@{m = [{z = 1, z = 2}]} = {x = 0}',
@@ -569,6 +596,77 @@ test('processes a basic document through the generated wasm artifact', async () 
   assert.deepEqual(result.diagnostics.errors, []);
   assert.deepEqual(result.finalized.document, { a: 'ok' });
   assert.equal(result.events[0]?.path, '$.a');
+});
+
+test('WASM preserves direct node children and intrinsic tags at every UTF-8 split', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const source = '<tag\\id\\@{label="blue"}("Hello", <"ring 🌊">)>\ncopy=~tag[0]';
+  const result = runtime.processAeon(source, { validationMode: 'loose' });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.events, [
+    { path: '$.tag', key: 'tag', datatype: null, valueType: 'NodeLiteral', tag: 'tag', structuralId: 'id' },
+    { path: '$.tag[0]', key: '0', datatype: null, valueType: 'StringLiteral' },
+    { path: '$.tag[1]', key: '1', datatype: null, valueType: 'NodeLiteral', tag: 'ring 🌊' },
+    { path: '$.copy', key: 'copy', datatype: null, valueType: 'CloneReference' },
+  ]);
+  assert.deepEqual(result.finalized.document, {
+    tag: { $node: 'tag', '@': { label: 'blue' }, $children: ['Hello', { $node: 'ring 🌊', $children: [] }] },
+    copy: 'Hello',
+  });
+  const bytes = new TextEncoder().encode(source);
+  for (let split = 0; split <= bytes.length; split++) {
+    const stream = runtime.createAeonStream({ validationMode: 'loose' });
+    assert.equal(stream.push(bytes.slice(0, split)).accepted, true);
+    assert.equal(stream.push(bytes.slice(split)).accepted, true);
+    assert.equal(stream.finish().accepted, true);
+    const events: EventSummary[] = [];
+    for (let batch = stream.pullBatch(); batch !== null; batch = stream.pullBatch()) events.push(...batch.events);
+    assert.equal(stream.takeTerminal().status, 'accepted', "split " + split);
+    assert.deepEqual(events, result.events, "split " + split);
+  }
+});
+
+test('WASM retains header node metadata and separates colliding header and payload paths', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const source = 'aeon:header={<"with\\"dot"\\head\\:node("header")>}\n<"aeon:with\\"dot"\\body\\("body")>';
+  const path = '$.["aeon:with\\"dot"]';
+  const key = 'aeon:with"dot';
+  const full = runtime.processAeon(source, { finalizeScope: 'full', validationMode: 'loose' });
+  assert.deepEqual(full.errors, []);
+  const header = [
+    { path, key, datatype: 'node', valueType: 'NodeLiteral', tag: key, structuralId: 'head', sourcePlane: 'header' },
+    { path: path + '[0]', key: '0', datatype: null, valueType: 'StringLiteral', sourcePlane: 'header' },
+  ];
+  const payload = [
+    { path, key, datatype: null, valueType: 'NodeLiteral', tag: key, structuralId: 'body' },
+    { path: path + '[0]', key: '0', datatype: null, valueType: 'StringLiteral' },
+  ];
+  assert.deepEqual(full.events, [...header, ...payload]);
+  assert.deepEqual(runtime.processAeon(source, { finalizeScope: 'header', finalize: false }).events, header);
+  assert.deepEqual(runtime.processAeon(source, { finalize: false }).events, payload);
+});
+
+test('WASM Telex keeps tagged node paths and rejects retired record shapes', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  const wire = [
+    'telex.aes=1',
+    'path=$.tag\nkind=NodeLiteral\ntag=tag',
+    'path=$.tag.@.label\nkind=StringLiteral\nvalue=blue',
+    'path=$.tag[0]\nkind=StringLiteral\nvalue=Hello',
+    'path=$.tag[1]\nkind=NodeLiteral\ntag=🌊',
+    'path=$.copy\nkind=CloneReference\nvalue=$.tag[0]',
+  ].join('\n\n') + '\n';
+  assert.deepEqual(runtime.validateTelex(wire), { valid: true, profile: 'aes.complete.v1', diagnostics: [] });
+  assert.equal(runtime.canonicalizeTelex(wire.replace('kind=NodeLiteral\ntag=tag', 'tag=tag\nkind=NodeLiteral')), wire);
+  assert.deepEqual(runtime.checkTelexCompleteness(wire), { complete: true, missing: [] });
+  assert.deepEqual(runtime.materializeTelex(wire).document, {
+    tag: { $node: 'tag', '@': { label: 'blue' }, $children: ['Hello', { $node: '🌊', $children: [] }] },
+    copy: 'Hello',
+  });
+  assert.deepEqual(runtime.validateTelex(wire.replace('tag=tag', 'tag=wrong')).diagnostics.map(({ code }) => code),
+    ['AES_INVALID_TAG']);
+  assert.deepEqual(runtime.validateTelex(wire.replace('kind=NodeLiteral\ntag=🌊', 'kind=NodeHead\nvalue=🌊'))
+    .diagnostics.map(({ code }) => code), ['AES_UNKNOWN_KIND']);
 });
 
 test('exposes Core compilation without JSON finalization through generated wasm', async () => {
@@ -661,36 +759,19 @@ test('binds block comments between equals and value to the current field', async
   assert.deepEqual(result.annotations[0]?.placement, { after: 'equals', before: 'value' });
 });
 
-test('binds comments inside node values to owning and descendant paths deterministically', async () => {
-  const wasm = readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm'));
-  const runtime = await loadAeonWasm(wasm);
+test('binds comments to intrinsic node tags and direct children', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
   const result = runtime.processAeon(
-    [
-      '/# #/title/# #/:/# #/string/# #/=/# #/ "AEON Design Board"/# #/',
-      'activePage/# #/:/# #/string /# #/= /# #/"design-board"/# #/',
-      '/# #/',
-      'page/# #/:/# #/node/# #/ =/# #/ <page(/# #/',
-      '  /# #/<section/# #/ @{/# #/type/# #/:/# #/string /# #/= /# #/"feature", /# #/level/# #/:/# #/string /# #/=/# #/ "1"/# #/} (',
-      '    <kicker/# #/("Design Board")>/# #/',
-      '    <title("Keep the recurring blocks visible in one place."/# #/)>/# #/',
-      '  )>/# #/',
-      ')/# #/>',
-    ].join('\n'),
-    {
-      validationMode: 'strict',
-      maxSeparatorDepth: 8,
-      finalizeScope: 'payload',
-    },
+    '<page/# root #/(<section(<kicker/# nested #/("Design Board")>, <title("Keep it visible."/# child #/)>)>)>',
+    { validationMode: 'strict' },
   );
 
-  assert.equal(result.errors.length, 0);
-  assert.equal(result.annotations.length, 36);
-  assert.equal(result.annotations[12]?.target.path, '$.page');
-  assert.deepEqual(result.annotations[12]?.placement, { after: 'key', before: 'datatype-colon' });
-  assert.equal(result.annotations[30]?.target.path, '$.page[0][0]');
-  assert.deepEqual(result.annotations[30]?.placement, { after: 'node-tag', before: 'node-children-open' });
-  assert.equal(result.annotations[32]?.target.path, '$.page[0][1][0]');
-  assert.deepEqual(result.annotations[32]?.placement, { after: 'value' });
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.annotations.map(({ target, placement }) => ({ path: target.path, placement })), [
+    { path: '$.page', placement: { after: 'node-tag', before: 'node-children-open' } },
+    { path: '$.page[0][0]', placement: { after: 'node-tag', before: 'node-children-open' } },
+    { path: '$.page[0][1][0]', placement: { after: 'value' } },
+  ]);
 });
 
 test('streams byte chunks through bounded batches with one-shot event parity', async () => {

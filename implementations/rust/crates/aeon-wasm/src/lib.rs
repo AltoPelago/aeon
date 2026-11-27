@@ -5,10 +5,10 @@ use std::num::NonZeroUsize;
 use aeon_annotations::{AnnotationRecord, AnnotationTarget, extract_annotations, sort_annotations};
 use aeon_canonical::{CanonicalOrdering, CanonicalizeOptions, canonicalize_with_options};
 use aeon_core::{
-    AssignmentEvent, AttributeValue, BehaviorMode, CompileOptions, DatatypePolicy, Diagnostic,
-    EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment,
-    SofiaStreamCompiler, SofiaStreamProgress, SofiaStreamState, SofiaStreamTerminal, Span, Value,
-    compile_sofia, effective_telex_configuration, format_path, load_aeonic_limits,
+    AssignmentEvent, AttributeValue, BehaviorMode, CanonicalPath, CompileOptions, DatatypePolicy,
+    Diagnostic, EffectiveTelexConfiguration, HeaderFields, NullLiteralMode, ReferenceSegment,
+    SofiaStreamCompiler, SofiaStreamProgress, SofiaStreamState, SofiaStreamTerminal, SourcePlane,
+    Span, Value, compile_sofia, effective_telex_configuration, format_path, load_aeonic_limits,
     normalize_number_literal,
 };
 use aeon_finalize::{
@@ -124,7 +124,11 @@ struct ProcessEvent {
     datatype: Option<String>,
     value_type: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     structural_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_plane: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -452,7 +456,7 @@ impl AeonStreamWasm {
             .map(|batch| StreamBatchResponse {
                 sequence: batch.sequence(),
                 first_event_index: batch.first_event_index(),
-                events: batch.into_events().into_iter().map(process_event).collect(),
+                events: batch.events().iter().map(process_event).collect(),
             });
         serde_json::to_string(&batch).map_err(|error| {
             JsValue::from_str(&format!("failed to serialize stream batch: {error}"))
@@ -1333,30 +1337,58 @@ fn process_events(
             let Some(value) = header.fields.get(key) else {
                 continue;
             };
+            let name = format!("aeon:{key}");
+            let (tag, datatype, structural_id) = match value {
+                Value::NodeLiteral {
+                    datatype,
+                    structural_id,
+                    ..
+                } => (Some(name.clone()), datatype.clone(), structural_id.clone()),
+                _ => (None, None, header.structural_ids.get(key).cloned()),
+            };
             output.push(ProcessEvent {
-                path: format!("$.[\"aeon:{key}\"]"),
-                key: format!("aeon:{key}"),
-                datatype: None,
+                path: format_path(&CanonicalPath::root().member(&name)),
+                key: name,
+                datatype,
                 value_type: value_type_name(value),
-                structural_id: header.structural_ids.get(key).cloned(),
+                tag,
+                structural_id,
+                source_plane: Some("header"),
             });
         }
     }
 
-    if scope != "header" {
-        output.extend(events.iter().cloned().map(process_event));
-    }
+    output.extend(
+        events
+            .iter()
+            .filter(|event| match scope {
+                "header" => event.source_plane == SourcePlane::Header,
+                "full" => true,
+                _ => event.source_plane == SourcePlane::Body,
+            })
+            .map(process_event),
+    );
 
     output
 }
 
-fn process_event(event: AssignmentEvent) -> ProcessEvent {
+fn process_event(event: &AssignmentEvent) -> ProcessEvent {
     ProcessEvent {
         path: format_path(&event.path),
-        key: event.key,
-        datatype: event.datatype,
+        key: event.key.clone(),
+        datatype: event.datatype.clone(),
         value_type: value_type_name(&event.value),
-        structural_id: event.structural_id,
+        tag: node_tag(&event.value).map(str::to_owned),
+        structural_id: event.structural_id.clone(),
+        source_plane: (event.source_plane == SourcePlane::Header).then_some("header"),
+    }
+}
+
+fn node_tag(value: &Value) -> Option<&str> {
+    match value {
+        Value::NodeLiteral { tag, .. } => Some(tag),
+        Value::TypedValue { value, .. } => node_tag(value),
+        _ => None,
     }
 }
 
