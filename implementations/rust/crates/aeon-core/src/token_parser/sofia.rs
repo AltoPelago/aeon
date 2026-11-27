@@ -1776,6 +1776,14 @@ impl DocumentFrame {
     ) -> Result<Self, Diagnostic> {
         parser.current_value_nesting_depth = 0;
         if parser.recovery {
+            // Depth admission can reject a node before consuming its opener.
+            // Resume after the rejected token rather than treating it as a new binding.
+            if error.code == "NESTING_DEPTH_EXCEEDED"
+                && parser.check(TokenKind::LeftAngle)
+                && error.span == Some(parser.peek().span)
+            {
+                parser.advance();
+            }
             self.errors.push(error);
             parser.synchronize_to_next_binding();
         } else if error.code == "SYNTAX_ERROR" && error.message == "Expected key" {
@@ -2396,7 +2404,7 @@ impl AttributeEntryFrame {
                     Ok(key) => key,
                     Err(error) => return Step::Failed(error),
                 };
-                if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+                if self.depth > 0 && RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                     return Step::Failed(
                         parser.error_at_current(format!("Reserved attribute key: {key}")),
                     );
@@ -2468,7 +2476,7 @@ impl AttributeEntryFrame {
                 let Some(Product::Value(node)) = product.take() else {
                     unreachable!("Sofia node attribute expected a node value");
                 };
-                match node_attribute(node) {
+                match node_attribute(node, self.depth > 0) {
                     Ok((key, key_span, value)) => complete(
                         product,
                         Product::AttributeEntry(ParsedAttributeEntry {

@@ -1052,6 +1052,47 @@ mod tests {
     }
 
     #[test]
+    fn projects_named_header_nodes_with_their_lowered_tag() {
+        for source in [
+            "aeon:header = { <extra(\"note\")> }\n<main>",
+            "aeon:header = { <\"aeon:extra\"(\"note\")> }\n<main>",
+        ] {
+            let mut options = CompileToTelexOptions::default();
+            options.telex.include_headers = true;
+            let compiled = aeon_to_telex(source, options);
+            let wire = compiled.telex.expect("Telex with the header plane");
+            let node = compiled
+                .records
+                .iter()
+                .find(|record| record.get("header") == Some(r#"$.["aeon:extra"]"#))
+                .expect("named header node");
+            assert_eq!(node.get("tag"), Some("aeon:extra"));
+
+            let mut load_options = TelexLoadOptions::default();
+            load_options.finalize.scope = aeon_finalize::FinalizeScope::Full;
+            let document =
+                load_telex_str::<JsonValue>(&wire, load_options).expect("load header node");
+            assert_eq!(document.document["header"]["extra"]["$node"], "aeon:extra");
+            assert_eq!(document.document["header"]["extra"]["$children"][0], "note");
+            assert_eq!(document.document["payload"]["main"]["$node"], "main");
+            aeon_document::AeonDocument::compile(source, CompileOptions::default())
+                .expect("SDK accepts the compiled header plane");
+        }
+    }
+
+    #[test]
+    fn rejects_header_node_aliases_with_the_same_portable_name() {
+        let source = "aeon:header = { <extra>, <\"aeon:extra\"> }\n<main>";
+        let compiled = aeon_to_telex(source, CompileToTelexOptions::default());
+        assert!(compiled.telex.is_none());
+        assert_eq!(compiled.compile.errors[0].code, "DUPLICATE_KEY");
+        assert_eq!(
+            compiled.compile.errors[0].path.as_deref(),
+            Some(r#"$.["aeon:extra"]"#),
+        );
+    }
+
+    #[test]
     fn returns_compile_errors_for_invalid_source() {
         let error = load_str::<GreetingDoc>("greeting = {\n", LoadOptions::default())
             .expect_err("compile failure");

@@ -2703,6 +2703,38 @@ mod tests {
     }
 
     #[test]
+    fn node_payloads_in_metadata_enforce_published_child_datatypes() {
+        for (source, path) in [
+            (
+                "host@{<glyph(:number = \"oops\")>} = 0",
+                "$.host.@.glyph[0]",
+            ),
+            (
+                "host@{<glyph({leaf:number = \"oops\"})>} = 0",
+                "$.host.@.glyph[0].leaf",
+            ),
+            (
+                "<anchor(\"text\")>\nhost@{<glyph(:number = ~anchor[0])>} = 0",
+                "$.host.@.glyph[0]",
+            ),
+        ] {
+            let options = CompileOptions::default();
+            let baseline = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Baseline,
+            );
+            let sofia = compile_owned_sofia_streaming(source.to_owned(), options.clone());
+            let (_, streamed) = collect_progressive(source, &options, 1);
+            for errors in [baseline.errors, sofia.errors, streamed.prevalidation_errors] {
+                assert_eq!(errors.len(), 1, "{errors:?}");
+                assert_eq!(errors[0].code, "DATATYPE_LITERAL_MISMATCH");
+                assert_eq!(errors[0].path.as_deref(), Some(path));
+            }
+        }
+    }
+
+    #[test]
     fn known_reserved_only_skips_profile_value_mismatch_candidates() {
         use crate::{ClarifierRule, DatatypePolicy, DatatypeSemantics, ProfileDatatypeRules};
         use std::sync::Arc;

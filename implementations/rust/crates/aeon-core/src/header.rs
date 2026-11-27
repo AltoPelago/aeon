@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::{
     AEON_GP_PROFILE_ID, BehaviorMode, Binding, Diagnostic, HeaderFields, Position,
@@ -59,6 +59,28 @@ impl IncrementalHeaderState {
                 }
                 return;
             };
+            if bindings
+                .iter()
+                .any(|field| structured_header_key(field) != field.key)
+            {
+                let mut seen = HashSet::new();
+                for field in bindings {
+                    let key = structured_header_key(field);
+                    if !seen.insert(key) && self.first_layout_error.is_none() {
+                        self.first_layout_error = Some(
+                            Diagnostic::new(
+                                "DUPLICATE_KEY",
+                                format!("Duplicate header key: 'aeon:{key}'"),
+                            )
+                            .at_path(crate::format_path(
+                                &crate::CanonicalPath::root().member(format!("aeon:{key}")),
+                            ))
+                            .with_span(field.span),
+                        );
+                        return;
+                    }
+                }
+            }
             for field in bindings {
                 let key = if field.key == "mode" {
                     "aeon:mode"
@@ -177,6 +199,14 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
     }
 }
 
+fn structured_header_key(field: &Binding) -> &str {
+    if matches!(field.value, Value::NodeLiteral { .. }) {
+        field.key.strip_prefix("aeon:").unwrap_or(&field.key)
+    } else {
+        &field.key
+    }
+}
+
 pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagnostic> {
     let mut header_state = IncrementalHeaderState::default();
     for binding in &bindings {
@@ -196,17 +226,16 @@ pub(crate) fn lower_header(bindings: Vec<Binding>) -> Result<Vec<Binding>, Diagn
             else {
                 unreachable!("validated structured header must contain an object");
             };
-            for header in header_bindings {
-                let mapped_key = if header.key == "mode" {
-                    String::from("aeon:mode")
-                } else {
-                    format!("aeon:{}", header.key)
-                };
-                lowered.push(Binding {
-                    key: mapped_key,
-                    is_header: true,
-                    ..header
-                });
+            for mut header in header_bindings {
+                let mapped_key = format!("aeon:{}", structured_header_key(&header));
+                if let Value::NodeLiteral { tag, .. } = &mut header.value {
+                    // Header fields lower into the AEON namespace. The intrinsic node
+                    // tag follows the lowered binding key in that plane.
+                    *tag = mapped_key.clone();
+                }
+                header.key = mapped_key;
+                header.is_header = true;
+                lowered.push(header);
             }
         } else {
             seen_body = true;

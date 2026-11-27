@@ -72,6 +72,11 @@ planning and AEON/JSON target validation. Local spaces remain under host
 control. See the facade and native Python READMEs for plan inspection and
 the distinction between planning, representability and apply.
 
+Direct node fields of `aeon:header` use the qualified name in the header plane.
+For example, `aeon:header = { <extra> }` projects a node tagged `aeon:extra`
+at the header address `$.["aeon:extra"]`. Nested and body nodes keep their
+decoded tag.
+
 Current verified status:
 
 - `core` CTS: green

@@ -20,7 +20,10 @@ fn node_binding(value: Value) -> Binding {
     }
 }
 
-fn node_attribute(value: Value) -> Result<(String, Span, AttributeValue), Diagnostic> {
+fn node_attribute(
+    value: Value,
+    metadata_key: bool,
+) -> Result<(String, Span, AttributeValue), Diagnostic> {
     let Value::NodeLiteral {
         tag,
         span,
@@ -30,7 +33,7 @@ fn node_attribute(value: Value) -> Result<(String, Span, AttributeValue), Diagno
     else {
         unreachable!("node attribute requires a node");
     };
-    if RESERVED_ATTRIBUTE_KEYS.contains(&tag.as_str()) {
+    if metadata_key && RESERVED_ATTRIBUTE_KEYS.contains(&tag.as_str()) {
         return Err(
             Diagnostic::new("SYNTAX_ERROR", format!("Reserved attribute key: {tag}"))
                 .at_path("$")
@@ -624,10 +627,14 @@ impl<'a> TokenParser<'a> {
         let mut errors = Vec::new();
         self.skip_newlines();
         while !self.is_at_end() {
+            let binding_start = self.current;
             match self.parse_binding(true) {
                 Ok(binding) => bindings.push(binding),
                 Err(error) => {
                     errors.push(error);
+                    if self.current == binding_start && !self.is_at_end() {
+                        self.advance();
+                    }
                     if !self.synchronize_to_next_binding() {
                         break;
                     }
@@ -1662,7 +1669,7 @@ impl<'a> TokenParser<'a> {
         while !self.check(terminator) {
             if self.check(TokenKind::LeftAngle) {
                 let node = self.parse_value_at_attribute_depth(depth + 1)?;
-                let (key, key_span, entry) = node_attribute(node)?;
+                let (key, key_span, entry) = node_attribute(node, depth > 0)?;
                 if members.contains_key(&key) {
                     return Err(Diagnostic::new(
                         "DUPLICATE_KEY",
@@ -1679,7 +1686,7 @@ impl<'a> TokenParser<'a> {
             let key_span = self.peek().span;
             let entry_start = key_span.start;
             let (key, _) = self.parse_key()?;
-            if RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
+            if depth > 0 && RESERVED_ATTRIBUTE_KEYS.contains(&key.as_str()) {
                 return Err(self.error_at_current(&format!("Reserved attribute key: {}", key)));
             }
             self.skip_newlines();
@@ -2421,10 +2428,48 @@ mod tests {
                 assert!(result.is_ok(), "{source}: {result:?}");
             } else {
                 assert_eq!(
-                    result.unwrap_err().code,
+                    result
+                        .expect_err("header exceeds the configured depth")
+                        .code,
                     "NESTING_DEPTH_EXCEEDED",
                     "{source}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_progresses_past_a_rejected_node() {
+        let limits = ParserLimits::new(0, 8, 8, 8, 32, 64);
+        for source in ["before=1\n<entry>\nafter=2", "before=1,<entry>,after=2"] {
+            for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+                let recovered = parse_document_from_tokens_recovery_with_implementation(
+                    source,
+                    limits,
+                    implementation,
+                );
+                assert_eq!(
+                    recovered
+                        .bindings
+                        .iter()
+                        .map(|binding| binding.key.as_str())
+                        .collect::<Vec<_>>(),
+                    ["before", "after"]
+                );
+                assert_eq!(recovered.errors.len(), 1);
+                assert_eq!(recovered.errors[0].code, "NESTING_DEPTH_EXCEEDED");
+            }
+        }
+    }
+
+    #[test]
+    fn node_metadata_uses_the_reserved_keys_of_its_actual_scope() {
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let accepted = "host@{data={<constructor>, prototype=1}}=0";
+            assert!(parse_with(accepted, implementation).is_ok());
+            for denied in ["host@{<constructor>}=0", "host@{<node@{prototype=1}>}=0"] {
+                let error = parse_with(denied, implementation).expect_err("reserved attribute key");
+                assert!(error.message.starts_with("Reserved attribute key"));
             }
         }
     }

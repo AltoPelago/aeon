@@ -1196,6 +1196,9 @@ impl<'a> AnnotationParser<'a> {
     fn parse_binding(&mut self, parent_path: &str) -> Option<Vec<Bindable>> {
         self.skip_trivia(false);
         let start = self.scanner.position();
+        if self.scanner.peek() == Some('<') {
+            return self.parse_node_binding(parent_path, start);
+        }
         let (key, key_span) = self.parse_key_with_span()?;
         let mut landmarks = vec![PlacementLandmark {
             part: AnnotationPlacementPart::Key,
@@ -1289,6 +1292,47 @@ impl<'a> AnnotationParser<'a> {
                 value_kind,
                 kind: BindableKind::Binding,
                 landmarks,
+            },
+        );
+        Some(bindables)
+    }
+
+    fn parse_node_binding(&mut self, parent_path: &str, start: Position) -> Option<Vec<Bindable>> {
+        self.scanner.bump();
+        self.skip_trivia(true);
+        let tag_start = self.scanner.index;
+        if matches!(self.scanner.peek(), Some('"' | '\'')) {
+            self.scanner.read_string();
+        } else {
+            while self
+                .scanner
+                .peek()
+                .is_some_and(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            {
+                self.scanner.bump();
+            }
+        }
+        let fragment = format!("<{}>", &self.scanner.source[tag_start..self.scanner.index]);
+        let mut parsed = aeon_core::parse_document(&fragment, &Default::default()).ok()?;
+        let tag = parsed.pop()?.key;
+        let key = if parent_path == AEON_HEADER_CHILD_PARENT {
+            tag.strip_prefix("aeon:").unwrap_or(&tag)
+        } else {
+            &tag
+        };
+        let path = format_path(parent_path, key);
+        self.scanner = Scanner::new_at(self.scanner.source, start);
+        let mut bindables = Vec::new();
+        let end = self.capture_node(&path, &mut bindables);
+        bindables.insert(
+            0,
+            Bindable {
+                path,
+                span: Span { start, end },
+                value_start: start,
+                value_kind: BindableValueKind::Node,
+                kind: BindableKind::Binding,
+                landmarks: self.node_value_landmarks(start, end),
             },
         );
         Some(bindables)
@@ -1506,13 +1550,22 @@ impl<'a> AnnotationParser<'a> {
             return self.scanner.position();
         }
         self.scanner.bump();
+        let mut generics = 0usize;
         while !self.scanner.is_eof() {
             match self.scanner.peek() {
-                Some('>') => {
+                Some('>') if generics == 0 => {
                     self.scanner.bump();
                     return self.scanner.position();
                 }
-                Some('(') => {
+                Some('<') => {
+                    generics += 1;
+                    self.scanner.bump();
+                }
+                Some('>') => {
+                    generics -= 1;
+                    self.scanner.bump();
+                }
+                Some('(') if generics == 0 => {
                     let _ = self.capture_sequence('(', ')', parent_path, bindables);
                     self.skip_trivia(true);
                     if self.scanner.peek() == Some('>') {
@@ -1559,6 +1612,12 @@ impl<'a> AnnotationParser<'a> {
                     });
                     angle_depth = 1;
                     state = NodeValueState::Tag;
+                }
+                NodeValueTokenKind::LeftAngle if paren_depth == 0 => {
+                    angle_depth += 1;
+                }
+                NodeValueTokenKind::RightAngle if angle_depth > 1 && paren_depth == 0 => {
+                    angle_depth -= 1;
                 }
                 NodeValueTokenKind::RightAngle if angle_depth == 1 && paren_depth == 0 => {
                     landmarks.push(PlacementLandmark {
@@ -2280,6 +2339,21 @@ mod tests {
                 before: Some(AnnotationPlacementPart::Value),
             })
         );
+    }
+
+    #[test]
+    fn binds_comments_on_named_nodes_and_following_bindings() {
+        let records = extract_annotations(
+            "//# root\n<page:node<string>(1, /? child ?/ 2)>\n//# later\nlater=3",
+        );
+        let paths: Vec<_> = records
+            .iter()
+            .map(|record| match &record.target {
+                AnnotationTarget::Path { path } => path.as_str(),
+                target => panic!("unbound annotation: {target:?}"),
+            })
+            .collect();
+        assert_eq!(paths, ["$.page", "$.page[1]", "$.later"]);
     }
 
     #[test]

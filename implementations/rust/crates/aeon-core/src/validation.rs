@@ -917,7 +917,7 @@ pub(crate) fn collect_attribute_datatype_checks(
     validate_attribute_datatypes_in_scope(
         bindings,
         "$",
-        false,
+        AttributeValueScope::Projected,
         mode,
         effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
@@ -2685,10 +2685,59 @@ fn validate_resolved_attribute_datatypes(
     }
 }
 
+#[derive(Clone, Copy)]
+enum AttributeValueScope {
+    Projected,
+    Metadata,
+    NodePayload(Span),
+}
+
+fn check_metadata_payload_type(
+    datatype: &str,
+    value: &Value,
+    path: &str,
+    span: Span,
+    mode: BehaviorMode,
+    datatype_policy: DatatypePolicy,
+    max_separator_depth: usize,
+    max_generic_depth: usize,
+) -> Option<AttributeDatatypeCheck> {
+    if let Some(error) =
+        invalid_inline_node_datatype(value, datatype, path, span, mode).or_else(|| {
+            validate_datatype_shape_light(datatype, value, max_separator_depth, max_generic_depth)
+                .map(|error| error.at_path(path).with_span(span))
+        })
+    {
+        return Some(AttributeDatatypeCheck::Error(error));
+    }
+    if is_reserved_datatype(datatype)
+        && matches!(
+            value,
+            Value::CloneReference { .. } | Value::PointerReference { .. }
+        )
+    {
+        return Some(AttributeDatatypeCheck::Reference {
+            path: path.to_owned(),
+            datatype: datatype.to_owned(),
+            value: value.clone(),
+            profile_custom: false,
+        });
+    }
+    datatype_value_error(
+        datatype,
+        &CompactDatatypeValue::from_value(value),
+        path,
+        span,
+        mode,
+        datatype_policy,
+    )
+    .map(AttributeDatatypeCheck::Error)
+}
+
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &str,
-    inside_attribute: bool,
+    scope: AttributeValueScope,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2697,6 +2746,29 @@ fn validate_attribute_datatypes_in_scope(
 ) {
     for binding in bindings {
         let path = render_child_member_path(parent, &binding.key);
+        if matches!(scope, AttributeValueScope::NodePayload(_))
+            && !matches!(binding.value, Value::NodeLiteral { .. })
+        {
+            if let Some(datatype) = binding.datatype.as_deref() {
+                checks.extend(check_metadata_payload_type(
+                    datatype,
+                    &binding.value,
+                    &path,
+                    binding.span,
+                    mode,
+                    datatype_policy,
+                    max_separator_depth,
+                    max_generic_depth,
+                ));
+            } else if matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom) {
+                checks.push(AttributeDatatypeCheck::Error(
+                    Diagnostic::new(
+                        "UNTYPED_VALUE_IN_STRICT_MODE",
+                        format!("Untyped value in typed mode: '{path}' requires explicit type annotation"),
+                    ).at_path(&path).with_span(binding.span),
+                ));
+            }
+        }
         validate_attribute_datatype_map(
             &binding.attributes,
             &binding.attribute_order,
@@ -2710,7 +2782,7 @@ fn validate_attribute_datatypes_in_scope(
         validate_value_attribute_datatypes(
             &binding.value,
             &path,
-            inside_attribute,
+            scope,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2723,7 +2795,7 @@ fn validate_attribute_datatypes_in_scope(
 fn validate_value_attribute_datatypes(
     value: &Value,
     path: &str,
-    inside_attribute: bool,
+    scope: AttributeValueScope,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2734,7 +2806,7 @@ fn validate_value_attribute_datatypes(
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
             bindings,
             path,
-            inside_attribute,
+            scope,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2746,7 +2818,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     item,
                     &render_child_index_path(path, index),
-                    inside_attribute,
+                    scope,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2763,31 +2835,23 @@ fn validate_value_attribute_datatypes(
             span,
             ..
         } => {
-            if inside_attribute && let Some(datatype) = datatype {
-                let error = invalid_inline_node_datatype(value, datatype, path, *span, mode)
-                    .or_else(|| {
-                        validate_datatype_shape_light(
-                            datatype,
-                            value,
-                            max_separator_depth,
-                            max_generic_depth,
-                        )
-                        .map(|error| error.at_path(path).with_span(*span))
-                    })
-                    .or_else(|| {
-                        datatype_value_error(
-                            datatype,
-                            &CompactDatatypeValue::Node,
-                            path,
-                            *span,
-                            mode,
-                            datatype_policy,
-                        )
-                    });
-                if let Some(error) = error {
-                    checks.push(AttributeDatatypeCheck::Error(error));
+            let child_scope = if matches!(scope, AttributeValueScope::Projected) {
+                scope
+            } else {
+                if let Some(datatype) = datatype {
+                    checks.extend(check_metadata_payload_type(
+                        datatype,
+                        value,
+                        path,
+                        *span,
+                        mode,
+                        datatype_policy,
+                        max_separator_depth,
+                        max_generic_depth,
+                    ));
                 }
-            }
+                AttributeValueScope::NodePayload(*span)
+            };
             for (index, attribute) in attributes.iter().enumerate() {
                 let order = if index == 0 {
                     attribute_order.as_slice()
@@ -2809,7 +2873,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     child,
                     &render_child_index_path(path, index),
-                    inside_attribute,
+                    child_scope,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2817,6 +2881,49 @@ fn validate_value_attribute_datatypes(
                     checks,
                 );
             }
+        }
+        Value::TypedValue {
+            datatype,
+            attributes,
+            attribute_order,
+            value,
+            ..
+        } => {
+            let AttributeValueScope::NodePayload(span) = scope else {
+                return;
+            };
+            if let Some(datatype) = datatype {
+                checks.extend(check_metadata_payload_type(
+                    datatype,
+                    value,
+                    path,
+                    span,
+                    mode,
+                    datatype_policy,
+                    max_separator_depth,
+                    max_generic_depth,
+                ));
+            }
+            validate_attribute_datatype_map(
+                attributes,
+                attribute_order,
+                format_args!("{path}.@"),
+                mode,
+                datatype_policy,
+                max_separator_depth,
+                max_generic_depth,
+                checks,
+            );
+            validate_value_attribute_datatypes(
+                value,
+                path,
+                scope,
+                mode,
+                datatype_policy,
+                max_separator_depth,
+                max_generic_depth,
+                checks,
+            );
         }
         _ => {}
     }
@@ -2953,7 +3060,7 @@ fn validate_attribute_datatype_map(
             validate_value_attribute_datatypes(
                 value,
                 &attr_path,
-                true,
+                AttributeValueScope::Metadata,
                 mode,
                 datatype_policy,
                 max_separator_depth,
