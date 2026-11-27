@@ -63,13 +63,13 @@ describe('Assignment Event Emission', () => {
         });
 
         it('should preserve structural identity on attribute-entry and node AST surfaces', () => {
-            const result = emit(String.raw`a@{source\META\ = "user"} = <tag\HEAD\>`);
+            const result = emit(String.raw`<tag\NODE\@{source\META\ = "user"}>`);
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events[0]!.annotations?.get('source')?.structuralId, 'META');
             assert.strictEqual(result.events[0]!.value.type, 'NodeLiteral');
             if (result.events[0]!.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
-            assert.strictEqual(result.events[0]!.value.structuralId, 'HEAD');
+            assert.strictEqual(result.events[0]!.value.structuralId, 'NODE');
         });
     });
 
@@ -147,7 +147,7 @@ describe('Assignment Event Emission', () => {
         });
 
         it('should emit events for node children and nested object bindings', () => {
-            const result = emit('page:node = <page({a = 1}, "hello")>');
+            const result = emit('<page:node({a = 1}, "hello")>');
 
             assert.strictEqual(result.errors.length, 0);
             const paths = result.events.map((e) => formatPath(e.path));
@@ -158,7 +158,7 @@ describe('Assignment Event Emission', () => {
         });
 
         it('should emit anonymous child annotations on indexed child events', () => {
-            const result = emit('page:node = <page(@{unit:string="cm"}:int32 = 3)>');
+            const result = emit('<page:node(@{unit:string="cm"}:int32 = 3)>');
             const child = result.events.find((e) => formatPath(e.path) === '$.page[0]');
 
             assert.ok(child);
@@ -255,18 +255,18 @@ describe('Assignment Event Emission', () => {
         });
 
         it('should include parameterized object and node datatype signatures in core v1', () => {
-            const result = emit('scores:object<number> = { alice:number = 10 }\ndoc:node<html> = <html>', true);
+            const result = emit('scores:object<number> = { alice:number = 10 }\n<html:node<html>>', true);
 
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.events[0]!.datatype, 'object<number>');
             assert.strictEqual(result.events[2]!.datatype, 'node<html>');
         });
 
-        it('should include parameterized node-head datatype signatures in core v1', () => {
-            const result = emit('title:node = <title:node<string>("Hello")>', true);
+        it('should include parameterized inline node datatype signatures in core v1', () => {
+            const result = emit('<title:node<string>("Hello")>', true);
 
             assert.strictEqual(result.errors.length, 0);
-            assert.strictEqual(result.events[0]!.datatype, 'node');
+            assert.strictEqual(result.events[0]!.datatype, 'node<string>');
             assert.strictEqual(result.events[0]!.value.type, 'NodeLiteral');
             assert.strictEqual((result.events[0]!.value as any).datatype?.name, 'node');
             assert.deepStrictEqual((result.events[0]!.value as any).datatype?.genericArgs, ['string']);

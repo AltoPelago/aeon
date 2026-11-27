@@ -1,0 +1,147 @@
+[
+  {
+    "id": "newline-node-tag",
+    "source": "<\"z\\n\">",
+    "fragment": "<\"z\\n\">"
+  },
+  {
+    "id": "empty-anonymous-node",
+    "source": "<tag(@{}=1)>",
+    "fragment": "1"
+  },
+  {
+    "id": "empty-anonymous-compact-node",
+    "source": "a@{<tag(@{}=1)>}=0",
+    "fragment": "<tag(1)>"
+  },
+  {
+    "id": "empty-compact-node-object",
+    "source": "a@{<tag({})>}=0",
+    "fragment": "<tag({  })>"
+  },
+  {
+    "id": "aeon-head-node-object-typed-key",
+    "source": "<tag({\"aeon\":custom=1})>",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-node-typed-tag",
+    "source": "<\"aeon\":custom>",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-metadata-node-typed-tag",
+    "source": "a@{<\"aeon\":custom>}=0",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-child-node-typed-tag",
+    "source": "<tag(<\"aeon\":custom>)>",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-node-metadata-typed-key",
+    "source": "<tag@{\"aeon\":custom=1}>",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "aeon-head-node-identity-prefix",
+    "source": "<aeon\\ID\\:custom>",
+    "fragment": "<aeon\\ID\\:custom>"
+  },
+  {
+    "id": "aeon-head-node-attribute-prefix",
+    "source": "<aeon@{m=1}:custom>",
+    "fragment": "<aeon@{m = 1}:custom>"
+  },
+  {
+    "id": "aeon-head-node-empty-prefix",
+    "source": "<\"aeon\"@{}:custom>",
+    "fragment": "<\"aeon\":custom>"
+  },
+  {
+    "id": "aeon-head-binding-to-node-head-reference",
+    "source": "<tag@{\"aeon\":custom=1,m=~tag.@.aeon}>",
+    "fragment": "\"aeon\":custom"
+  },
+  {
+    "id": "separator-1-node",
+    "source": "<tag(^'a.[\"foo\"]')>",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-1-node-metadata",
+    "source": "<tag@{m=^'a.[\"foo\"]'}>",
+    "fragment": "^'a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-2-node",
+    "source": "<tag(^'a.@.[\"meta\"]')>",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-2-node-metadata",
+    "source": "<tag@{m=^'a.@.[\"meta\"]'}>",
+    "fragment": "^'a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-3-node",
+    "source": "<tag(^'~$.a.[\"foo\"]')>",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-3-node-metadata",
+    "source": "<tag@{m=^'~$.a.[\"foo\"]'}>",
+    "fragment": "^'~$.a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-4-node",
+    "source": "<tag(^'~>$.a.@.[\"meta\"]')>",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-4-node-metadata",
+    "source": "<tag@{m=^'~>$.a.@.[\"meta\"]'}>",
+    "fragment": "^'~>$.a.@.[\"meta\"]'"
+  },
+  {
+    "id": "separator-5-node",
+    "source": "<tag(^'a.[\"not-identifier\"]')>",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-5-node-metadata",
+    "source": "<tag@{m=^'a.[\"not-identifier\"]'}>",
+    "fragment": "^'a.[\"not-identifier\"]'"
+  },
+  {
+    "id": "separator-6-node",
+    "source": "<tag(^'say \\'yes\\' a.[\"foo\"]')>",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-6-node-metadata",
+    "source": "<tag@{m=^'say \\'yes\\' a.[\"foo\"]'}>",
+    "fragment": "^'say \\'yes\\' a.[\"foo\"]'"
+  },
+  {
+    "id": "separator-7-node",
+    "source": "<tag(^\"a.[\\\"foo\\\"]\")>",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-7-node-metadata",
+    "source": "<tag@{m=^\"a.[\\\"foo\\\"]\"}>",
+    "fragment": "^\"a.[\\\"foo\\\"]\""
+  },
+  {
+    "id": "separator-8-node",
+    "source": "<tag(^'a.[\"foo\"]'.'b.@.[\"bar\"]')>",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  },
+  {
+    "id": "separator-8-node-metadata",
+    "source": "<tag@{m=^'a.[\"foo\"]'.'b.@.[\"bar\"]'}>",
+    "fragment": "^'a.[\"foo\"]'.'b.@.[\"bar\"]'"
+  }
+]

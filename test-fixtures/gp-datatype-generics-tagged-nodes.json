@@ -1,0 +1,67 @@
+[
+  {
+    "id": "binding-node-reserved-argument",
+    "source": "<tag>\ndoc:node<string> = ~tag",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED",
+        "path": "$.doc"
+      }
+    ]
+  },
+  {
+    "id": "reference-node-reserved-argument",
+    "source": "<target:node>\ndoc:node<string> = ~target",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED",
+        "path": "$.doc"
+      }
+    ]
+  },
+  {
+    "id": "node-head-reserved-argument",
+    "source": "<tag:node<string>>",
+    "errors": []
+  },
+  {
+    "id": "metadata-node-reserved-argument",
+    "source": "<tag>\ndoc@{meta:node<string> = ~tag}:n = 0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_GENERIC_NOT_ALLOWED",
+        "path": "$.doc.@.meta"
+      }
+    ]
+  },
+  {
+    "id": "node-head-generic-with-clarifier",
+    "source": "<tag:node<string>[9007199254740993]>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
+        "path": "$.tag"
+      }
+    ]
+  },
+  {
+    "id": "non-node-head-adornments",
+    "source": "<tag:pair<string>[\"x\"]>",
+    "errors": [
+      {
+        "code": "DATATYPE_LITERAL_MISMATCH",
+        "path": "$.tag"
+      }
+    ]
+  },
+  {
+    "id": "custom-generic-node-head-metadata-item",
+    "source": "aeon:mode = \"custom\"\n<tag@{meta:list = [:rational<symbol<time>> = |1/3|]}>",
+    "errors": [
+      {
+        "code": "DATATYPE_LITERAL_MISMATCH",
+        "path": "$.tag.@.meta[0]"
+      }
+    ]
+  }
+]

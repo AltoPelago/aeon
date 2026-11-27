@@ -1398,9 +1398,7 @@ b = [\A1\ = 2]`).tokens;
             const result = parse(tokens);
 
             assert.deepStrictEqual(result.errors, []);
-            const node = result.document!.bindings[0]!.value;
-            assert.ok(node.type === 'NodeLiteral');
-            assert.deepStrictEqual(node.datatype?.genericArgs, ['string']);
+            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['string']);
         });
 
         it('should preserve generics on reserved boolean datatypes', () => {
@@ -1531,6 +1529,24 @@ b = [\A1\ = 2]`).tokens;
 
             assert.ok(result.errors.length > 0);
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
+        });
+
+        it('recovers past malformed node openings with bounded token reads', () => {
+            for (const openerCount of [16, 64]) {
+                const { tokens } = tokenize('<\n'.repeat(openerCount) + 'after = 1');
+                let openerReads = 0;
+                const observed = tokens.map((token) => token.value === '<' ? {
+                    ...token,
+                    get type() {
+                        openerReads += 1;
+                        return token.type;
+                    },
+                } : token);
+                const result = parse(observed, { maxValueNestingDepth: 2 });
+                assert.equal(result.errors.length, 1);
+                assert.deepEqual(result.document?.bindings.map(binding => binding.key), ['after']);
+                assert.ok(openerReads < 10 * openerCount, String(openerReads));
+            }
         });
 
         it('rejects external bindings and anonymous wrappers around node declarations', () => {

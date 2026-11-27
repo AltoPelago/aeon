@@ -360,18 +360,18 @@ describe('Core - compile()', () => {
         });
 
         it('should compile introducer node syntax', () => {
-            const result = compile('view = <panel("hello", { x = 1 })>');
+            const result = compile('<panel("hello", { x = 1 })>');
             assert.strictEqual(result.errors.length, 0);
             const paths = result.events.map((e) => formatPath(e.path));
-            assert.ok(paths.includes('$.view'));
-            assert.ok(!paths.includes('$.view.x'));
+            assert.ok(paths.includes('$.panel'));
+            assert.ok(paths.includes('$.panel[1].x'));
         });
 
         it('should compile empty node shorthand', () => {
-            const result = compile('view = <panel>');
+            const result = compile('<panel>');
             assert.strictEqual(result.errors.length, 0);
             const paths = result.events.map((e) => formatPath(e.path));
-            assert.ok(paths.includes('$.view'));
+            assert.ok(paths.includes('$.panel'));
         });
 
         it('should emit annotation stream by default', () => {
@@ -384,28 +384,15 @@ describe('Core - compile()', () => {
             assert.deepStrictEqual(result.annotations?.[1]?.target, { kind: 'path', path: '$.a' });
         });
 
-        it('should keep binding and node head comments on the container path', () => {
-            const result = compile(
-                '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#=#/3/#3#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/',
-                { datatypePolicy: 'allow_custom' },
-            );
-
-            assert.strictEqual(result.errors.length, 0);
-            const annotations = result.annotations ?? [];
-            assert.strictEqual(annotations.length, 21);
-            for (const annotation of annotations.slice(1, 4)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
-            }
-            for (const annotation of annotations.slice(4, 9)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a.@.b' }, annotation.raw);
-            }
-            for (const annotation of annotations.slice(9, 16)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
-            }
-            assert.deepStrictEqual(annotations[16]?.target, { kind: 'path', path: '$.a[0]' });
-            assert.deepStrictEqual(annotations[17]?.target, { kind: 'path', path: '$.a[1]' });
-            assert.deepStrictEqual(annotations[18]?.target, { kind: 'path', path: '$.a[1]' });
-            assert.deepStrictEqual(annotations[20]?.target, { kind: 'path', path: '$.a' });
+        it('assigns inline node comments to the node, attribute and child occurrences', () => {
+            const result = compile('<tag /#node#/ @{b:n=3 /#attr#/}:node("hello" /#first#/, "world" /#second#/) >');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(annotation => [annotation.raw, annotation.target]), [
+                ['/#node#/', { kind: 'path', path: '$.tag' }],
+                ['/#attr#/', { kind: 'path', path: '$.tag.@.b' }],
+                ['/#first#/', { kind: 'path', path: '$.tag[0]' }],
+                ['/#second#/', { kind: 'path', path: '$.tag[1]' }],
+            ]);
         });
 
         it('should allow disabling annotation stream emission', () => {
@@ -1266,16 +1253,16 @@ describe('Core - compile()', () => {
         });
 
         it('should fail-closed with INVALID_NODE_DATATYPE and aligned messaging', () => {
-            const result = compile('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>');
+            const result = compile('aeon:mode = "strict"\n<tag:contact("x")>');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
             assert.strictEqual(result.errors[0]!.code, 'INVALID_NODE_DATATYPE');
             assert.strictEqual(
                 result.errors[0]!.message,
-                "Invalid node head datatype in strict mode at '$.widget': node heads must use ':node', got ':contact'"
+                "Invalid node datatype in strict mode at '$.tag': expected ':node', got ':contact'"
             );
-            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.widget');
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.tag');
             assert.ok(result.errors[0]!.span);
         });
     });

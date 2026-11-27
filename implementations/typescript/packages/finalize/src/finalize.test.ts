@@ -82,7 +82,7 @@ describe('Finalization (Map)', () => {
     });
 
     it('preserves assignment-entry chains for projected attribute paths', () => {
-        const events = compileToEvents('title@{lang="en", meta={ keep=2 }} = "Hello"\ncard = { label@{meta={ keep=3, "x.y"=4 }} = "Hi" }\nrich = <pill@{id="main", meta={ keep=5 }}("new")>');
+        const events = compileToEvents('title@{lang="en", meta={ keep=2 }} = "Hello"\ncard = { label@{meta={ keep=3, "x.y"=4 }} = "Hi" }\n<pill@{id="main", meta={ keep=5 }}("new")>');
 
         const topLevel = finalizeMap(events, {
             materialization: 'projected',
@@ -98,8 +98,8 @@ describe('Finalization (Map)', () => {
 
         const node = finalizeMap(events, {
             materialization: 'projected',
-            includePaths: ['$.rich.@.@.id', '$.rich.@.@.meta.keep'],
+            includePaths: ['$.pill.@.id', '$.pill.@.meta.keep'],
         });
-        assert.deepStrictEqual(Array.from(node.document.entries.keys()), ['$.rich']);
+        assert.deepStrictEqual(Array.from(node.document.entries.keys()), ['$.pill']);
     });
 });

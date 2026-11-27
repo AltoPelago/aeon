@@ -279,6 +279,32 @@ test('readAeonChecked throws on compile/finalize errors and indexes events by ca
   assert.equal(result.eventsByPath.get('$.version')?.datatype, 'number');
 });
 
+test('native JSON and Telex materialize a reference into an indexed node attribute', () => {
+  const source = 'host@{xs=[<child@{a=1}>]} = 1\ncopy = ~host.@.xs[0].@.a';
+  const compile = { maxAttributeDepth: 2 };
+  const native = readAeonChecked(source, { compile, finalize: { mode: 'strict' } });
+  const exported = aeonToTelex(source, { compile, telex: { maxAttributeDepth: 2 } });
+  assert.ok(exported.telex);
+  const portable = readTelexDocumentChecked(exported.telex, {
+    telex: { maxAttributeDepth: 2 }, finalize: { mode: 'strict', limits: { maxAttributeDepth: 2 } },
+  });
+  assert.deepEqual(native.finalized.document, portable.finalized.document);
+  assert.equal(portable.finalized.document?.copy, 1);
+});
+
+test('portable materialization charges an indexed node attribute clone once', () => {
+  const source = 'a = 1\nitems = [<child@{x=~a}>]';
+  const exported = aeonToTelex(source);
+  assert.ok(exported.telex);
+  const materialized = readTelexDocumentChecked(exported.telex, {
+    finalize: { mode: 'strict', maxMaterializedWeight: 1 },
+  });
+  assert.deepEqual(materialized.finalized.document, {
+    a: 1,
+    items: [{ $node: 'child', '@': { x: 1 }, $children: [] }],
+  });
+});
+
 test('readAeonChecked preserves structural identities on its public AES surface', () => {
   const source = String.raw`aeon:mode = "loose"
 <tag\ROOT\@{source\META\:string = "user"}(\CHILD\:string = "text")>`;

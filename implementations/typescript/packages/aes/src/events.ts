@@ -163,7 +163,7 @@ function createEvent(cb: CanonicalBinding): AssignmentEvent {
 /**
  * Build annotations map from attributes
  */
-function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string, AttributeEntry> {
+export function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string, AttributeEntry> {
     const result = new Map<string, AttributeEntry>();
 
     for (const attr of attributes) {

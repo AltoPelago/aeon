@@ -334,6 +334,7 @@ function measureWeight(indexed: IndexedRecord, ctx: MaterializeContext, stack: S
         case 'NodeLiteral':
             weight = structuralChildren(index, indexed.address).reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0)
                 + attributeChildren(index, indexed.address).reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0);
+            if (indexed.record.kind === 'NodeLiteral') weight += 1;
             break;
         case 'CloneReference': {
             const target = ctx.body.byAddress.get(indexed.record.value ?? '');
@@ -380,7 +381,7 @@ function indexedItemAttributes(indexed: IndexedRecord, ctx: MaterializeContext, 
         : [];
     const object: JsonObject = {};
     for (const owner of owners) {
-        if (owner.segment.type !== 'index') continue;
+        if (owner.segment.type !== 'index' || owner.record.kind === 'NodeLiteral') continue;
         const attributes = attributesToJson(owner, ctx, descendantPath(indexed, owner, outputPath));
         if (attributes !== null) object[String(owner.segment.index)] = attributes;
     }

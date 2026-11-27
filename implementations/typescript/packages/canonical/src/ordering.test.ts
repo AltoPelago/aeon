@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import renderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries.json' with { type: 'json' };
+import taggedRenderingFixtures from '../../../../../test-fixtures/canonical-rendering-boundaries-tagged-nodes.json' with { type: 'json' };
 import numericClarifiers from '../../../../../test-fixtures/numeric-clarifiers.json' with { type: 'json' };
 import genericArguments from '../../../../../test-fixtures/datatype-generic-arguments.json' with { type: 'json' };
-import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics.json' with { type: 'json' };
+import nodeBindingGenerics from '../../../../../test-fixtures/node-binding-generics-tagged-nodes.json' with { type: 'json' };
 import { emitEvents, resolvePaths, validateReferences, adaptTypeScriptAssignmentEventsToPortableAes, parseDatatypeDescriptor, formatDatatypeDescriptor } from '@altopelago/aeon-aes';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
@@ -18,7 +19,10 @@ test('AES transport rejects numeric generics but preserves numeric clarifier spe
     assert.equal(formatDatatypeDescriptor(descriptor), 'custom<child[1.00]>[1.00]');
 });
 
-for (const fixture of [...genericArguments, ...nodeBindingGenerics]) {
+for (const fixture of [
+    ...genericArguments.map(item => ({ ...item, source: item.source.replace(/^x=<tag/u, '<tag') })),
+    ...nodeBindingGenerics,
+]) {
     test(`generic arguments must be types: ${fixture.source}`, () => {
         const parsed = parse(tokenize(fixture.source).tokens);
         assert.equal(parsed.errors.length === 0, fixture.ok);
@@ -46,7 +50,7 @@ for (const { raw, normalized } of numericClarifiers) {
             `x@{n:custom[${raw}]=${raw}}=0`,
             `x=[:custom[${raw}]=${raw}]`,
             `x=(:custom[${raw}]=${raw})`,
-            `x=<tag(:custom[${raw}]=${raw})>`,
+            `<tag(:custom[${raw}]=${raw})>`,
             `x:list<custom[${raw}]>=[${raw}]`,
             `aeon:header={x:custom[${raw}]=${raw}}`,
         ];
@@ -76,6 +80,17 @@ for (const { raw, normalized } of numericClarifiers) {
         assert.equal(projected?.value, normalized);
     });
 }
+
+test('compact objects inside node attributes retain standalone named nodes', () => {
+    const source = 'host@{<n({<b>,<a>})>} = 1';
+    for (const ordering of ['lexical-v1', 'reference-safe-v1'] as const) {
+        const options = { ordering, maxAttributeDepth: 2 };
+        const result = canonicalize(source, options);
+        assert.deepEqual(result.errors, []);
+        assert.match(result.text, /<n\(\{ <a>, <b> \}\)>/u);
+        assert.equal(canonicalize(result.text, options).text, result.text);
+    }
+});
 
 test('numeric clarifiers remain distinct from quoted strings and preserve ordering', () => {
     const source = 'x:custom["9007199254740993", 9007199254740993, 1.00]=0';
@@ -120,7 +135,9 @@ function semanticGraph(source: string) {
         .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
-for (const fixture of renderingFixtures) {
+const taggedRenderingById = new Map(taggedRenderingFixtures.map(fixture => [fixture.id, fixture]));
+for (const historicalFixture of renderingFixtures) {
+    const fixture = taggedRenderingById.get(historicalFixture.id) ?? historicalFixture;
     test(`reference-safe rendering preserves graph: ${fixture.id}`, () => {
         const source = fixture.source.startsWith('aeon:header=') ? fixture.source : `aeon:header={}\n${fixture.source}`;
         const result = canonicalize(source, options);
@@ -135,7 +152,6 @@ test('head quoting and empty-head normalization do not change historical bytes',
     for (const [source, suffix] of [
         ['"aeon":custom=1', 'aeon:custom = 1\n'],
         ['a@{"aeon":custom=1}=0', 'a@{aeon:custom = 1} = 0\n'],
-        ['a=<"aeon":custom>', 'a = <aeon:custom>\n'],
         ['a@{}=0', 'a@{} = 0\n'],
         ['a=[@{}=1]', 'a = [@{} = 1]\n'],
         ['a@{m={}}=0', 'a@{m = {  }} = 0\n'],
@@ -155,16 +171,16 @@ const scenarios = [
     'outer={a=1,c=2,d=3,b=~outer.c}',
     'z={v=1}\na={z=0,b=~z.v,a=0}',
     'z=1\na@{z=0,b=~z,a=0}=0',
-    'z=1\na=<tag@{d=~>z,c=0}({b=~z})>',
+    'z=1\n<tag@{d=~>z,c=0}({b=~z})>',
     'a@{z=1,b=~a.@.z}=~>a.@.b',
     'a@{z@{x=1}=~a.@.z.@.x,b=~a.@.z}=0',
     'a=[@{z={leaf=1}}=~a[0].@.z.leaf,2]\nb=~a[1]',
     'a=(@{z=1}=~>a[0].@.z,2)\nb=~a[1]',
-    'a=<tag(@{z=1}=~a[0].@.z,2)>\nb=~a[1]',
+    '<a(@{z=1}=~a[0].@.z,2)>\nb=~a[1]',
     '"literal.@key"={"z.z"=1,b=~["literal.@key"].["z.z"]}\na=~["literal.@key"].b',
     'aeon:header={z=1,b=~["aeon:z"]}\na=~["aeon:b"]',
     'aeon:version=2.0\n"aeon:version"@{z=2}=7\na=~["aeon:version"].@.z',
-    'z\\TARGET\\@{meta\\META\\=1}=<tag\\HEAD\\@{x=2}>\na\\REF\\=~>z.@.meta',
+    '<z\\TARGET\\@{meta\\META\\=1,x=2}>\na\\REF\\=~>z.@.meta',
     'a=|~missing|\nb="~missing"\nc=^~missing\nd=$.missing',
     'a:custom=|yes|\nb:prose=>`line\nnext`\nc=2024-02-29T23:59:60.1234567890123',
 ];
@@ -195,11 +211,11 @@ for (const source of [
     'aeon:header={x={leaf@{meta=1}=2}}\n"aeon:x"=0\na=~["aeon:x"].leaf.@.meta',
     'aeon:header={x=[{leaf=1}]}\n"aeon:x"=0\na=~["aeon:x"][0].leaf',
     'aeon:header={x=({leaf=1})}\n"aeon:x"=0\na=~>["aeon:x"][0].leaf',
-    'aeon:header={x=<tag({leaf=1})>}\n"aeon:x"=0\na=~["aeon:x"][0].leaf',
+    'aeon:header={x=[<tag({leaf=1})>]}\n"aeon:x"=0\na=~["aeon:x"][0][0].leaf',
     'aeon:header={x=[@{meta=1}=2]}\n"aeon:x"=0\na=~["aeon:x"][0].@.meta',
     'aeon:header={x={"literal.@leaf"@{"z.z"=1}=2}}\n"aeon:x"=0\na=~["aeon:x"].["literal.@leaf"].@.["z.z"]',
     'aeon:header={z={leaf=1},b=~["aeon:z"].leaf}\n"aeon:z"=2',
-    'aeon:header={x={leaf=1}}\na=<tag@{meta=~["aeon:x"].leaf}>\n"aeon:x"=0',
+    'aeon:header={x={leaf=1}}\n<a@{meta=~["aeon:x"].leaf}>\n"aeon:x"=0',
 ] as const) {
     test(`partial header collision preserves independent payloads: ${source}`, () => {
         const result = canonicalize(source, options);
@@ -231,12 +247,12 @@ test('partial-collision shape matrix matches Core exact-path ownership', () => {
         { source: 'x@{root={leaf=1}}={leaf@{meta=2}={deep=3}}', paths: ['', '.@.root.leaf', '.leaf', '.leaf.@.meta', '.leaf.deep'] },
         { source: 'x=[@{meta=1}={leaf=2},3]', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
         { source: 'x=(@{meta=1}={leaf=2},3)', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
-        { source: 'x=<tag(@{meta=1}={leaf=2},3)>', paths: ['', '[0]', '[0].@.meta', '[0].leaf', '[1]'] },
+        { source: 'x=[<tag(@{meta=1}={leaf=2},3)>]', paths: ['', '[0]', '[0][0].@.meta', '[0][0].leaf', '[0][1]'] },
     ];
     const bodies = ['0', '{}', '{leaf=0}', '{leaf@{meta=9}=0}', '{leaf={deep=9}}', '[]', '[0]', '({leaf=0})', '<tag(0)>'];
     let checked = 0;
     for (const header of headers) for (const body of bodies) for (const suffix of header.paths) for (const marker of ['~', '~>']) {
-        const source = `aeon:header={${header.source}}\n"aeon:x"=${body}\na=${marker}["aeon:x"]${suffix}`;
+        const source = `aeon:header={${header.source}}\n${body.startsWith('<') ? '<"aeon:x"(0)>' : `"aeon:x"=${body}`}\na=${marker}["aeon:x"]${suffix}`;
         const emitted = emitEvents(resolvePaths(document(source), { indexedPaths: true }));
         assert.deepEqual(emitted.errors, []);
         const errors = validateReferences(emitted.events, { maxAttributeDepth: 2 }).errors;
@@ -253,6 +269,15 @@ test('partial-collision shape matrix matches Core exact-path ownership', () => {
     assert.equal(checked, 360);
 });
 
+test('a typed node named aeon remains quoted in both canonical orderings', () => {
+    for (const ordering of ['lexical-v1', 'reference-safe-v1'] as const) {
+        const result = canonicalize('<"aeon":custom>', { ordering });
+        assert.deepEqual(result.errors, []);
+        assert.ok(result.text.endsWith('<"aeon":custom>\n'));
+        assert.equal(canonicalize(result.text, { ordering }).text, result.text);
+    }
+});
+
 test('default is reference-safe while explicit lexical-v1 preserves historical bytes', () => {
     const source = 'z=1\na=~z';
     const historical = canonicalize(source, { ordering: 'lexical-v1' });
@@ -262,7 +287,7 @@ test('default is reference-safe while explicit lexical-v1 preserves historical b
 });
 
 test('opt-in attributed container heads have exactly one space after equals', () => {
-    for (const source of ['a=[@{m=1}={z=0}]', 'a=(@{m=1}={z=0})', 'a=<tag(@{m=1}={z=0})>']) {
+    for (const source of ['a=[@{m=1}={z=0}]', 'a=(@{m=1}={z=0})', '<tag(@{m=1}={z=0})>']) {
         const authored = `aeon:header={}\n${source}`;
         const result = canonicalize(authored, options);
         assert.deepEqual(result.errors, []);
@@ -283,7 +308,7 @@ for (const [source, code] of [
     ['a=~a', 'SELF_REFERENCE'],
     ['a@{x=~a}=0', 'SELF_REFERENCE'],
     ['a=~["aeon:version"]', 'MISSING_REFERENCE_TARGET'],
-    ['a=<tag@{z=1}>\nb=~a.@.z', 'MISSING_REFERENCE_TARGET'],
+    ['<tag@{z=1}>\nb=~tag.@.missing', 'MISSING_REFERENCE_TARGET'],
     ['aeon:version=1\na=~["aeon:version"]\n"aeon:version"=2', 'FORWARD_REFERENCE'],
     ['aeon:header={version@{z=1}=1}\n"aeon:version"=2\na=~["aeon:version"].@.z', 'MISSING_REFERENCE_TARGET'],
     ['aeon:header={x@{hidden=1}={leaf=2}}\n"aeon:x"=0\na=~["aeon:x"].@.hidden', 'MISSING_REFERENCE_TARGET'],
@@ -349,7 +374,7 @@ for (const character of ['\n', '\r', '\t', '\0', '\u000b', '\u001f', '"', '\\', 
             `${key}=1\na=~[${key}]`,
             `holder@{${key}=1}=0\na=~>holder.@.[${key}]`,
             `holder@{meta={${key}=1,a=~holder.@.meta.[${key}]}}=0`,
-            `${key}=1\na=<tag@{meta=~>[${key}]}(~[${key}])>`,
+            `${key}=1\n<tag@{meta=~>[${key}]}(~[${key}])>`,
             `${key}=1\na=[@{meta=~[${key}]}=(~>[${key}])]`,
         ]) {
             const authored = `aeon:header={}\n${source}`;

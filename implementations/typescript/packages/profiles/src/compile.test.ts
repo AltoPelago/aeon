@@ -38,7 +38,7 @@ test('compile returns AES for registered profile', () => {
 });
 
 test('compile defaults to core when profile is omitted', () => {
-    const result = compile('view:node = <panel("hello")>', {
+    const result = compile('<panel:node("hello")>', {
         registry: createDefaultRegistry(),
         mode: 'strict',
     });
@@ -46,7 +46,7 @@ test('compile defaults to core when profile is omitted', () => {
     assert.equal(result.meta?.errors?.length ?? 0, 0);
     assert.equal(result.meta?.profileId, 'core');
     assert.equal(result.aes.length, 2);
-    assert.equal(formatPath(result.aes[0]!.path), '$.view');
+    assert.equal(formatPath(result.aes[0]!.path), '$.panel');
 });
 
 test('compile forwards core portability warnings through profile metadata', () => {
@@ -301,15 +301,15 @@ test('aeon.gp.profile.v1 exposes GP collection, container, datatype, and capabil
 });
 
 test('default core profile parses introducer node syntax', () => {
-    const result = compile('view:node = <panel("hello")>', {
+    const result = compile('<panel:node("hello")>', {
         profile: 'aeon.gp.profile.v1',
         registry: createDefaultRegistry(),
         mode: 'strict',
     });
     assert.equal(result.meta?.errors?.length ?? 0, 0);
     assert.equal(result.aes.length, 2);
-    assert.equal(formatPath(result.aes[0]!.path), '$.view');
-    assert.equal(formatPath(result.aes[1]!.path), '$.view[0]');
+    assert.equal(formatPath(result.aes[0]!.path), '$.panel');
+    assert.equal(formatPath(result.aes[1]!.path), '$.panel[0]');
 });
 
 test('aeon.gp.profile.v1 rejects undeclared datatype clarifiers', () => {

@@ -45,16 +45,16 @@ describe('Finalization (Node)', () => {
     });
 
     it('preserves every structural identity location in node materialization', () => {
-        const events = compileToEvents(String.raw`root\ROOT\@{meta\META\ = "x"} = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>`);
+        const events = compileToEvents(String.raw`<tag\ROOT\@{meta\META\ = "x", role\ROLE\ = "button"}(\CHILD\:string = "v")>`);
         const result = finalizeNode(events);
-        const root = result.document.root.entries.get('root');
+        const root = result.document.root.entries.get('tag');
 
         assert.ok(root);
         assert.strictEqual(root.structuralId, 'ROOT');
         assert.strictEqual(root.annotations?.get('meta')?.structuralId, 'META');
         assert.strictEqual(root.type, 'Object');
         if (root.type !== 'Object') assert.fail('Expected node literal object projection');
-        assert.strictEqual(root.entries.get('$node')?.structuralId, 'HEAD');
+        assert.strictEqual(root.entries.get('$node')?.structuralId, undefined);
 
         const attributes = root.entries.get('@');
         assert.strictEqual(attributes?.type, 'Object');
@@ -105,9 +105,9 @@ describe('Finalization (Node)', () => {
     });
 
     it('materializes node literals with @ and $children', () => {
-        const events = compileToEvents('view = <div@{id="main"}("hello")>');
+        const events = compileToEvents('<div@{id="main"}("hello")>');
         const result = finalizeNode(events);
-        const view = result.document.root.entries.get('view');
+        const view = result.document.root.entries.get('div');
         assert.ok(view);
         assert.strictEqual(view?.type, 'Object');
 

@@ -406,7 +406,7 @@ class Parser {
                 const value = this.parseValue(depth + 1) as NodeLiteral;
                 if (RESERVED_ATTRIBUTE_KEYS.has(value.tag)) {
                     throw new SyntaxError(
-                        `Reserved attribute key: ${value.tag}`, (value.headSpan ?? value.span), 'non-reserved attribute key', value.tag
+                        `Reserved attribute key: ${value.tag}`, value.headSpan ?? value.span, 'non-reserved attribute key', value.tag
                     );
                 }
                 if (entries.has(value.tag)) {
@@ -1533,12 +1533,14 @@ class Parser {
 
         while (!this.isAtEnd()) {
             // If we see what looks like the start of a new binding, stop synchronizing
-            if (this.check(TokenType.LeftAngle) && this.peek().span.start.line > this.previous().span.end.line) {
+            const next = this.peekNext();
+            if (this.check(TokenType.LeftAngle) && next && this.isKeyToken(next)
+                && next.span.start.line === this.peek().span.start.line
+                && this.peek().span.start.line > this.previous().span.end.line) {
                 return;
             }
             if (this.isBareKeyToken(this.peek())) {
                 // Peek ahead to see if this is a binding (identifier followed by = or :)
-                const next = this.peekNext();
                 if (next && (next.type === TokenType.Equals || next.type === TokenType.Colon || next.type === TokenType.At)) {
                     return;
                 }

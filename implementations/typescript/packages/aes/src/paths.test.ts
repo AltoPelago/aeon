@@ -178,7 +178,7 @@ describe('Canonical Path Resolution', () => {
         });
 
         it('should emit indexed node child paths in core v1 indexed mode', () => {
-            const tokens = tokenize('page:node = <page({a = 1}, "hello")>').tokens;
+            const tokens = tokenize('<page:node({a = 1}, "hello")>').tokens;
             const ast = parse(tokens);
             assert.ok(ast.document);
             const result = resolvePaths(ast.document!, { indexedPaths: true });

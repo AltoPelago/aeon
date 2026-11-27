@@ -14,3 +14,5 @@ export * from './portable.js';
 export * from './telex.js';
 export * from './film.js';
 export * from './radix.js';
+
+export { resolveEventSubpath } from './reference-target.js';

@@ -16,10 +16,10 @@ const sources=[
  'z=1\na=~z\nb=~>z',
  'z@{unit="cm"}=1\na=~z.@.unit',
  'z=["first","second"]\na=~z[1]',
- 'z=<tag({"a.b"=1})>\na=~z[0].["a.b"]',
+ '<z({"a.b"=1})>\na=~z[0].["a.b"]',
  'aeon:header={x={leaf=1}}\n"aeon:x"=2\na=~>["aeon:x"].leaf',
  'aeon:header={x={leaf@{meta=1}=2}}\n"aeon:x"={leaf@{meta=3}=4}\na=~["aeon:x"].leaf.@.meta',
- 'aeon:header={x={leaf=1}}\na=<tag@{meta=~["aeon:x"].leaf}>\n"aeon:x"=0',
+ 'aeon:header={x={leaf=1}}\n<a@{meta=~["aeon:x"].leaf}>\n"aeon:x"=0',
 ];
 for(const source of sources)test(`validated emission reuse preserves ordering: ${source.slice(0,85)}`,()=>{
  const parsed=parse(tokenize(source).tokens,{maxAttributeDepth:8});assert.deepEqual(parsed.errors,[]);

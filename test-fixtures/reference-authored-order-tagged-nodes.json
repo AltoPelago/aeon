@@ -1,0 +1,86 @@
+[
+  {
+    "id": "node-head-forward",
+    "source": "<tag@{b = ~tag.@.z, z = 1}>",
+    "errors": [
+      "FORWARD_REFERENCE"
+    ]
+  },
+  {
+    "id": "node-head-backward",
+    "source": "<tag@{z = 1, b = ~tag.@.z}>",
+    "errors": []
+  },
+  {
+    "id": "node-child-error-once",
+    "source": "<tag(~missing)>",
+    "errors": [
+      "MISSING_REFERENCE_TARGET"
+    ]
+  },
+  {
+    "id": "node-head-key-attribute-distinct",
+    "source": "<tag@{b = 7}({ child@{b = ~tag.@.b} = 1 })>",
+    "errors": []
+  },
+  {
+    "id": "node-head-external-backward",
+    "source": "z = 7\n<tag@{b = ~z}>",
+    "errors": []
+  },
+  {
+    "id": "node-head-external-forward",
+    "source": "<tag@{b = ~z}>\nz = 7",
+    "errors": [
+      "FORWARD_REFERENCE"
+    ]
+  },
+  {
+    "id": "node-head-nested-list-reference",
+    "source": "<tag@{b = [~missing]}>",
+    "errors": [
+      "MISSING_REFERENCE_TARGET"
+    ]
+  },
+  {
+    "id": "node-head-nested-object-reference",
+    "source": "<tag@{b = {c = ~missing}}>",
+    "errors": [
+      "MISSING_REFERENCE_TARGET"
+    ]
+  },
+  {
+    "id": "anonymous-node-child-head-forward",
+    "source": "<tag(@{b = ~tag[0].@.z, z = 1} = 0)>",
+    "errors": [
+      "FORWARD_REFERENCE"
+    ]
+  },
+  {
+    "id": "node-head-not-binding-target",
+    "source": "<tag@{z = 1}>\nb = ~tag.@.z",
+    "errors": []
+  },
+  {
+    "id": "anonymous-node-child-payload-own-clone-metadata",
+    "source": "<tag(@{z = 1} = ~tag[0].@.z)>",
+    "errors": []
+  },
+  {
+    "id": "anonymous-node-child-payload-own-pointer-metadata",
+    "source": "<tag(@{z = 1} = ~>tag[0].@.z)>",
+    "errors": []
+  },
+  {
+    "id": "anonymous-node-child-payload-own-metadata-member",
+    "source": "<tag(@{z = {leaf = 1}} = ~tag[0].@.z.leaf)>",
+    "errors": []
+  },
+  {
+    "id": "anonymous-node-child-head-later-payload-member",
+    "source": "<tag(@{z = ~tag[0].child} = {child = 1})>",
+    "errors": [
+      "FORWARD_REFERENCE"
+    ]
+  }
+]

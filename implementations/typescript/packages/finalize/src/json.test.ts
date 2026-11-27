@@ -213,7 +213,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
     });
 
     it('projects indexed child attributes under @items for node children', () => {
-        const events = compileToEvents('page:node = <page(@{role:string="title"} = "Hello")>');
+        const events = compileToEvents('<page:node(@{role:string="title"} = "Hello")>');
         const result = finalizeJson(events, { mode: 'strict' });
         assert.deepStrictEqual(result.document, {
             page: {
@@ -265,10 +265,10 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
     });
 
     it('uses @ and $children for node JSON projection', () => {
-        const events = compileToEvents('view = <div@{id="main"}("hello")>');
+        const events = compileToEvents('<div@{id="main"}("hello")>');
         const result = finalizeJson(events, { mode: 'strict' });
         assert.deepStrictEqual(result.document, {
-            view: {
+            div: {
                 $node: 'div',
                 '@': {
                     id: 'main',

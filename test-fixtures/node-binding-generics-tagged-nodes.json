@@ -1,0 +1,157 @@
+[
+  {
+    "source": "<doc:node<radix[2.5]>>",
+    "ok": true,
+    "fragment": "node<radix[2.5]>"
+  },
+  {
+    "source": "<doc:node<symbol[\"state\"]>>",
+    "ok": true,
+    "fragment": "node<symbol[\"state\"]>"
+  },
+  {
+    "source": "<doc:node<sep[\".\"]>>",
+    "ok": true,
+    "fragment": "node<sep[\".\"]>"
+  },
+  {
+    "source": "<doc:node<string>>",
+    "ok": true,
+    "fragment": "node<string>"
+  },
+  {
+    "source": "<doc:node<list<string>>>",
+    "ok": true,
+    "fragment": "node<list<string>>"
+  },
+  {
+    "source": "<doc:node<custom, radix[2]>>",
+    "ok": true,
+    "fragment": "node<custom,"
+  },
+  {
+    "source": "<doc:node<radix[2], custom>>",
+    "ok": true,
+    "fragment": "node<radix[2],"
+  },
+  {
+    "source": "<a:node>\ndoc:node<radix[2]> = ~a",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "<a:node>\ndoc:node<string> = ~>a",
+    "ok": true,
+    "fragment": "node<string>"
+  },
+  {
+    "source": "doc={<child:node<radix[2]>>}",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "doc@{<meta:node<radix[2]>>}=0",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "doc@{<meta:node<string>>}=0",
+    "ok": true,
+    "fragment": "node<string>"
+  },
+  {
+    "source": "doc@{meta={<child:node<radix[2]>>}}=0",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "doc=[<tag:node<radix[2]>>]",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "doc=(<tag:node<radix[2]>>)",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "<outer(<tag:node<radix[2]>>)>",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "<outer@{<meta:node<radix[2]>>}>",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "aeon:header={note = [<tag:node<radix[2]>>]}",
+    "ok": true,
+    "fragment": "node<radix[2]>"
+  },
+  {
+    "source": "<doc:node<custom[2.00]>>",
+    "ok": true,
+    "fragment": "node<custom[2.0]>"
+  },
+  {
+    "source": "<doc:node<Radix[2]>>",
+    "ok": true,
+    "fragment": "node<Radix[2]>"
+  },
+  {
+    "source": "<doc:node<radixish[2]>>",
+    "ok": true,
+    "fragment": "node<radixish[2]>"
+  },
+  {
+    "source": "<doc:node<custom[\"<radix>\"]>>",
+    "ok": true,
+    "fragment": "node<custom[\"<radix>\"]>"
+  },
+  {
+    "source": "<doc:node<node>>",
+    "ok": true,
+    "fragment": "node<node>"
+  },
+  {
+    "source": "<doc:node<node[2]>>",
+    "ok": true,
+    "fragment": "node<node[2]>"
+  },
+  {
+    "source": "<doc:node<node<radix[2]>>>",
+    "ok": true,
+    "fragment": "node<node<radix[2]>>"
+  },
+  {
+    "source": "<tag:node<radix[2.5]>>",
+    "ok": true,
+    "fragment": "node<radix[2.5]>"
+  },
+  {
+    "source": "<tag:node<list<string>>>",
+    "ok": true,
+    "fragment": "node<list<string>>"
+  },
+  {
+    "source": "doc:list<node<radix[2]>> = [<tag>]",
+    "ok": true,
+    "fragment": "list<node<radix[2]>>"
+  },
+  {
+    "source": "doc@{<meta:node<custom[2]>>}=0",
+    "ok": true,
+    "fragment": "node<custom[2]>"
+  },
+  {
+    "source": "doc=[<tag:node<custom[2]>>]",
+    "ok": true,
+    "fragment": "node<custom[2]>"
+  },
+  {
+    "source": "<a:node>\nz:node<custom[2]> = ~a",
+    "ok": true,
+    "fragment": "node<custom[2]>"
+  }
+]

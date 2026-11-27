@@ -1,4 +1,4 @@
-import {
+import { resolveEventSubpath,
     resolveAeonRadixBaseFromDatatype,
     aeonRadixDigitValue,
     formatPath,
@@ -543,7 +543,7 @@ function resolveCloneReference(
             return { value: target.value, targetPath };
         }
 
-        const resolved = resolveReferenceSubpath(target, remainder);
+        const resolved = resolveEventSubpath(target, remainder);
         if (resolved) {
             return { value: resolved, targetPath };
         }
@@ -642,7 +642,7 @@ function measureMaterializedWeight(
             return 1
                 + measureAttributeWeight(value.attributes, ctx, currentPath, stack)
                 + value.children.reduce((sum, child, index) => {
-                    const childPath = `${currentPath}<${index}>`;
+                    const childPath = `${currentPath}[${index}]`;
                     return sum + measureMaterializedWeight(child, ctx, childPath, stack);
                 }, 0);
         default:
@@ -674,49 +674,11 @@ function measureAttributeWeight(
     for (const [key, entry] of attributes.entries() as IterableIterator<[string, AttributeEntry]>) {
         const entryPath = appendAttributePath(currentPath, key);
         total += measureMaterializedWeight(entry.value, ctx, entryPath, stack);
-        total += measureAttributeWeight(entry.annotations, ctx, entryPath, stack);
+        if (entry.value.type !== 'NodeLiteral') {
+            total += measureAttributeWeight(entry.annotations, ctx, entryPath, stack);
+        }
     }
     return total;
-}
-
-function resolveReferenceSubpath(
-    event: AssignmentEvent,
-    remainder: readonly ReferencePathPart[]
-): Value | null {
-    let currentValue: Value = event.value;
-    let currentAnnotations = event.annotations;
-
-    for (const part of remainder) {
-        if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'attr') {
-            const entry = currentAnnotations?.get(part.key);
-            if (!entry) return null;
-            currentValue = entry.value;
-            currentAnnotations = entry.annotations;
-            continue;
-        }
-
-        if (typeof part === 'string') {
-            if (currentValue.type !== 'ObjectNode') return null;
-            const binding = currentValue.bindings.find((candidate) => candidate.key === part);
-            if (!binding) return null;
-            currentValue = binding.value;
-            currentAnnotations = buildAnnotationEntries(binding.attributes);
-            continue;
-        }
-
-        if (typeof part === 'number') {
-            if (currentValue.type !== 'ListNode' && currentValue.type !== 'TupleLiteral') return null;
-            const element = currentValue.elements[part];
-            if (!element) return null;
-            currentValue = element;
-            currentAnnotations = undefined;
-            continue;
-        }
-
-        return null;
-    }
-
-    return currentValue;
 }
 
 function formatCloneTargetPath(pathParts: readonly ReferencePathPart[]): string {
@@ -729,28 +691,6 @@ function formatCloneTargetPath(pathParts: readonly ReferencePathPart[]): string 
             result = appendMemberPath(result, part);
         } else {
             result = appendAttributePath(result, part.key);
-        }
-    }
-    return result;
-}
-
-function buildAnnotationEntries(
-    attributes: readonly Attribute[]
-): ReadonlyMap<string, AttributeEntry> | undefined {
-    if (!attributes || attributes.length === 0) return undefined;
-    const result = new Map<string, AttributeEntry>();
-    for (const attribute of attributes) {
-        for (const [key, entry] of attribute.entries) {
-            const mapped: AttributeEntry = {
-                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
-                value: entry.value,
-                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
-            };
-            const nested = buildAnnotationEntries(entry.attributes);
-            if (nested) {
-                (mapped as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nested;
-            }
-            result.set(key, mapped);
         }
     }
     return result;

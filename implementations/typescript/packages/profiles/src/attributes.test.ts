@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fixtures from '../../../../../test-fixtures/gp-attribute-clarifiers.json' with { type: 'json' };
-import tagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers.json' with { type: 'json' };
+import nodeAttributeFixtures from '../../../../../test-fixtures/gp-attribute-clarifiers-tagged-nodes.json' with { type: 'json' };
+import tagHeadFixtures from '../../../../../test-fixtures/gp-tag-head-clarifiers-tagged-nodes.json' with { type: 'json' };
 import { compile } from './compile.js';
 
-for (const fixture of [...fixtures, ...tagHeadFixtures]) {
+const revised = new Map(nodeAttributeFixtures.map(fixture => [fixture.id, fixture]));
+for (const historicalFixture of [...fixtures, ...tagHeadFixtures]) {
+    const fixture = revised.get(historicalFixture.id) ?? historicalFixture;
     test(`GP unprojected claims: ${fixture.id}`, () => {
         const options = { datatypePolicy: 'allow_custom', maxAttributeDepth: 2, maxClarifierValues: 2 } as const;
         const core = compile(fixture.source, { ...options, profile: 'core', mode: 'strict' });

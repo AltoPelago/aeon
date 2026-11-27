@@ -3,6 +3,7 @@ import type { Attribute, Binding, Value } from '@altopelago/aeon-parser';
 import { formatDatatypeAnnotation } from './datatype.js';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
 import { formatPath, type CanonicalPath } from './paths.js';
+import { formatReferenceTargetPath } from './reference-target.js';
 import { sha256Hex } from './sha256.js';
 import {
     parseDatatypeDescriptor,
@@ -458,20 +459,8 @@ function projectValue(
             if ((value as unknown as { selection?: unknown }).selection !== undefined) {
                 throw new PortableAesSourceError('AES_UNSUPPORTED_REFERENCE_SELECTION', 'Structural references cannot contain semantic selections.');
             }
-            return { kind: value.type, value: formatReferenceTarget(value.path) };
+            return { kind: value.type, value: formatReferenceTargetPath(value.path) };
     }
-}
-
-function formatReferenceTarget(
-    segments: Extract<Value, { type: 'CloneReference' | 'PointerReference' }>['path'],
-): string {
-    let path = '$';
-    for (const segment of segments) {
-        if (typeof segment === 'number') path += `[${segment}]`;
-        else if (typeof segment === 'string') path = appendMember(path, segment);
-        else path = appendAttribute(path, segment.key);
-    }
-    return path;
 }
 
 function isLegacyHeaderEvent(

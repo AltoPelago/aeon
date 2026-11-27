@@ -187,8 +187,8 @@ The coordinated local SANSA candidate also admits direct read-only Query with
 this namespace's authoritative property facet. `from $.items.*` followed by
 `select .name&key("name")` selects each original name binding. Current-row
 `.&key("items")` keeps its originating scope; explicit `?&key("items")` starts a
-boundary at the row and hides that incoming key. `&tag` matches node containers;
-`&headTag` matches heads, with explicit child navigation when needed.
+boundary at the row and hides that incoming key. `&tag` compares the current
+node’s intrinsic tag. Append `.*` to visit its direct children.
 
 One `resolve.maxPropertyInspections` allowance covers all Query clauses and
 projections; complete capability preflight runs even for empty/short-circuited
