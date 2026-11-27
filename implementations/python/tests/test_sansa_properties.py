@@ -1,9 +1,4 @@
-"""Actual pure Python provider and exact prepared Addressing/Resolve mirrors.
-
-The scripted mirror interprets the fixture's list-of-head-IDs protocol; a non-list
-head response is a checked protocol metadata fault, not a Python iterable claim.
-Real generator acquisition/next/cleanup behavior is exercised separately below.
-"""
+"""Pure-Python Addressing, Resolve, and document property tests."""
 from pathlib import Path
 from collections import Counter
 import copy
@@ -49,14 +44,6 @@ def snapshot(root):
 def host(input):
     bindings = {row["id"]: row for row in copy.deepcopy(MODEL["bindings"])}
     calls = Counter()
-    if "wideHeads" in input:
-        width = input["wideHeads"]["count"]
-        heads = []
-        for index in range(width):
-            binding_id = "wide" + str(index)
-            heads.append(binding_id)
-            bindings[binding_id] = {"id": binding_id, "address": f"$.multi[{index}]", "nodeKind": "NodeHead", "tag": "right" if input["wideHeads"].get("matchAt") == "last" and index == width - 1 else "other", "children": []}
-        bindings["multi"].update(heads=heads, children=heads)
     get = bindings.get
     parents = {}
     for row in bindings.values():
@@ -91,36 +78,11 @@ def host(input):
             pass
         else:
             raise AssertionError("mutable context")
-        return invoke("scope", binding, lambda: "outside" if not contains(context["scopeRoot"], binding) or ("directHeadOf" in context and binding["id"] not in context["directHeadOf"].get("heads", [])) else "root" if binding is context["scopeRoot"] else "inside")
-
-    class Heads:
-        def __init__(self, owner, ids):
-            self.owner, self.ids, self.index = owner, ids, 0
-
-        def __iter__(self):
-            return self
-
-        def __next__(self):
-            def following():
-                if self.index >= len(self.ids):
-                    raise StopIteration
-                selected = get(self.ids[self.index])
-                self.index += 1
-                return selected
-            return invoke("headNext", self.owner, following, self.index + 1)
-
-        def close(self):
-            invoke("headEarlyClose", self.owner, lambda: None)
-
-    def heads(binding, context):
-        ids = invoke("nodeHeads", binding, lambda: binding.get("heads", []))
-        if type(ids) is not list:
-            raise SansaPropertyAccessError("invalidMetadata")
-        return Heads(binding, ids)
+        return invoke("scope", binding, lambda: "outside" if not contains(context["scopeRoot"], binding) else "root" if binding is context["scopeRoot"] else "inside")
 
     properties = {"scope": scope, "key": lambda b, c: invoke("key", b, lambda: b.get("key")),
                   "nodeKind": lambda b, c: invoke("nodeKind", b, lambda: b.get("nodeKind")),
-                  "nodeTag": lambda b, c: invoke("nodeTag", b, lambda: b.get("tag")), "nodeHeads": heads}
+                  "nodeTag": lambda b, c: invoke("nodeTag", b, lambda: b.get("tag"))}
     for name in input.get("omit", []):
         properties.pop(name, None)
 
@@ -204,8 +166,26 @@ def resolve_vector(vector):
 
 
 for vector in PARSER["tests"]:
+    if vector["id"] in {"sansa-properties-member-tag-head-tag", "sansa-properties-empty-tag-head-tag"}:
+        vector = {**vector, "expected": {"ok": False, "error": "SANSA_UNKNOWN_PROPERTY_SELECTOR"}}
     setattr(PropertyVectors, "test_" + vector["id"].replace("-", "_"), parser_vector(vector))
+
+# The pre-revision checkout exercises the full historical mirror in CI.
+# Keep the applicable key, parser/admission, budget, and adapter cases here.
 for vector in RESOLVE["tests"]:
+    input = vector["input"]
+    if "source" in input:
+        parsed = parse_address(input["source"])
+        if not parsed["ok"] and parsed["errors"][0]["code"] == "SANSA_UNKNOWN_PROPERTY_SELECTOR":
+            continue
+        selectors = parsed.get("address", {}).get("selectors", [])
+    else:
+        selectors = input.get("ast", {}).get("selectors", [])
+    if any(step.get("property") == "tag" for step in selectors) and vector["id"] not in {
+        "sansa-properties-ordinary-tag", "sansa-properties-capability-after-empty-filter",
+        "sansa-properties-zero-before-metadata",
+    }:
+        continue
     setattr(PropertyVectors, "test_" + vector["id"].replace("-", "_"), resolve_vector(vector))
 
 
@@ -216,6 +196,11 @@ class ActualDocumentProperties(unittest.TestCase):
         fixture = json.loads((ROOT / "test-fixtures/property-address-literals.json").read_text())
         for address, expected in zip(fixture["addresses"], fixture["canonical"]):
             source = f'p:sansa={address}// outside\nx=1'
+            parsed = parse_address(address)
+            if not parsed["ok"]:
+                self.assertEqual("SANSA_UNKNOWN_PROPERTY_SELECTOR", parsed["errors"][0]["code"])
+                self.assertTrue(compile_source(source).errors)
+                continue
             compiled = compile_source(source)
             self.assertFalse(compiled.errors)
             self.assertEqual(compiled.events[0]["value"]["canonical"], expected)
@@ -232,7 +217,7 @@ class ActualDocumentProperties(unittest.TestCase):
                 self.assertEqual(denied.events, [])
 
     def test_shared_sdk_vectors_from_native_events_and_portable_records(self):
-        fixture = json.loads((ROOT / "test-fixtures/property-resolve-sdk.json").read_text())
+        fixture = json.loads((ROOT / "test-fixtures/property-resolve-sdk-tagged-nodes.json").read_text())
         compiled = compile_source(fixture["source"], CompileOptions(max_attribute_depth=8))
         self.assertFalse(compiled.errors)
         records = adapt_python_assignment_events_to_portable_aes(compiled.events, header=compiled.header, include_headers=True)["events"]
@@ -243,7 +228,12 @@ class ActualDocumentProperties(unittest.TestCase):
                     options["contextualRoot"] = resolve_address(case["context"], namespace)["bindings"][0]
                 if "limit" in case:
                     options["maxPropertyInspections"] = case["limit"]
-                for input in [case["address"], parse_address(case["address"])["address"]]:
+                parsed = parse_address(case["address"])
+                if "parseCode" in case:
+                    self.assertFalse(parsed["ok"])
+                    self.assertEqual(case["parseCode"], parsed["errors"][0]["code"])
+                    continue
+                for input in [case["address"], parsed["address"]]:
                     with self.subTest(address=case["address"], parsed=type(input) is dict):
                         result = resolve_address(input, namespace, options)
                         if "code" in case:
@@ -266,19 +256,19 @@ class ActualDocumentProperties(unittest.TestCase):
             self.assertEqual(hashlib.sha256((FIXTURES / name).read_bytes()).hexdigest(), digest)
 
     def test_snapshot_authority_and_foreign_contexts(self):
-        source = 'value = <tag("hello")>'
+        source = '<value("hello")>'
         def host():
             return namespace_from_assignment_events(compile_source(source).events)
         namespace, foreign = host(), host()
         value = resolve_address('$.value', namespace)["bindings"][0]
-        head = resolve_address('$.value[0]', namespace)["bindings"][0]
+        child = resolve_address('$.value[0]', namespace)["bindings"][0]
         value.update(name="forged", info={"type": "Other", "nodeTag": "forged"}, children=[])
-        head["info"].update(type="Other", nodeTag="forged")
-        selected = resolve_address('$.*&key("value")&tag("tag")', namespace)
+        child["info"].update(type="NodeLiteral", nodeTag="value")
+        selected = resolve_address('$.*&key("value")&tag("value")', namespace)
         self.assertTrue(selected["ok"])
         self.assertIs(selected["bindings"][0], value)
         for context in [foreign["root"], {"path": "$.value", "name": "value"}]:
-            result = resolve_address('?&tag("tag")', namespace, {"contextualRoot": context})
+            result = resolve_address('?&tag("value")', namespace, {"contextualRoot": context})
             self.assertEqual(result["errors"][0]["code"], "SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION")
             self.assertEqual(result["bindings"], [])
 
@@ -359,41 +349,37 @@ class ActualDocumentProperties(unittest.TestCase):
         self.assertEqual(result["errors"][0]["code"], "SANSA_RESOLVE_BINDING_LIMIT_EXCEEDED")
         self.assertEqual(observed, [])
 
-    def test_real_generators_close_and_stop_before_unbudgeted_metadata(self):
-        for width in [64, 128]:
-            for mode in ["limit", "early", "terminal", "nextFault", "cleanupFault"]:
-                with self.subTest(width=width, mode=mode):
-                    root, head, counts = {}, {}, Counter()
-                    def scope(binding, context):
-                        counts["scope"] += 1
-                        return "root" if binding is root else "inside"
-                    def heads(binding, context):
-                        try:
-                            for _ in range(2 if mode == "terminal" else width):
-                                counts["next"] += 1
-                                if mode == "nextFault":
-                                    raise ValueError("secret")
-                                yield head
-                            counts["next"] += 1
-                        finally:
-                            counts["close"] += 1
-                            if mode == "cleanupFault":
-                                raise ValueError("secret cleanup")
-                    def tag(binding, context):
-                        counts["tag"] += 1
-                        return "x" if mode in {"early", "cleanupFault"} else "other"
-                    ns = {"root": root, "properties": {"scope": scope, "nodeKind": lambda b, c: "NodeLiteral" if b is root else "NodeHead", "nodeTag": tag, "nodeHeads": heads}}
-                    result = resolve_address('$&tag("x")', ns, {"maxPropertyInspections": 3})
-                    self.assertLessEqual(counts["next"], 3)
-                    self.assertLessEqual(counts["tag"], 2)
-                    self.assertEqual(counts["close"], 1)
-                    self.assertEqual(result["ok"], mode in {"early", "terminal"})
-                    if mode == "limit":
-                        self.assertEqual((counts["next"], counts["tag"], counts["scope"]), (3, 2, 3))
-                        self.assertEqual(result["errors"][0]["observed"], 4)
-                    if mode in {"nextFault", "cleanupFault"}:
-                        self.assertEqual(result["errors"][0]["code"], "SANSA_RESOLVE_PROPERTY_ADAPTER_ERROR")
-                        self.assertNotIn("secret", json.dumps(result))
+    def test_intrinsic_tag_reads_only_the_current_budgeted_occurrence(self):
+        root = {}
+        calls = Counter()
+
+        def scope(binding, context):
+            calls["scope"] += 1
+            return "root"
+
+        def kind(binding, context):
+            calls["kind"] += 1
+            return "NodeLiteral"
+
+        def tag(binding, context):
+            calls["tag"] += 1
+            self.assertIs(binding, root)
+            return "x"
+
+        def forbidden(*args):
+            self.fail("tag selection inspected children")
+
+        ns = {"root": root, "children": forbidden, "properties": {
+            "scope": scope, "nodeKind": kind, "nodeTag": tag,
+        }}
+        selected = resolve_address('$&tag("x")', ns, {"maxPropertyInspections": 1})
+        self.assertTrue(selected["ok"], selected)
+        self.assertIs(root, selected["bindings"][0])
+        self.assertEqual({"scope": 1, "kind": 1, "tag": 1}, calls)
+        calls.clear()
+        denied = resolve_address('$&tag("x")', ns, {"maxPropertyInspections": 0})
+        self.assertEqual("SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED", denied["errors"][0]["code"])
+        self.assertEqual({}, calls)
 
     def test_checked_faults_do_not_coerce_arbitrary_exceptions(self):
         root, child = {}, {}
@@ -418,14 +404,31 @@ class ActualDocumentProperties(unittest.TestCase):
             self.assertEqual(result["bindings"], [])
         self.assertEqual(reads, [])
 
-    def test_iter_acquisition_type_error_is_checked_adapter_fault(self):
-        class Broken:
-            def __iter__(self):
-                raise TypeError("secret")
+    def test_missing_wrong_and_throwing_tag_are_checked_metadata_faults(self):
+        def broken(binding, context):
+            raise TypeError("private adapter exception")
+
         root = {}
-        ns = {"root": root, "properties": {"scope": lambda b, c: "root", "nodeKind": lambda b, c: "NodeLiteral", "nodeTag": lambda b, c: "x", "nodeHeads": lambda b, c: Broken()}}
-        result = resolve_address('$&tag("x")', ns)
-        self.assertEqual(result["errors"][0]["code"], "SANSA_RESOLVE_PROPERTY_ADAPTER_ERROR")
+        for read, error in (
+            (lambda b, c: None, "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"),
+            (lambda b, c: "", "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"),
+            (lambda b, c: {}, "SANSA_RESOLVE_INVALID_PROPERTY_METADATA"),
+            (broken, "SANSA_RESOLVE_PROPERTY_ADAPTER_ERROR"),
+        ):
+            ns = {"root": root, "properties": {
+                "scope": lambda b, c: "root",
+                "nodeKind": lambda b, c: "NodeLiteral",
+                "nodeTag": read,
+            }}
+            result = resolve_address('$&tag("x")', ns)
+            self.assertEqual(error, result["errors"][0]["code"])
+            self.assertEqual([], result["bindings"])
+            self.assertNotIn("private adapter exception", json.dumps(result))
+
+    def test_retired_property_name_remains_literal_inside_a_quoted_key(self):
+        parsed = parse_address(r'$.["&headTag(\"x\")"]')
+        self.assertTrue(parsed["ok"], parsed)
+        self.assertEqual('&headTag("x")', parsed["address"]["selectors"][0]["name"])
 
     def test_deep_qualifier_paths_are_iterative_and_forged_flags_are_ignored(self):
         for depth in [32, 6000]:
@@ -456,9 +459,9 @@ class ActualDocumentProperties(unittest.TestCase):
 
 
 
-class TagHeadSplit(unittest.TestCase):
-    def test_recursive_predicates_select_original_containers_heads_and_content(self):
-        fixture = json.loads((ROOT / "test-fixtures/tag-head-split.json").read_text())
+class IntrinsicTags(unittest.TestCase):
+    def test_recursive_predicates_select_intrinsic_tags_and_direct_children(self):
+        fixture = json.loads((ROOT / "test-fixtures/node-tag-sdk.json").read_text())
         compiled = compile_source(fixture["source"])
         self.assertFalse(compiled.errors)
         portable = adapt_python_assignment_events_to_portable_aes(compiled.events)["events"]

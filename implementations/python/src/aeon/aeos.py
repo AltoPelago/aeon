@@ -287,7 +287,7 @@ def _validate(aes, schema, options, property_topology, portable_records=None):
             value = event.get("value")
             if isinstance(value, dict) and isinstance(value.get("type"), str):
                 info = {
-                    "property_tag": value.get("value") if value.get("type") == "NodeHead" else None,
+                    "property_tag": value.get("tag") if value.get("type") == "NodeLiteral" else None,
                     "type": value.get("type"),
                     "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
                     "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
@@ -295,7 +295,7 @@ def _validate(aes, schema, options, property_topology, portable_records=None):
                     "datatype": event.get("datatype") if isinstance(event.get("datatype"), str) else None,
                     "structuralId": event.get("structuralId"),
                     "reference_path": value.get("path") if isinstance(value.get("path"), list) else None,
-                    "attributes": build_attribute_info_map(event.get("annotations")),
+                    "attributes": build_attribute_info_map(event.get("annotations"), value),
                 }
                 events_by_path[path_str] = info
                 hydrate_attribute_info_events(path_str, info.get("attributes"), events_by_path)
@@ -473,21 +473,26 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
     from .telex import parse_canonical_path
 
     body: list[tuple[str, dict[str, object]]] = []
-    attributes: list[tuple[str, dict[str, object]]] = []
+    attributes = []
+    children_by_parent = {}
     for record in records:
         address = record.get("path")
         if not isinstance(address, str):
             continue
         details = parse_canonical_path(address)
         if details.segments and details.segments[-1][0] == "attribute":
-            attributes.append((address, record))
+            attributes.append((address, record, details))
             continue
-        body.append((address, _portable_aeos_event(record, details)))
+        event = _portable_aeos_event(record, details)
+        body.append((address, event))
+        if len(details.segments) > 1:
+            children_by_parent.setdefault(details.prefixes[-2], []).append(
+                (details.segments[-1], address, event["value"])
+            )
 
     by_address = {address: event for address, event in body}
     attributes.sort(key=lambda item: len(item[0]))
-    for address, record in attributes:
-        details = parse_canonical_path(address)
+    for address, record, details in attributes:
         owner = details.prefixes[-2]
         key = str(details.segments[-1][1])
         event = by_address.get(owner)
@@ -503,17 +508,16 @@ def portable_records_to_aeos(records: list[dict[str, object]]) -> list[dict[str,
         body.append((address, event))
         by_address[address] = event
 
-    attribute_paths = {address for address, _ in attributes}
-    values = {address: event["value"] for address, event in body if address not in attribute_paths}
-    for address, event in body:
+    for address, event in by_address.items():
         value = event["value"]
         kind = value.get("type")
+        children = children_by_parent.get(address, [])
         if kind == "ObjectNode":
-            value["bindings"] = [{"path": child} for child in values if _portable_parent(child) == address]
-        elif kind in {"ListNode", "TupleLiteral"}:
-            value["elements"] = _portable_indexed_children(address, values)
-        elif kind == "NodeLiteral":
-            value["children"] = _portable_indexed_children(f"{address}[0]", values)
+            value["bindings"] = [{"path": child} for (role, _), child, _ in children if role == "member"]
+        elif kind in {"ListNode", "TupleLiteral", "NodeLiteral"}:
+            indexed = [(key, child) for (role, key), _, child in children if role == "index"]
+            indexed.sort(key=lambda item: item[0])
+            value["children" if kind == "NodeLiteral" else "elements"] = [child for _, child in indexed]
     return [event for _, event in body]
 
 
@@ -542,6 +546,8 @@ def _portable_aeos_value(record: dict[str, object]) -> dict[str, object]:
     elif kind == "NullLiteral":
         value = {"mode": "reserved" if raw in {"none", "notSet", "notApplicable", "tombstone"} else "reason", "value": raw}
     result: dict[str, object] = {"type": kind, "raw": raw, "value": value}
+    if kind == "NodeLiteral":
+        result["tag"] = record.get("tag")
     if kind in {"CloneReference", "PointerReference"}:
         from .telex import parse_canonical_path
 
@@ -561,15 +567,6 @@ def _portable_attribute_entry(record):
     }
 
 
-def _portable_parent(path: str) -> str | None:
-    from .telex import parse_canonical_path
-
-    details = parse_canonical_path(path)
-    if not details.segments:
-        return None
-    return "$" if len(details.prefixes) == 1 else details.prefixes[-2]
-
-
 def _portable_datatype(record: dict[str, object]) -> str | None:
     if not isinstance(record.get("datatype"), str):
         return None
@@ -581,19 +578,6 @@ def _portable_datatype(record: dict[str, object]) -> str | None:
         if key in record
     }
     return format_datatype_descriptor(descriptor)
-
-
-def _portable_indexed_children(parent: str, values: dict[str, object]) -> list[object]:
-    from .telex import parse_canonical_path
-
-    children: list[tuple[int, object]] = []
-    for address, value in values.items():
-        details = parse_canonical_path(address)
-        if _portable_parent(address) != parent or not details.segments or details.segments[-1][0] != "index":
-            continue
-        children.append((int(details.segments[-1][1]), value))
-    children.sort(key=lambda item: item[0])
-    return [value for _, value in children]
 
 
 def _portable_span(value: object) -> list[int] | None:
@@ -1626,14 +1610,11 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
     if with_properties:
         parents = {id(namespace["root"]): None}
         pending = [namespace["root"]]
-        direct_heads = {}
         while pending:
             binding = pending.pop()
             children = binding.get("children", [])
             if children and all(type(child.get("index")) is int for child in children):
                 children.sort(key=lambda child: child["index"])
-            if (binding.get("info") or {}).get("type") == "NodeLiteral" and any("info" not in child for child in children):
-                direct_heads[id(binding)] = tuple(child for child in children if "info" in child)
             for child in children:
                 parents[id(child)] = binding
                 pending.append(child)
@@ -1656,10 +1637,6 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
             boundary = context["scopeRoot"]
             if not inside(binding, boundary) or not inside(context["evaluationRoot"], boundary):
                 return "outside"
-            owner = context.get("directHeadOf")
-            if owner is not None and (not inside(owner, boundary) or (owner.get("info") or {}).get("type") != "NodeLiteral"
-                                      or parents[id(binding)] is not owner or (binding.get("info") or {}).get("type") != "NodeHead"):
-                return "outside"
             return "root" if binding is boundary else "inside"
 
         def tag(binding, context):
@@ -1670,10 +1647,9 @@ def create_aeos_sansa_resolve_namespace(events: dict[str, dict[str, object]], id
 
         namespace["properties"] = {
             "scope": scope,
-            "key": lambda binding, context: None if (binding.get("info") or {}).get("type") == "NodeHead" else binding.get("name"),
-            "nodeKind": lambda binding, context: (binding.get("info") or {}).get("type") if (binding.get("info") or {}).get("type") in {"NodeLiteral", "NodeHead"} else "Other",
+            "key": lambda binding, context: binding.get("name"),
+            "nodeKind": lambda binding, context: "NodeLiteral" if (binding.get("info") or {}).get("type") == "NodeLiteral" else "Other",
             "nodeTag": tag,
-            "nodeHeads": lambda binding, context: iter(direct_heads.get(id(binding), binding.get("children", []))),
         }
     return namespace
 
@@ -2162,11 +2138,16 @@ def hydrate_attribute_info_events(base_path: str, attributes: object, events_by_
         hydrate_attribute_info_events(attribute_path, info.get("attributes"), events_by_path)
 
 
-def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]] | None:
-    if not isinstance(attributes, dict) or not attributes:
-        return None
+def build_attribute_info_map(attributes: object, owner: dict[str, object] | None = None) -> dict[str, dict[str, object]] | None:
+    from .portable import format_datatype
+
+    entries = dict(attributes) if isinstance(attributes, dict) else {}
+    if owner is not None and owner.get("type") == "NodeLiteral" and isinstance(owner.get("attributes"), list):
+        for block in owner["attributes"]:
+            if isinstance(block, dict) and isinstance(block.get("entries"), dict):
+                entries.update(block["entries"])
     mapped: dict[str, dict[str, object]] = {}
-    for key, entry in attributes.items():
+    for key, entry in entries.items():
         if not isinstance(entry, dict):
             continue
         value = entry.get("value")
@@ -2174,15 +2155,15 @@ def build_attribute_info_map(attributes: object) -> dict[str, dict[str, object]]
             continue
         mapped[str(key)] = {
             "type": value.get("type"),
-            "property_tag": value.get("value") if value.get("type") == "NodeHead" else None,
+            "property_tag": value.get("tag") if value.get("type") == "NodeLiteral" else None,
             "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
             "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
             "span": to_span_tuple(value.get("span")),
-            "datatype": entry.get("datatype") if isinstance(entry.get("datatype"), str) else None,
-            "structuralId": entry.get("structuralId"),
-            "attributes": build_attribute_info_map(entry.get("annotations")),
+            "datatype": format_datatype(value.get("datatype") if value.get("type") == "NodeLiteral" else entry.get("datatype")),
+            "structuralId": value.get("structuralId") if value.get("type") == "NodeLiteral" else entry.get("structuralId"),
+            "attributes": build_attribute_info_map(entry.get("annotations"), value),
         }
-    return mapped
+    return mapped or None
 
 
 def decode_separator_chars(datatype: str | None) -> list[str]:

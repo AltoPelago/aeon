@@ -137,14 +137,14 @@ class AeosTests(unittest.TestCase):
         self.assertTrue(any(error["code"] == "null_value_mismatch" and error["path"] == "$.reason" for error in failing["errors"]))
 
     def test_accepts_indexed_node_child_paths(self) -> None:
-        compiled = compile_source("page:node = <page(:int32 = 3)>")
+        compiled = compile_source("<page:node(:int32 = 3)>")
         self.assertEqual([], compiled.errors)
         result = validate_events(compiled.events, {"rules": [{"path": "$.page", "constraints": {"type": "NodeLiteral"}}, {"path": "$.page[0]", "constraints": {"type": "NumberLiteral"}}]})
         self.assertTrue(result["ok"])
         self.assertEqual([], result["errors"])
 
     def test_rejects_indexed_node_child_type_mismatch(self) -> None:
-        compiled = compile_source("page:node = <page(:int32 = 3)>")
+        compiled = compile_source("<page:node(:int32 = 3)>")
         self.assertEqual([], compiled.errors)
         result = validate_events(compiled.events, {"rules": [{"path": "$.page[0]", "constraints": {"type": "StringLiteral"}}]})
         self.assertEqual(["type_mismatch"], [error["code"] for error in result["errors"]])

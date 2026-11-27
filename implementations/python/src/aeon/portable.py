@@ -63,7 +63,6 @@ def adapt_python_assignment_events_to_portable_aes(
     ]
     changes = compatibility_changes(
         source_events,
-        body,
         projected,
         include_headers,
         source_backed=source_context is not None,
@@ -106,53 +105,22 @@ def adapt_python_assignment_events_to_portable_aes(
 def project_portable_events(events: Iterable[dict[str, object]]) -> list[PortableEvent]:
     """Project legacy Python AES events into the portable flat event shape."""
 
-    source_events = list(events)
-    node_source_paths = {
-        str(event.get("path"))
-        for event in source_events
-        if value_type(unwrap_typed_value(event.get("value"))) == "NodeLiteral"
-    }
     projected: list[PortableEvent] = []
-
-    for event in source_events:
-        source_path = str(event.get("path", "$"))
-        translated_path = translate_node_path(source_path, node_source_paths)
+    for event in events:
+        path = str(event.get("path", "$"))
         value = unwrap_typed_value(event.get("value"))
         projected.append(
             make_event(
-                translated_path,
+                path,
                 value,
                 identity=optional_string(event.get("structuralId")),
                 datatype=optional_string(event.get("datatype")),
                 span=event.get("span"),
-                node_source_paths=node_source_paths,
             )
         )
-        project_mapped_attributes(
-            event.get("annotations"),
-            translated_path,
-            projected,
-            node_source_paths,
-        )
-
+        project_mapped_attributes(event.get("annotations"), path, projected)
         if value_type(value) == "NodeLiteral" and isinstance(value, dict):
-            head_path = f"{translated_path}[0]"
-            projected.append(
-                compact_event(
-                    path=head_path,
-                    kind="NodeHead",
-                    identity=optional_string(value.get("structuralId")),
-                    datatype=format_datatype(value.get("datatype")),
-                    value=optional_string(value.get("tag")),
-                    span=value.get("headSpan"),
-                )
-            )
-            project_parser_attributes(
-                value.get("attributes"),
-                head_path,
-                projected,
-                node_source_paths,
-            )
+            project_parser_attributes(value.get("attributes"), path, projected)
 
     return projected
 
@@ -164,12 +132,18 @@ def make_event(
     identity: str | None,
     datatype: str | None,
     span: object,
-    node_source_paths: set[str],
 ) -> PortableEvent:
-    kind, value = project_value(raw_value, node_source_paths)
+    kind, value = project_value(raw_value)
+    tag = None
+    if kind == "NodeLiteral" and isinstance(raw_value, dict):
+        tag = optional_string(raw_value.get("tag"))
+        identity = identity or optional_string(raw_value.get("structuralId"))
+        datatype = datatype or format_datatype(raw_value.get("datatype"))
+        span = raw_value.get("span") or span
     return compact_event(
         path=path,
         kind=kind,
+        tag=tag,
         identity=identity,
         datatype=datatype,
         value=value,
@@ -181,12 +155,15 @@ def compact_event(
     *,
     path: str,
     kind: str,
+    tag: str | None = None,
     identity: str | None = None,
     datatype: str | None = None,
     value: str | None = None,
     span: object = None,
 ) -> PortableEvent:
     event: PortableEvent = {"path": path, "kind": kind}
+    if tag is not None:
+        event["tag"] = tag
     if identity is not None:
         event["identity"] = identity
     if datatype is not None:
@@ -202,7 +179,6 @@ def project_mapped_attributes(
     attributes: object,
     owner_path: str,
     projected: list[PortableEvent],
-    node_source_paths: set[str],
 ) -> None:
     if not isinstance(attributes, dict):
         return
@@ -218,7 +194,6 @@ def project_mapped_attributes(
             parser_attributes=None,
             span=raw_entry.get("span"),
             projected=projected,
-            node_source_paths=node_source_paths,
         )
 
 
@@ -226,7 +201,6 @@ def project_parser_attributes(
     attributes: object,
     owner_path: str,
     projected: list[PortableEvent],
-    node_source_paths: set[str],
 ) -> None:
     if not isinstance(attributes, list):
         return
@@ -248,7 +222,6 @@ def project_parser_attributes(
                 parser_attributes=raw_entry.get("attributes"),
                 span=raw_entry.get("span"),
                 projected=projected,
-                node_source_paths=node_source_paths,
             )
 
 
@@ -262,7 +235,6 @@ def project_value_tree(
     parser_attributes: object,
     span: object,
     projected: list[PortableEvent],
-    node_source_paths: set[str],
 ) -> None:
     value = unwrap_typed_value(raw_value)
     projected.append(
@@ -272,19 +244,17 @@ def project_value_tree(
             identity=identity,
             datatype=datatype,
             span=span,
-            node_source_paths=node_source_paths,
         )
     )
-    project_mapped_attributes(mapped_attributes, path, projected, node_source_paths)
-    project_parser_attributes(parser_attributes, path, projected, node_source_paths)
-    project_value_children(path, value, projected, node_source_paths)
+    project_mapped_attributes(mapped_attributes, path, projected)
+    project_parser_attributes(parser_attributes, path, projected)
+    project_value_children(path, value, projected)
 
 
 def project_value_children(
     path: str,
     value: object,
     projected: list[PortableEvent],
-    node_source_paths: set[str],
 ) -> None:
     if not isinstance(value, dict):
         return
@@ -294,7 +264,7 @@ def project_value_children(
         if isinstance(bindings, list):
             for binding in bindings:
                 if isinstance(binding, dict):
-                    project_binding_tree(path, binding, projected, node_source_paths)
+                    project_binding_tree(path, binding, projected)
         return
     if kind in {"ListNode", "TupleLiteral"}:
         elements = value.get("elements")
@@ -304,35 +274,17 @@ def project_value_children(
                     f"{path}[{index}]",
                     element,
                     projected,
-                    node_source_paths,
                 )
         return
     if kind == "NodeLiteral":
-        head_path = f"{path}[0]"
-        projected.append(
-            compact_event(
-                path=head_path,
-                kind="NodeHead",
-                identity=optional_string(value.get("structuralId")),
-                datatype=format_datatype(value.get("datatype")),
-                value=optional_string(value.get("tag")),
-                span=value.get("headSpan"),
-            )
-        )
-        project_parser_attributes(
-            value.get("attributes"),
-            head_path,
-            projected,
-            node_source_paths,
-        )
+        project_parser_attributes(value.get("attributes"), path, projected)
         children = value.get("children")
         if isinstance(children, list):
             for index, child in enumerate(children):
                 project_anonymous_tree(
-                    f"{head_path}[{index}]",
+                    f"{path}[{index}]",
                     child,
                     projected,
-                    node_source_paths,
                 )
 
 
@@ -340,7 +292,6 @@ def project_binding_tree(
     owner_path: str,
     binding: dict[str, object],
     projected: list[PortableEvent],
-    node_source_paths: set[str],
 ) -> None:
     key = binding.get("key")
     if not isinstance(key, str):
@@ -354,7 +305,6 @@ def project_binding_tree(
         parser_attributes=binding.get("attributes"),
         span=binding.get("span"),
         projected=projected,
-        node_source_paths=node_source_paths,
     )
 
 
@@ -362,7 +312,6 @@ def project_anonymous_tree(
     path: str,
     raw_value: object,
     projected: list[PortableEvent],
-    node_source_paths: set[str],
 ) -> None:
     if isinstance(raw_value, dict) and value_type(raw_value) == "TypedValue":
         project_value_tree(
@@ -374,7 +323,6 @@ def project_anonymous_tree(
             parser_attributes=raw_value.get("attributes"),
             span=raw_value.get("span"),
             projected=projected,
-            node_source_paths=node_source_paths,
         )
         return
     span = raw_value.get("span") if isinstance(raw_value, dict) else None
@@ -387,11 +335,10 @@ def project_anonymous_tree(
         parser_attributes=None,
         span=span,
         projected=projected,
-        node_source_paths=node_source_paths,
     )
 
 
-def project_value(value: object, node_source_paths: set[str]) -> tuple[str, str | None]:
+def project_value(value: object) -> tuple[str, str | None]:
     value = unwrap_typed_value(value)
     if not isinstance(value, dict):
         return "NullLiteral", None
@@ -434,9 +381,9 @@ def project_value(value: object, node_source_paths: set[str]) -> tuple[str, str 
     if kind == "NodeLiteral":
         return "NodeLiteral", None
     if kind == "CloneReference":
-        return "CloneReference", translate_reference_target(value.get("path"), node_source_paths)
+        return "CloneReference", format_reference_target(value.get("path"))
     if kind == "PointerReference":
-        return "PointerReference", translate_reference_target(value.get("path"), node_source_paths)
+        return "PointerReference", format_reference_target(value.get("path"))
     return kind or "NullLiteral", stringify_value(value.get("value"))
 
 
@@ -470,43 +417,23 @@ def format_datatype(datatype: object) -> str | None:
     return name
 
 
-def translate_node_path(path: str, node_source_paths: set[str]) -> str:
-    source_segments: list[str | int] = []
-    target_segments: list[str | int] = []
-    for segment in parse_canonical_path(path):
-        if isinstance(segment, int) and format_segments(source_segments) in node_source_paths:
-            target_segments.append(0)
-        source_segments.append(segment)
-        target_segments.append(segment)
-    return format_segments(target_segments)
-
-
-def translate_reference_target(path: object, node_source_paths: set[str]) -> str:
+def format_reference_target(path: object) -> str:
     if not isinstance(path, list):
         return "$"
-    source_segments: list[str | int] = []
-    trackable = True
     output = "$"
     for segment in path:
         if isinstance(segment, bool):
             continue
         if isinstance(segment, int):
-            if trackable and format_segments(source_segments) in node_source_paths:
-                output += "[0]"
             output += f"[{segment}]"
-            if trackable:
-                source_segments.append(segment)
             continue
         if isinstance(segment, str):
             output += format_member(segment)
-            if trackable:
-                source_segments.append(segment)
             continue
         if isinstance(segment, dict) and segment.get("type") == "attr":
             key = segment.get("key")
             if isinstance(key, str):
                 output += f".@{format_member(key)}"
-                trackable = False
     return output
 
 
@@ -542,13 +469,6 @@ def parse_canonical_path(path: str) -> list[str | int]:
             continue
         raise ValueError(f"Invalid canonical path: {path}")
     return segments
-
-
-def format_segments(segments: Iterable[str | int]) -> str:
-    output = "$"
-    for segment in segments:
-        output += f"[{segment}]" if isinstance(segment, int) else format_member(segment)
-    return output
 
 
 def append_member(owner_path: str, key: str) -> str:
@@ -690,7 +610,6 @@ def conversion_change(
 
 def compatibility_changes(
     source_events: list[dict[str, object]],
-    body_events: list[dict[str, object]],
     projected: list[PortableEvent],
     include_headers: bool,
     *,
@@ -698,19 +617,10 @@ def compatibility_changes(
     header_field_names: set[str] | None = None,
 ) -> list[dict[str, object]]:
     changes: list[dict[str, object]] = []
-    node_source_paths = {
-        str(event.get("path"))
-        for event in body_events
-        if value_type(unwrap_typed_value(event.get("value"))) == "NodeLiteral"
-    }
-    path_map = {
-        str(event.get("path", "$")): translate_node_path(str(event.get("path", "$")), node_source_paths)
-        for event in body_events
-    }
     for event in source_events:
         source_path = str(event.get("path", "$"))
         header = is_legacy_header_event(event, header_field_names)
-        target_path = source_path if header and include_headers else path_map.get(source_path)
+        target_path = None if header and not include_headers else source_path
         if not source_backed:
             changes.append(conversion_change(
                 "omitted",
@@ -746,29 +656,6 @@ def compatibility_changes(
                 source_path=source_path,
                 target_path=source_path,
             ))
-        elif target_path is not None and target_path != source_path:
-            changes.append(conversion_change(
-                "transformed",
-                "AES_COMPAT_PATH_TRANSLATED",
-                "path",
-                "The source occurrence path is translated through the explicit portable node-head level.",
-                source_path=source_path,
-                target_path=target_path,
-            ))
-        value = unwrap_typed_value(event.get("value"))
-        if isinstance(value, dict) and value_type(value) in {"CloneReference", "PointerReference"}:
-            source_target = translate_reference_target(value.get("path"), set())
-            portable_target = translate_reference_target(value.get("path"), node_source_paths)
-            if source_target != portable_target:
-                changes.append(conversion_change(
-                    "transformed",
-                    "AES_COMPAT_REFERENCE_TRANSLATED",
-                    "value.path",
-                    f"The reference target is translated from {source_target} to {portable_target}.",
-                    source_path=source_path,
-                    target_path=target_path,
-                ))
-
     for event in projected:
         target_path = optional_string(event.get("path")) or optional_string(event.get("header"))
         if source_backed:
@@ -789,14 +676,6 @@ def compatibility_changes(
                 "AES_COMPAT_HEADER_PROJECTED",
                 "header",
                 "The recognized AEON header field is emitted in the header address plane.",
-                target_path=target_path,
-            ))
-        if event.get("kind") == "NodeHead":
-            changes.append(conversion_change(
-                "synthesized",
-                "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
-                "NodeHead",
-                "The implicit implementation node tag is emitted as an explicit portable NodeHead event.",
                 target_path=target_path,
             ))
         if target_path is not None and ".@" in target_path:
@@ -847,18 +726,20 @@ def project_header_records(header: dict[str, object]) -> list[PortableEvent]:
         for raw_binding in bindings:
             if not isinstance(raw_binding, dict) or not isinstance(raw_binding.get("key"), str):
                 continue
-            key = str(raw_binding["key"])
+            key = f'aeon:{raw_binding["key"]}'
+            value = raw_binding.get("value")
+            if isinstance(value, dict) and value_type(value) == "NodeLiteral":
+                value = {**value, "tag": key}
             temporary: list[PortableEvent] = []
             project_value_tree(
-                f'$.[' + json.dumps(f"aeon:{key}", ensure_ascii=False) + "]",
-                raw_binding.get("value"),
+                f'$.[' + json.dumps(key, ensure_ascii=False) + "]",
+                value,
                 identity=optional_string(raw_binding.get("structuralId")),
                 datatype=format_datatype(raw_binding.get("datatype")),
                 mapped_attributes=None,
                 parser_attributes=raw_binding.get("attributes"),
                 span=raw_binding.get("span"),
                 projected=temporary,
-                node_source_paths=set(),
             )
             for record in temporary:
                 address = record.pop("path")
@@ -917,5 +798,5 @@ def export_telex(
 
 
 def _ordered_portable_record(record: PortableEvent, address_field: str) -> PortableEvent:
-    order = (address_field, "kind", "datatype", "generics", "clarifiers", "identity", "value", "origin", "span")
+    order = (address_field, "kind", "tag", "datatype", "generics", "clarifiers", "identity", "value", "origin", "span")
     return {key: record[key] for key in order if key in record}

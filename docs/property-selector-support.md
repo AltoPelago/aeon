@@ -8,17 +8,17 @@ publication evidence. A package version does not promote experimental profiles
 or stable CTS claims. Parsing/transport preserve inert values; evaluation requires
 an explicitly authorized namespace and admitted consumer.
 
-In the tagged-node development model, TypeScript and Rust (including native
-Python) read `&tag("book")` from the selected node's intrinsic tag. For
+In the tagged-node development model, TypeScript, Rust, and both Python
+implementations read `&tag("book")` from the selected node's intrinsic tag. For
 `<book("yes")>`, the first child is `$.book[0]` in both SANSA and portable AES,
-and `~book[0]` addresses the same value in source. The published 0.17.0 and
-pure-Python reference paths retain the earlier topology described below.
+and `~book[0]` addresses the same value in source. Published 0.17.0 uses its frozen
+node topology.
 
 ## Owning APIs
 
 | Entry point | Delivered property behavior | Boundary |
 | --- | --- | --- |
-| TypeScript SDK `readAeonNamespace` / `createAeonNamespace` plus SANSA Resolve/Query | Authoritative graph-backed keys, node containers and direct heads; original handles, scope and structural paths retained | Public display fields, strings and ordinary `tag` values do not grant authority |
+| TypeScript SDK `readAeonNamespace` / `createAeonNamespace` plus SANSA Resolve/Query | Authoritative graph-backed keys and intrinsic node tags. Retains original handles, scope and structural paths | Public display fields, strings and ordinary `tag` values do not grant authority |
 | Rust SDK `AeonSansaNamespace` with its optional `sansa` integration | Same document facet for read-only Resolve/direct Query | No JSON conversion or alternate Query engine; panic/abort and all adapter construction costs are not covered by checked logical inspection accounting |
 | Pure Python `aeon.sansa` / `aeon.sansa_document` | Addressing/rendering and standalone Resolve from assignment events or portable records | No pure-Python Query evaluator; no implicit fallback to the native package |
 | Existing native Pytonic `Document.query()` | Property Query through the Rust SDK; bounded `max_property_inspections` and structured diagnostics | Separate from pure Python and from inert Core literal APIs; no generic Python callback facet |
@@ -27,11 +27,9 @@ pure-Python reference paths retain the earlier topology described below.
 | Core/native/WASM literal APIs | Existing inert parsing, AST, canonical representation and transport | No address activation or new generic standalone Resolve/WASM Query API; reduced Core namespaces cannot evaluate properties |
 
 `&key("name")` compares the literal authorized member/attribute key, including
-empty/Unicode names. Indices are not keys. `&tag("book")` returns a NodeLiteral
-container with a matching direct head; `&headTag("book")` returns a NodeHead.
-Explicit `.*` then visits head children. A scoped root hides its incoming key
-while retaining intrinsic tags. Neither selector rewrites a result into an
-identity address or follows a reference implicitly.
+empty/Unicode names. `&tag("book")` selects a NodeLiteral with that intrinsic tag.
+An indexed node exposes its position and tag. Explicit `.*` visits the node's
+direct children. A scoped root exposes its tag and hides its incoming key.
 
 See the [TypeScript SDK](../implementations/typescript/packages/sdk/README.md),
 [Rust SDK](../implementations/rust/crates/aeon-sdk/README.md),
@@ -79,8 +77,8 @@ Resolve uses `maxPropertyInspections` (Rust `max_property_inspections`), default
 across its clauses; native Pytonic exposes `max_property_inspections`. Portable
 AEOS exposes its own schema/host resource policy. Do not pass one entry point's
 option spelling to another or infer an override on the restricted native loader.
-Candidates and yielded direct heads are charged as documented, including misses
-and repeated occurrences. Logical allowances do not bound construction, ancestry,
+Each inspected occurrence consumes one charge, including misses and repeats.
+Logical allowances do not bound construction, ancestry,
 old navigation, all host work, wall time or heap.
 
 These delivered APIs do not establish exhaustive/stable CTS, experimental-profile

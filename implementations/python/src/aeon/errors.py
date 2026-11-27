@@ -70,7 +70,7 @@ def infer_phase_label_from_code(code: str) -> str | None:
         "UNTYPED_VALUE_IN_STRICT_MODE",
         "CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED",
         "CUSTOM_DATATYPE_NOT_ALLOWED",
-        "INVALID_NODE_HEAD_DATATYPE",
+        "INVALID_NODE_DATATYPE",
     }:
         return "Mode Enforcement"
     if code.startswith("FINALIZE_") or code == "TYPE_GUARD_FAILED":
@@ -382,15 +382,15 @@ class CustomDatatypeNotAllowedError(AeonError):
         )
 
 
-class InvalidNodeHeadDatatypeError(AeonError):
+class InvalidNodeDatatypeError(AeonError):
     def __init__(self, path: str, datatype: str, span: Span) -> None:
         super().__init__(
             message=(
-                f"Invalid node head datatype in strict mode at '{path}': "
-                f"node heads must use ':node', got ':{datatype}'"
+                f"Invalid node datatype in strict mode at '{path}': "
+                f"expected ':node', got ':{datatype}'"
             ),
             span=span,
-            code="INVALID_NODE_HEAD_DATATYPE",
+            code="INVALID_NODE_DATATYPE",
             path=path,
         )
 

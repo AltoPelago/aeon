@@ -22,7 +22,9 @@ DATATYPE_NAMES = json.loads((ROOT.parents[1] / "test-fixtures/radix-datatype-nam
 class ExactRadixTests(unittest.TestCase):
     def test_gp_validates_unprojected_occurrences_once_at_their_exact_paths(self):
         fixtures = json.loads((ROOT.parents[1] / "test-fixtures/gp-attribute-clarifiers.json").read_text())
-        fixtures += json.loads((ROOT.parents[1] / "test-fixtures/gp-tag-head-clarifiers.json").read_text())
+        revised = {case["id"]: case for case in json.loads((ROOT.parents[1] / "test-fixtures/gp-attribute-clarifiers-tagged-nodes.json").read_text())}
+        fixtures = [revised.get(case["id"], case) for case in fixtures]
+        fixtures += json.loads((ROOT.parents[1] / "test-fixtures/gp-tag-head-clarifiers-tagged-nodes.json").read_text())
         for fixture in fixtures:
             with self.subTest(case=fixture["id"]):
                 options = dict(max_attribute_depth=2, max_clarifier_values=2)
@@ -33,7 +35,7 @@ class ExactRadixTests(unittest.TestCase):
                     self.assertEqual(fixture["errors"], [{"code": e.code, "path": e.path} for e in result.errors], source)
 
     def test_gp_validates_exact_values_across_binding_generic_and_item_contexts(self):
-        contexts = json.loads((ROOT.parents[1] / "test-fixtures/gp-radix-contexts.json").read_text())
+        contexts = json.loads((ROOT.parents[1] / "test-fixtures/gp-radix-contexts-tagged-nodes.json").read_text())
         for fixture in (f for f in FIXTURES if f["testSource"]):
             for context in contexts:
                 source = context["before"] + fixture["literal"] + context["after"]

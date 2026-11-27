@@ -151,10 +151,10 @@ class Parser:
         if not self.check("EOF"):
             self.advance()
         while not self.check("EOF"):
-            if (
-                self.peek().span.start.column == 1
-                and self.is_key_token(self.peek())
-                and self.check_next("EQUALS") | self.check_next("COLON")
+            at_line_start = self.peek().span.start.column == 1
+            if at_line_start and (
+                self.check("LANGLE")
+                or (self.is_key_token(self.peek()) and (self.check_next("EQUALS") or self.check_next("COLON")))
             ):
                 return
             self.advance()
@@ -222,11 +222,13 @@ class Parser:
             self.consume("EQUALS", "Expected '=' in header")
             self.skip_layout()
             # The structured header groups fields without adding a value nesting level.
-            value = self.parse_object() if field_name == "header" and self.check("LBRACE") else self.parse_value()
+            value = self.parse_object() if field_name == "header" and self.check("LBRACE") else self.parse_assigned_value()
             end = self.previous().span.end
             if field_name == "header" and isinstance(value, ObjectNode):
                 has_structured = True
                 for binding in value.bindings:
+                    if isinstance(binding.value, NodeLiteral) and binding.key.startswith("aeon:") and len(binding.key) > 5:
+                        binding.key = binding.key[5:]
                     bindings.append(binding)
                     fields[binding.key] = binding.value
             else:
@@ -250,6 +252,9 @@ class Parser:
 
     def parse_binding(self) -> Binding:
         start = self.peek().span.start
+        if self.check("LANGLE"):
+            node = cast(NodeLiteral, self.parse_value())
+            return Binding(key=node.tag, value=node, datatype=None, attributes=[], span=cast(Span, node.span))
         key_token = self.consume_key_token("Expected binding key")
         key = self.key_from_token(key_token)
         self.skip_layout()
@@ -269,7 +274,7 @@ class Parser:
             self.skip_layout()
         self.consume("EQUALS", f"Expected '=' after key '{key}'")
         self.skip_separators()
-        value = self.parse_value()
+        value = self.parse_assigned_value()
         end = self.previous().span.end
         if self.check("AT"):
             raise SyntaxError("Postfix literal attributes are not valid Core v1 syntax", self.peek().span)
@@ -285,6 +290,16 @@ class Parser:
         entries: dict[str, AttributeEntry] = {}
         self.skip_layout()
         while not self.check("RBRACE"):
+            if self.check("LANGLE"):
+                node = cast(NodeLiteral, self.parse_value(node_attribute_depth=depth + 1))
+                span = cast(Span, node.head_span)
+                if node.tag in RESERVED_ATTRIBUTE_KEYS:
+                    raise SyntaxError(f"Reserved attribute key: {node.tag}", span)
+                if node.tag in entries:
+                    raise AeonError(message=f"Duplicate key: '{node.tag}'", span=span, code="DUPLICATE_KEY")
+                entries[node.tag] = AttributeEntry(value=node, datatype=None, span=node.span)
+                self.consume_member_delimiter("RBRACE", "Expected attribute delimiter")
+                continue
             key_token = self.consume_key_token("Expected attribute key")
             entry_start = key_token.span.start
             key = self.key_from_token(key_token)
@@ -309,7 +324,7 @@ class Parser:
                 self.skip_layout()
             self.consume("EQUALS", "Expected '=' in attribute")
             self.skip_separators()
-            value = self.parse_value()
+            value = self.parse_assigned_value()
             entries[key] = AttributeEntry(
                 value=value,
                 datatype=datatype,
@@ -504,7 +519,12 @@ class Parser:
     def is_allowed_separator_spec_char(value: str) -> bool:
         return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", value))
 
-    def parse_value(self) -> Value:
+    def parse_assigned_value(self) -> Value:
+        if self.check("LANGLE"):
+            raise SyntaxError("A node declaration carries its own tag and metadata", self.peek().span)
+        return self.parse_value()
+
+    def parse_value(self, node_attribute_depth: int = 1) -> Value:
         counts_toward_nesting = self.check("LANGLE") or self.check("LBRACE") or self.check("LBRACKET") or self.check("LPAREN")
         if counts_toward_nesting:
             self.current_nesting_depth += 1
@@ -514,7 +534,7 @@ class Parser:
                 raise NestingDepthExceededError(observed_depth, self.max_value_nesting_depth, self.peek().span)
         try:
             if self.check("LANGLE"):
-                return self.parse_node()
+                return self.parse_node(node_attribute_depth)
             if self.check("RANGLE"):
                 return self.parse_trimtick_string()
             if self.check("IDENT") and self.check_next("LANGLE"):
@@ -555,7 +575,7 @@ class Parser:
         self.skip_layout()
         self.consume("EQUALS", "Expected '=' after anonymous value head")
         self.skip_separators()
-        value = self.parse_value()
+        value = self.parse_assigned_value()
         return TypedValue(
             datatype=datatype,
             attributes=attributes,
@@ -574,7 +594,7 @@ class Parser:
         self.structural_identities.add(structural_id)
         return structural_id
 
-    def parse_node(self) -> NodeLiteral:
+    def parse_node(self, attribute_depth: int) -> NodeLiteral:
         start = self.consume("LANGLE", "Expected '<' to start node literal").span.start
         self.skip_layout()
         tag_token = self.consume_key_token("Expected node tag after '<'")
@@ -590,7 +610,7 @@ class Parser:
         self.skip_layout()
         attributes: list[Attribute] = []
         if self.check("AT"):
-            attributes.append(self.parse_attribute(1))
+            attributes.append(self.parse_attribute(attribute_depth))
             head_end = attributes[-1].span.end
             self.skip_layout()
             if self.check("AT"):

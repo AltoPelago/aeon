@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 from pathlib import Path
 import sys
 import unittest
@@ -22,7 +23,7 @@ from aeon.portable import (
 class PortableProjectionTests(unittest.TestCase):
     def test_named_legacy_adapter_returns_an_explicit_conversion_report(self) -> None:
         result = compile_source(
-            'a@{role = "root"} = <tag("child")>\ncopy = ~a[0]\nitems:list<int> = [1]',
+            '<a@{role = "root"}("child")>\ncopy = ~a[0]\nitems:list<int> = [1]',
             CompileOptions(max_attribute_depth=8),
         )
         self.assertEqual([], result.errors)
@@ -48,12 +49,12 @@ class PortableProjectionTests(unittest.TestCase):
         assert isinstance(changes, list)
         codes = {change["code"] for change in changes}
         self.assertTrue({
-            "AES_COMPAT_NODE_HEAD_SYNTHESIZED",
             "AES_COMPAT_ATTRIBUTE_FLATTENED",
             "AES_COMPAT_DATATYPE_EXPANDED",
-            "AES_COMPAT_REFERENCE_TRANSLATED",
             "AES_COMPAT_PROVENANCE_OMITTED",
         }.issubset(codes))
+        self.assertTrue(codes.isdisjoint({"AES_COMPAT_NODE_HEAD_SYNTHESIZED",
+                                          "AES_COMPAT_PATH_TRANSLATED", "AES_COMPAT_REFERENCE_TRANSLATED"}))
 
     def test_named_legacy_adapter_keeps_headers_opt_in(self) -> None:
         source = 'aeon:mode = "transport"\r\na = 1'
@@ -130,7 +131,7 @@ class PortableProjectionTests(unittest.TestCase):
     def test_converts_code_point_ranges_to_exact_utf8_byte_spans(self) -> None:
         source = (
             "\ufeff"
-            + r'a = <tag\HEAD\@{role = "café"}:node("😀")>'
+            + r'<a\HEAD\@{role = "café"}:node("😀")>'
             + "\r\n"
             + 'b = "nai\u0308ve"'
         )
@@ -138,7 +139,7 @@ class PortableProjectionTests(unittest.TestCase):
         self.assertEqual([], result.errors)
 
         local = project_portable_events(result.events)
-        head = next(event for event in local if event["path"] == "$.a[0]")
+        head = next(event for event in local if event["path"] == "$.a")
         head_span = head["span"]
         self.assertIsInstance(head_span, dict)
         assert isinstance(head_span, dict)
@@ -146,7 +147,7 @@ class PortableProjectionTests(unittest.TestCase):
         end = head_span["end"]
         assert isinstance(start, dict) and isinstance(end, dict)
         self.assertEqual(
-            r'tag\HEAD\@{role = "café"}:node',
+            r'<a\HEAD\@{role = "café"}:node("😀")>',
             source[start["offset"]:end["offset"]],
         )
 
@@ -154,12 +155,11 @@ class PortableProjectionTests(unittest.TestCase):
             result.events,
             source_bytes=source.encode("utf-8"),
         )
-        origin = "sha256:c9063ff2481e76331f175afa8a6bd4d7f850048591e737047d8a0b6fc2a701b7"
+        origin = "sha256:" + hashlib.sha256(source.encode("utf-8")).hexdigest()
         expected_lexemes = {
-            "$.a": r'a = <tag\HEAD\@{role = "café"}:node("😀")>',
-            "$.a[0]": r'tag\HEAD\@{role = "café"}:node',
-            "$.a[0].@.role": 'role = "café"',
-            "$.a[0][0]": '"😀"',
+            "$.a": r'<a\HEAD\@{role = "café"}:node("😀")>',
+            "$.a.@.role": 'role = "café"',
+            "$.a[0]": '"😀"',
             "$.b": 'b = "nai\u0308ve"',
         }
         self.assertTrue(converted["report"]["provenanceLossless"])
@@ -209,94 +209,110 @@ class PortableProjectionTests(unittest.TestCase):
     def shapes(self, events: list[dict[str, object]]) -> list[tuple[object, object, object]]:
         return [(event["path"], event["kind"], event.get("identity")) for event in events]
 
-    def test_separates_node_identities_at_expanded_paths(self) -> None:
-        source = r'a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>'
+    def test_preserves_intrinsic_node_and_child_identities(self) -> None:
+        source = r'<a\HEAD\(\CHILD\ = "value")>'
         events = self.project(source)
         self.assertEqual(
             [
-                ("$.a", "NodeLiteral", "BINDING"),
-                ("$.a[0]", "NodeHead", "HEAD"),
-                ("$.a[0][0]", "StringLiteral", "CHILD"),
+                ("$.a", "NodeLiteral", "HEAD"),
+                ("$.a[0]", "StringLiteral", "CHILD"),
             ],
             self.shapes(events),
         )
         self.assertNotIn("value", events[0])
-        self.assertEqual("tag", events[1]["value"])
-        span = events[1]["span"]
+        self.assertEqual("a", events[0]["tag"])
+        span = events[0]["span"]
         self.assertIsInstance(span, dict)
         assert isinstance(span, dict)
         start = span["start"]
         end = span["end"]
         assert isinstance(start, dict) and isinstance(end, dict)
         self.assertEqual(
-            "tag\\HEAD\\",
+            source,
             source[start["offset"]:end["offset"]],
         )
 
-    def test_node_head_span_excludes_layout_after_datatype(self) -> None:
-        source = "a = <tag:node\n(\"value\")>"
+    def test_whole_node_span_includes_layout_after_datatype(self) -> None:
+        source = "<a:node\n(\"value\")>"
         events = self.project(source)
-        head = next(event for event in events if event["path"] == "$.a[0]")
+        head = next(event for event in events if event["path"] == "$.a")
         span = head["span"]
         assert isinstance(span, dict)
         start = span["start"]
         end = span["end"]
         assert isinstance(start, dict) and isinstance(end, dict)
-        self.assertEqual("tag:node", source[start["offset"]:end["offset"]])
+        self.assertEqual(source, source[start["offset"]:end["offset"]])
 
     def test_expands_nested_nodes_and_reference_targets(self) -> None:
-        events = self.project('a = <outer(<inner("leaf")>)>\ncopy = ~a[0]\nalias = ~>a[0]')
+        events = self.project('<a(<inner("leaf")>)>\ncopy = ~a[0]\nalias = ~>a[0]')
         self.assertEqual(
             [
                 ("$.a", "NodeLiteral"),
-                ("$.a[0]", "NodeHead"),
-                ("$.a[0][0]", "NodeLiteral"),
-                ("$.a[0][0][0]", "NodeHead"),
-                ("$.a[0][0][0][0]", "StringLiteral"),
+                ("$.a[0]", "NodeLiteral"),
+                ("$.a[0][0]", "StringLiteral"),
             ],
-            [(event["path"], event["kind"]) for event in events[:5]],
+            [(event["path"], event["kind"]) for event in events[:3]],
         )
-        self.assertEqual("$.a[0][0]", events[5]["value"])
-        self.assertEqual("$.a[0][0]", events[6]["value"])
+        self.assertEqual("$.a[0]", events[3]["value"])
+        self.assertEqual("$.a[0]", events[4]["value"])
 
-    def test_translates_quoted_node_paths_and_reference_targets(self) -> None:
-        events = self.project('"a.b" = <outer("leaf")>\ncopy = ~["a.b"][0]')
+    def test_preserves_quoted_node_paths_and_reference_targets(self) -> None:
+        events = self.project('<"a.b"("leaf")>\ncopy = ~["a.b"][0]')
         self.assertEqual(
-            ['$.["a.b"]', '$.["a.b"][0]', '$.["a.b"][0][0]', "$.copy"],
+            ['$.["a.b"]', '$.["a.b"][0]', "$.copy"],
             [event["path"] for event in events],
         )
-        self.assertEqual('$.["a.b"][0][0]', events[3]["value"])
+        self.assertEqual('$.["a.b"][0]', events[2]["value"])
 
     def test_flattens_attributes_in_source_preorder(self) -> None:
         events = self.project(
-            r'a\ROOT\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }} = '
-            r'<tag\HEAD\@{role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>'
+            r'<a\HEAD\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }, '
+            r'role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>'
         )
         self.assertEqual(
             [
-                ("$.a", "NodeLiteral", "ROOT"),
+                ("$.a", "NodeLiteral", "HEAD"),
                 ("$.a.@.x", "ObjectNode", "X"),
                 ("$.a.@.x.@.deep", "NumberLiteral", "D"),
                 ("$.a.@.x.b", "NumberLiteral", "B"),
-                ("$.a[0]", "NodeHead", "HEAD"),
-                ("$.a[0].@.role", "StringLiteral", "R"),
-                ("$.a[0][0]", "StringLiteral", "CHILD"),
-                ("$.a[0][0].@.unit", "StringLiteral", "U"),
+                ("$.a.@.role", "StringLiteral", "R"),
+                ("$.a[0]", "StringLiteral", "CHILD"),
+                ("$.a[0].@.unit", "StringLiteral", "U"),
             ],
             self.shapes(events),
         )
 
     def test_expands_nodes_and_quoted_members_inside_attribute_space(self) -> None:
-        events = self.project(r'a@{"x.y" = <inner\HEAD\(\CHILD\ = "value")>} = 1')
+        events = self.project(r'a@{<"x.y"\HEAD\(\CHILD\ = "value")>} = 1')
         self.assertEqual(
             [
                 "$.a",
                 '$.a.@.["x.y"]',
                 '$.a.@.["x.y"][0]',
-                '$.a.@.["x.y"][0][0]',
             ],
             [event["path"] for event in events],
         )
+
+    def test_named_header_tags_are_qualified_in_the_header_plane(self) -> None:
+        source = 'aeon:header = { <"aeon:custom"("header")>, <"aeon:"> }\n<"aeon:custom"("body")>'
+        compiled = compile_source(source)
+        self.assertEqual([], compiled.errors)
+        for events in (compiled.events, compiled.internal_events):
+            records = adapt_python_assignment_events_to_portable_aes(
+                events, header=compiled.header, include_headers=True, source_bytes=source.encode(),
+            )["events"]
+            tagged = [
+                (record.get("header"), record.get("path"), record["tag"])
+                for record in records if record["kind"] == "NodeLiteral"
+            ]
+            self.assertEqual([
+                ('$.["aeon:custom"]', None, "aeon:custom"),
+                ('$.["aeon:aeon:"]', None, "aeon:aeon:"),
+                (None, '$.["aeon:custom"]', "aeon:custom"),
+            ], tagged)
+        for fields in ('<custom>, <"aeon:custom">', 'custom=1, <"aeon:custom">'):
+            collided = compile_source(f"aeon:header = {{ {fields} }}")
+            self.assertEqual(["DUPLICATE_KEY"], [error.code for error in collided.errors])
 
     def test_uses_canonical_quoted_object_members_in_attribute_space(self) -> None:
         events = self.project('a@{"x.y" = { "deep key" = 1 }} = 0')

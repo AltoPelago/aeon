@@ -117,7 +117,7 @@ class CliTests(unittest.TestCase):
     def test_inspect_emits_portable_expanded_node_projection_on_explicit_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = Path(tmpdir) / "portable-node.aeon"
-            fixture.write_text(r'a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>' + "\n", encoding="utf-8")
+            fixture.write_text(r'<a\ROOT\(\CHILD\ = "value")>' + "\n", encoding="utf-8")
             result = subprocess.run(
                 [
                     str(ROOT / "bin" / "aeon-python"),
@@ -137,15 +137,15 @@ class CliTests(unittest.TestCase):
         events = json.loads(result.stdout)["events"]
         self.assertEqual(
             [
-                {"path": "$.a", "kind": "NodeLiteral", "identity": "ROOT", "value": None},
-                {"path": "$.a[0]", "kind": "NodeHead", "identity": "HEAD", "value": "tag"},
-                {"path": "$.a[0][0]", "kind": "StringLiteral", "identity": "CHILD", "value": "value"},
+                {"path": "$.a", "kind": "NodeLiteral", "identity": "ROOT", "tag": "a", "value": None},
+                {"path": "$.a[0]", "kind": "StringLiteral", "identity": "CHILD", "tag": None, "value": "value"},
             ],
             [
                 {
                     "path": event["path"],
                     "kind": event["kind"],
                     "identity": event.get("identity"),
+                    "tag": event.get("tag"),
                     "value": event.get("value"),
                 }
                 for event in events
@@ -587,7 +587,7 @@ class CliTests(unittest.TestCase):
             fixture.write_text(
                 'title@{lang = "en", meta = { keep = 2 }} = "Hello"\n'
                 'card = { label@{meta = { keep = 3, "x.y" = 4 }} = "Hi" }\n'
-                'rich = <pill@{id = "main", meta = { keep = 5 }}("new")>\n',
+                '<rich@{id = "main", meta = { keep = 5 }}("new")>\n',
                 encoding="utf-8",
             )
 

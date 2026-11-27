@@ -76,11 +76,11 @@ class SansaDocumentTests(unittest.TestCase):
         cases = [
             ('group\\g\\={child\\c\\=1}', '$.\\g\\.\\c\\', '$.group.child'),
             ('items=[\\i\\=2]', '$.items.\\i\\', '$.items[0]'),
-            ('node=<tag\\h\\(2)>', '$.node.\\h\\', '$.node[0]'),
-            ('node\\o\\=<tag\\h\\@{unit\\u\\="cm"}(2)>', '$.node.\\h\\.@.\\u\\', '$.node[0].@.unit'),
+            ('<node\\h\\(2)>', '$.\\h\\', '$.node'),
+            ('<node\\h\\@{unit\\u\\="cm"}(2)>', '$.\\h\\.@.\\u\\', '$.node.@.unit'),
             ('a@{meta\\m\\={child\\c\\=1}}=2', '$.a.@.\\m\\.\\c\\', '$.a.@.meta.child'),
             ('items=(\\t\\=2)', '$.items.\\t\\', '$.items[0]'),
-            ('node=<tag(\\n\\=2)>', '$.node[0].\\n\\', '$.node[0][0]'),
+            ('<node(\\n\\=2)>', '$.node.\\n\\', '$.node[0]'),
             ('a@{unit\\u\\="cm"}=1', '$.a.@.\\u\\', '$.a.@.unit'),
             ('a@{meta\\m\\@{unit\\u\\="cm"}=1}=2', '$.a.@.\\m\\.@.\\u\\', '$.a.@.meta.@.unit'),
         ]

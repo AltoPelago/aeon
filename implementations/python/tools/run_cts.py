@@ -17,7 +17,7 @@ from repo_paths import get_aeonite_cts_root
 class LaneCommand:
     name: str
     command: list[str]
-    default: bool = True
+    default: bool = False
 
 
 def main() -> int:
@@ -31,6 +31,33 @@ def main() -> int:
         return str(cts_root.joinpath(*parts))
 
     lanes = [
+        *[
+            LaneCommand(
+                name=f"node-model-{area}",
+                command=[
+                    "node",
+                    str(repo_root / "scripts" / "cts-source-lane-runner.mjs"),
+                    "--sut",
+                    str(sut),
+                    "--cts",
+                    cts_manifest(area, "v1", f"{area}-node-model-revision-cts.v1.next.json"),
+                    "--lane",
+                    lane,
+                ],
+                default=True,
+            )
+            for area, lane in (("core", "core"), ("aes", "inspect-json"), ("canonical", "canonical"))
+        ],
+        LaneCommand(
+            name="node-model-sansa",
+            command=[
+                python_sut,
+                str(python_root / "tools" / "run_sansa_resolve_cts.py"),
+                "--cts",
+                cts_manifest("sansa", "v1", "sansa-node-model-revision-cts.v1.next.json"),
+            ],
+            default=True,
+        ),
         LaneCommand(
             name="core",
             command=[
@@ -307,7 +334,7 @@ def main() -> int:
         unknown = sorted(requested.difference({lane.name for lane in lanes}))
         if unknown:
             print(f"Unknown lane(s): {', '.join(unknown)}", file=sys.stderr)
-            print("Valid lanes: core core-released core-legacy core-next aes aes-released aes-legacy aes-next canonical finalize finalize-next finalize-limits inspect finalize-map finalize-map-next sansa sansa-resolve sansa-child-identity-parser sansa-child-identity-resolve annotations aeos aeos-next", file=sys.stderr)
+            print("Valid lanes: " + " ".join(lane.name for lane in lanes), file=sys.stderr)
             return 2
         lanes = [lane for lane in lanes if lane.name in requested]
     else:

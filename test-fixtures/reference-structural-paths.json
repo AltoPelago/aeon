@@ -36,7 +36,7 @@
     },
     {
       "id": "node-position",
-      "source": "z=<tag(\"a\",\"b\")>\ncopy=~>z[1]",
+      "source": "<z(\"a\",\"b\")>\ncopy=~>z[1]",
       "ok": true,
       "target": [
         "z",

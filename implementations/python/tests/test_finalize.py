@@ -107,12 +107,12 @@ class FinalizeJsonTests(unittest.TestCase):
         )
 
     def test_uses_node_and_children_for_node_projection(self) -> None:
-        events = compile_events('view = <div@{id="main"}("hello")>')
+        events = compile_events('<view@{id="main"}("hello")>')
         result = finalize_json(events)
         self.assertEqual(
             {
                 "view": {
-                    "$node": "div",
+                    "$node": "view",
                     "@": {"id": "main"},
                     "$children": ["hello"],
                 }
@@ -328,17 +328,17 @@ class FinalizeJsonTests(unittest.TestCase):
 
     def test_projects_exact_node_head_attribute_path_without_siblings(self) -> None:
         result = finalize_json(
-            compile_events('badge = <pill@{id="main", class="hero"}("new")>'),
+            compile_events('<badge@{id="main", class="hero"}("new")>'),
             FinalizeOptions(
                 mode="strict",
                 materialization="projected",
-                include_paths=['$.badge.@.@.["id"]'],
+                include_paths=['$.badge.@.["id"]'],
             ),
         )
         self.assertEqual(
             {
                 "badge": {
-                    "$node": "pill",
+                    "$node": "badge",
                     "@": {
                         "id": "main",
                     },
@@ -407,7 +407,7 @@ class FinalizeJsonTests(unittest.TestCase):
         result = compile_result(
             'title@{lang = "en", meta = { keep = 2 }} = "Hello"\n'
             'card = { label@{meta = { keep = 3, "x.y" = 4 }} = "Hi" }\n'
-            'rich = <pill@{id = "main", meta = { keep = 5 }}("new")>\n'
+            '<rich@{id = "main", meta = { keep = 5 }}("new")>\n'
         )
 
         top_level = finalize_map(
@@ -435,7 +435,7 @@ class FinalizeJsonTests(unittest.TestCase):
             result,
             FinalizeOptions(
                 materialization="projected",
-                include_paths=["$.rich.@.@.id", "$.rich.@.@.meta.keep"],
+                include_paths=["$.rich.@.id", "$.rich.@.meta.keep"],
             ),
         )
         self.assertEqual(["$.rich"], [entry["path"] for entry in node["document"]["entries"]])

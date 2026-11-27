@@ -51,7 +51,7 @@ def namespace_from_portable_records(
             "type": record["kind"],
             "datatype": record.get("datatype"),
             "structuralId": record.get("identity"),
-            "nodeTag": record.get("value") if record["kind"] == "NodeHead" else None,
+            "nodeTag": record.get("tag") if record["kind"] == "NodeLiteral" else None,
         }
         for record in items if address_field in record
     }
@@ -101,8 +101,7 @@ def namespace_from_portable_records(
     namespace["identity"] = lambda binding: binding.get("info", {}).get("structuralId")
     namespace["root"]["info"] = {"type": "ObjectNode"}
     # Retain authored metadata independently of mutable presentation dictionaries.
-    metadata = {key: (binding.get("name"), binding["info"].get("type"), binding["info"].get("nodeTag"),
-                      tuple(binding["children"]) if binding["info"].get("type") == "NodeLiteral" else ())
+    metadata = {key: (binding.get("name"), binding["info"].get("type"), binding["info"].get("nodeTag"))
                 for key, binding in owned.items()}
 
     def inside(binding, root):
@@ -118,12 +117,6 @@ def namespace_from_portable_records(
     def scope_role(binding, context):
         if not inside(binding, context["scopeRoot"]) or not inside(context["evaluationRoot"], context["scopeRoot"]):
             return "outside"
-        owner = context.get("directHeadOf")
-        if owner is not None and (not inside(owner, context["scopeRoot"])
-                                  or metadata[id(owner)][1] != "NodeLiteral"
-                                  or parents[id(binding)] is not owner
-                                  or metadata[id(binding)][1] != "NodeHead"):
-            return "outside"
         return "root" if binding is context["scopeRoot"] else "inside"
 
     def observed(binding):
@@ -134,7 +127,7 @@ def namespace_from_portable_records(
 
     def node_kind(binding, context):
         kind = observed(binding)[1]
-        return kind if kind in {"NodeLiteral", "NodeHead"} else "Other"
+        return "NodeLiteral" if kind == "NodeLiteral" else "Other"
 
     namespace["parent"] = lambda binding: parents.get(id(binding)) if owned.get(id(binding)) is binding else None
     namespace["properties"] = {
@@ -142,7 +135,6 @@ def namespace_from_portable_records(
         "key": lambda binding, context: observed(binding)[0],
         "nodeKind": node_kind,
         "nodeTag": lambda binding, context: observed(binding)[2],
-        "nodeHeads": lambda binding, context: iter(observed(binding)[3]),
     }
     return namespace
 

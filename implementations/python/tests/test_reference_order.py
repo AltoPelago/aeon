@@ -26,7 +26,9 @@ class ReferenceOrderTests(unittest.TestCase):
 
     def test_authored_reference_occurrences(self):
         fixtures = Path(__file__).resolve().parents[3] / 'test-fixtures/reference-authored-order.json'
-        for fixture in json.loads(fixtures.read_text(encoding='utf-8')):
+        revised = {case["id"]: case for case in json.loads(fixtures.with_name("reference-authored-order-tagged-nodes.json").read_text())}
+        for historical in json.loads(fixtures.read_text(encoding="utf-8")):
+            fixture = revised.get(historical["id"], historical)
             with self.subTest(case=fixture['id']):
                 options = CompileOptions(max_attribute_depth=fixture.get('maxAttributeDepth', 1))
                 result = compile_source(fixture['source'], options)

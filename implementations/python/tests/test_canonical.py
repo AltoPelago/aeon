@@ -50,10 +50,10 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('\\B2\\@{source = "user"}:string = "green"', result.text)
 
     def test_canonical_preserves_attribute_entry_and_node_head_identity(self) -> None:
-        result = canonicalize('value@{source\\META\\:string = "user"} = <tag\\HEAD\\>')
+        result = canonicalize('<tag\\HEAD\\@{source\\META\\:string = "user"}>')
         self.assertEqual([], result.errors)
         self.assertIn('source\\META\\:string = "user"', result.text)
-        self.assertIn('<tag\\HEAD\\>', result.text)
+        self.assertIn('<tag\\HEAD\\@', result.text)
 
     def test_canonicalizes_quoted_reference_paths(self) -> None:
         result = canonicalize('"a.b"@{"x.y" = {"z w" = 1}} = 2\nb = ~["a.b"].@.["x.y"].["z w"]')
@@ -144,14 +144,14 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('    2', result.text)
 
     def test_canonicalizes_multiline_nodes_with_compact_simple_children(self) -> None:
-        source = 'n = <x(\n  #FF0000,\n  <y@{kind:string = "swatch"}(#00FF00, "ok")>\n)>'
+        source = '<x(\n  #FF0000,\n  <y@{kind:string = "swatch"}(#00FF00, "ok")>\n)>'
         result = canonicalize(source)
         self.assertEqual([], result.errors)
         self.assertIn('  #ff0000,', result.text)
         self.assertIn('  <y@{kind:string = "swatch"}(#00ff00, "ok")>', result.text)
 
     def test_canonicalizes_anonymous_typed_node_children(self) -> None:
-        result = canonicalize('aeon:mode = "strict"\npage:node = <page(:string = "hello", <tag>, :int32 = 3)>')
+        result = canonicalize('aeon:mode = "strict"\n<page:node(:string = "hello", <tag>, :int32 = 3)>')
         self.assertEqual([], result.errors)
         self.assertIn(':string = "hello",', result.text)
         self.assertIn(":int32 = 3", result.text)
@@ -274,7 +274,7 @@ class CanonicalTests(unittest.TestCase):
         self.assertIn('items:list<n> = [2, 3]', result.text)
 
     def test_scenarios_fixture_parses_in_python(self) -> None:
-        fixture = ROOT.parents[1] / "stress-tests" / "full" / "scenarios.aeon"
+        fixture = ROOT.parents[1] / "stress-tests" / "full" / "scenarios-tagged-nodes.aeon"
         source = fixture.read_text(encoding="utf-8")
         result = compile_source(source)
         self.assertEqual([], result.errors)

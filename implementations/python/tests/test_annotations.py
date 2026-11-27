@@ -10,7 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from aeon.annotations import build_annotation_stream, format_attribute_path
-from aeon.core import compile_source
+from aeon.core import CompileOptions, compile_source
 
 
 class AnnotationStreamTests(unittest.TestCase):
@@ -64,22 +64,25 @@ class AnnotationStreamTests(unittest.TestCase):
     def test_non_ascii_attribute_key_uses_quoted_path_segment(self) -> None:
         self.assertEqual('$.a.@.["é"]', format_attribute_path("$.a", "é"))
 
-    def test_binding_and_node_head_comments_stay_on_container_path(self) -> None:
-        annotations = self.annotations_for(
-            '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#=#/3/#3#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/'
+    def test_node_comments_follow_its_tag_attributes_and_direct_children(self) -> None:
+        source = (
+            '/#before#/</#open#/a/#tag#/@{b/#key#/:n/#type#/=3, '
+            '<"x.y"/#meta#/@{n/#leaf#/:n=1}>}/#scope#/:node/#dtype#/'
+            '(/#children#/"hello"/#first#/,"world"/#second#/) >/#end#/'
         )
-
-        self.assertEqual(21, len(annotations))
-        for annotation in annotations[1:4]:
-            self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
-        for annotation in annotations[4:9]:
-            self.assertEqual({"kind": "path", "path": "$.a.@.b"}, annotation["target"], annotation["raw"])
-        for annotation in annotations[9:16]:
-            self.assertEqual({"kind": "path", "path": "$.a"}, annotation["target"], annotation["raw"])
-        self.assertEqual({"kind": "path", "path": "$.a[0]"}, annotations[16]["target"])
-        self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[17]["target"])
-        self.assertEqual({"kind": "path", "path": "$.a[1]"}, annotations[18]["target"])
-        self.assertEqual({"kind": "path", "path": "$.a"}, annotations[20]["target"])
+        compiled = compile_source(source, CompileOptions(max_attribute_depth=2))
+        self.assertEqual([], compiled.errors)
+        annotations = build_annotation_stream(source, compiled.events)
+        by_comment = {item["raw"][2:-2]: item for item in annotations}
+        for marker, path in {
+            "before":"$.a", "open":"$.a", "tag":"$.a", "key":"$.a.@.b", "type":"$.a.@.b",
+            "meta":'$.a.@.["x.y"]', "leaf":'$.a.@.["x.y"].@.n', "scope":"$.a",
+            "dtype":"$.a", "children":"$.a", "first":"$.a[0]", "second":"$.a[1]", "end":"$.a",
+        }.items():
+            self.assertEqual({"kind": "path", "path": path}, by_comment[marker]["target"], marker)
+        self.assertEqual({"after": "node-open", "before": "node-tag"}, by_comment["open"]["placement"])
+        self.assertEqual({"after": "node-tag", "before": "attribute-marker"}, by_comment["meta"]["placement"])
+        self.assertEqual({"after": "attribute-close", "before": "node-datatype-colon"}, by_comment["scope"]["placement"])
 
     def test_binding_head_gap_comments_report_placement(self) -> None:
         annotations = self.annotations_for(

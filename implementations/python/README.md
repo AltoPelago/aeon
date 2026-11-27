@@ -247,7 +247,7 @@ Backward-compatible alias:
 
 - `AEON_TOOLING_PRIVATE_ROOT`
 
-Run all supported CTS lanes from one command:
+Run the revised node-model Core, portable AES, canonical, and SANSA Resolve lanes:
 
 ```bash
 cd implementations/python
@@ -258,13 +258,13 @@ Run a subset:
 
 ```bash
 cd implementations/python
-python3 tools/run_cts.py core aes sansa-resolve
+python3 tools/run_cts.py node-model-aes node-model-sansa
 ```
 
-The core and aes lanes (including their *-released aliases) select immutable
-Core 0.6 and AES projection 0.6; canonical selects immutable 0.5. Use *-next
-for moving development targets and *-legacy for older baseline targets. The
-unchanged historical 0.5/0.4 rejection-delta audit remains a separate check.
+Historical lane names remain available for qualifying the corresponding runtime
+revision. The `core` and `aes` lanes select Core 0.6 and AES projection 0.6.
+The `canonical` lane selects Canonical 0.5. The pre-revision checkout runs
+the frozen node fixtures in CI.
 Authority adoption is tracked in the [release input record](../../docs/releases/cts-0.17.0-rc.2.json).
 
 ## Cross-Implementation Diff
@@ -396,46 +396,44 @@ default 10,000 logical identity inspections across selector rules in one call.
 Schema resource policies and consumer options can set `max_identity_inspections`;
 this budget is separate from projection construction and other validation limits.
 
-## Property Addressing and standalone Resolve (0.17 source line)
+## Property Addressing and standalone Resolve
 
-`aeon.sansa` parses/renders literal `&key("...")`, `&tag("...")` and
-`&headTag("...")` suffixes. The [provider/host matrix](../../docs/property-selector-support.md)
+`aeon.sansa` parses and renders literal `&key("...")` and `&tag("...")`
+suffixes. The [provider/host matrix](../../docs/property-selector-support.md)
 distinguishes this pure-Python resolver from native Pytonic Query, inert
 Core/WASM literal APIs and explicit portable AEOS validation.
 `namespace_from_assignment_events` and `namespace_from_portable_records` supply
 an explicit `properties` facet backed by validated snapshot topology and authored
 metadata, plus parent navigation from that same graph. Empty member names remain
-keys; positional indices do not become keys. Tag selection inspects directly owned
-NodeHeads and returns the original matching container or head. Ordinary tag fields
-and edits to public presentation dictionaries do not grant authority.
+keys. Tag selection reads the selected node's intrinsic tag and returns its
+original handle. Indexed nodes expose their position and tag. A scoped root
+exposes its tag and hides its incoming key.
 
 ```python
 from aeon import compile_source
 from aeon.sansa import resolve_address
 from aeon.sansa_document import namespace_from_assignment_events
 
-compiled = compile_source('item = <widget("hello")>')
+compiled = compile_source('<widget("hello")>')
 namespace = namespace_from_assignment_events(compiled.events)
-result = resolve_address('$.*&key("item")&tag("widget")', namespace,
+result = resolve_address('$.widget&tag("widget")[0]', namespace,
                          {'maxPropertyInspections': 1000})
-# result['bindings'][0]['path'] == '$.item'
+# result['bindings'][0]['path'] == '$.widget[0]'
+# ~widget[0] and ~>widget[0] address the same child in AEON source.
 ```
 
 Other namespaces remain unsupported unless they explicitly provide `properties`.
-The facet uses `scope`, optional `key`, and all of `nodeKind`, `nodeTag`, `nodeHeads`
-for tag support. Callbacks receive an immutable mapping containing `scopeRoot`,
-`evaluationRoot` and, for direct heads, `directHeadOf`. Do not infer authorization
-from paths or legacy metadata. `SansaPropertyAccessError` in `aeon.sansa` carries
-checked `invalidMetadata`, `scopeViolation` or `adapterFailure` kinds; arbitrary
-callback/iterator exceptions become sanitized adapter diagnostics. Generators are
-closed on early success, faults and exhaustion of the logical allowance.
+The facet uses `scope`, `key` for key support, and `nodeKind` and `nodeTag` for
+tag support. Callbacks receive an immutable mapping containing `scopeRoot` and
+`evaluationRoot`. `SansaPropertyAccessError` in `aeon.sansa` carries checked
+`invalidMetadata`, `scopeViolation` or `adapterFailure` kinds. Resolve sanitizes
+arbitrary callback failures.
 
 `maxPropertyInspections` defaults to 10000, maximum 1000000. Integral finite floats
 (including negative zero) normalize to integers; bool, fractional and other values
-are rejected before root access, including property-free calls. Candidates and
-yielded heads consume the same private per-call allowance, including misses and
-repeated occurrences. Logical work excludes old navigation, snapshot construction
-and ancestry depth. No new performance acceptance is claimed.
+are rejected before root access, including property-free calls. Each inspected
+occurrence consumes one charge, including misses and repeats. Logical work
+excludes navigation, snapshot construction and ancestry depth.
 
 Property-bearing caller ASTs use plain data dictionaries/lists; derived canonical
 and exactness flags are recomputed. Cycles, descriptors/subclass accessors, unknown

@@ -1,17 +1,15 @@
 # Portable AEOS property selectors (experimental profile)
 
-With the tagged-node model in TypeScript and Rust, `&tag("book")` checks the
+With the tagged-node model in TypeScript, Rust, and both Python implementations, `&tag("book")` checks the
 selected node's intrinsic tag. For `<book("yes")>`, a selector such as
 `$.book&tag("book")[0]` validates the first child at `$.book[0]`.
 `&headTag()` and portable `NodeHead` records belong to the earlier model.
-The rest of this page describes the published 0.17.0 baseline, which the
-pure-Python reference still uses.
 
 The selected experimental `aeos-properties-0.1` profile is implemented in the
 published 0.17.0 implementation line. Package release and normative profile/CTS
 promotion remain distinct; publication does not promote this experimental profile. The [provider/host matrix](property-selector-support.md)
 distinguishes its APIs from legacy validation and tooling. It admits SANSA
-`key`, `tag` and `headTag`
+`key` and `tag`
 predicates in rule **selector** fields through explicit portable AES/Telex APIs:
 
 | Runtime | Decoded records | Telex |
@@ -29,20 +27,19 @@ default inspection allowance; it does not expose resource-policy overrides.
 No new native Query evaluator or WASM API is introduced.
 
 Legacy native-event `validate`/`validate_events` and `load_text` keep their property
-denial. Native event topology omits explicit heads and uses different child paths.
+denial.
 Project source events explicitly to portable AES before using this profile:
 
 ```js
-const compiled = compile('n=<book("yes")>');
+const compiled = compile('<book("yes")>');
 const records = projectPortableEvents(compiled.events);
 const result = validateTelexRecords(records, {
-  rules: [{selector: '$.n[0]&headTag("book")', constraints: {type: 'NodeHead'}}]
+  rules: [{selector: '$.book&tag("book")[0]', constraints: {type: 'StringLiteral'}}]
 });
 ```
 
-The head is `$.n[0]`; its first child is `$.n[0][0]`. `&tag("book")` selects the
-NodeLiteral container, `&headTag("book")` selects its head, and ordinary text or a
-field named `tag` supplies no tag authority. Keys come from authorized member or
+The node is `$.book`, and its first child is `$.book[0]`. `&tag("book")` reads
+the intrinsic tag from the node record. Keys come from authorized member or
 attribute edges, including empty/Unicode names. Roots hide incoming keys and
 positions are not keys. Results retain actual indexed event paths and identities;
 no reference target is rewritten or followed implicitly. Structural `path` rules,
@@ -52,8 +49,8 @@ Existing closed-world attribute declarations remain necessary.
 Quoted Unicode and control-character keys retain their canonical escaped event
 paths. Source event positions use the source model's admitted range, independently
 of the default limit for positions authored in a SANSA selector. Sparse positions
-are stored as handles, without allocating intervening items. Partial-stream heads
-never acquire member keys, including heads reached through attribute edges.
+are stored as handles, without allocating intervening items. Partial-stream
+occurrences expose their own authored tags.
 
 `resource_policy.max_property_inspections` and the host `resourcePolicy` override
 share one private allowance for a validation call: default10,000, range0..1,000,000.
@@ -63,7 +60,7 @@ reject without coercion. Both schema and option policies validate, even when the
 invalid schema value would otherwise be overridden. Existing identity/expansion
 budgets and their domains are unchanged.
 
-Candidates and inspected direct heads retain SANSA's charges. Distinct selector
+Each inspected occurrence consumes one SANSA charge. Distinct selector
 resolutions share the remaining allowance; repeated branches inside one Resolve
 retain their work. A private snapshot cache reuses each identical selector string
 between repeated rules, expansion and closed-world checks. Constraints/expansion
@@ -76,7 +73,7 @@ unchanged. Cached successful coverage remains available after a validation error
 without performing new property inspections.
 New property selection stops after an earlier validation failure; no partial
 guarantees are returned. Construction/order/ancestry work remains separate from
-logical inspection accounting. Head iteration streams existing handles.
+logical inspection accounting.
 
 The shared52-case development fixture exercises decoded and Telex forms, repeated
 calls, scope/kind distinctions, identity composition, numeric bounds, two-width

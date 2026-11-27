@@ -41,9 +41,6 @@ const consumerManifest={
 writeFileSync(join(consumer,'package.json'),JSON.stringify(consumerManifest,null,2));
 run('npm',['install','--offline','--ignore-scripts','--no-audit','--fund=false','--cache',join(runRoot,'cache')],consumer);
 const vectors=read(join(root,'test-fixtures/reference-structural-paths.json'));
-for (const vector of vectors.cases) {
- if (vector.id==='node-position') vector.source='<z("a","b")>\ncopy=~>z[1]';
-}
 writeFileSync(join(consumer,'vectors.json'),JSON.stringify(vectors));
 const smoke=String.raw`
 import assert from 'node:assert/strict';
