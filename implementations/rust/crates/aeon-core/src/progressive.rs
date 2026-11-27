@@ -233,10 +233,18 @@ impl ProgressiveValidationState {
     }
 
     fn observe_bindings(&mut self, bindings: &[Binding]) {
+        for binding in bindings {
+            self.header.observe(binding);
+        }
+        let can_check_custom_values = self.can_check_custom_values();
+        if !can_check_custom_values {
+            // A newly observed strict header can make earlier candidates unreachable.
+            self.gp_custom_value_errors = Vec::new();
+            self.gp_attribute_value_checks = Vec::new();
+        }
         if let Some(profile) = candidate_datatype_profile(&self.options) {
-            let value_checks = (self.options.datatype_policy
-                != Some(crate::DatatypePolicy::ReservedOnly))
-            .then_some(&mut self.gp_attribute_value_checks);
+            let value_checks =
+                can_check_custom_values.then_some(&mut self.gp_attribute_value_checks);
             validate_profile_unprojected_datatypes(
                 profile,
                 bindings,
@@ -246,9 +254,6 @@ impl ProgressiveValidationState {
         }
         if self.source_resource_error.is_none() {
             self.source_resource_error = validate_binding_resource_limits(bindings, &self.options);
-        }
-        for binding in bindings {
-            self.header.observe(binding);
         }
         for binding in bindings {
             validate_duplicate_object_member_keys(
@@ -308,8 +313,7 @@ impl ProgressiveValidationState {
         let first_event_ordinal = self.event_count;
         self.event_count = self.event_count.saturating_add(events.len());
         let datatype_profile = candidate_datatype_profile(&self.options);
-        let custom_value_profile = datatype_profile
-            .filter(|_| self.options.datatype_policy != Some(crate::DatatypePolicy::ReservedOnly));
+        let custom_value_profile = datatype_profile.filter(|_| self.can_check_custom_values());
         for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
             if !self.assume_unique_event_paths
                 && !self
@@ -403,6 +407,13 @@ impl ProgressiveValidationState {
                 BehaviorMode::Custom,
             ],
         }
+    }
+
+    fn can_check_custom_values(&self) -> bool {
+        self.candidate_modes().iter().any(|&mode| {
+            crate::validation::effective_datatype_policy(mode, self.options.datatype_policy)
+                == crate::DatatypePolicy::AllowCustom
+        })
     }
 
     fn errors(&self) -> Vec<Diagnostic> {
@@ -2658,11 +2669,35 @@ mod tests {
     }
 
     #[test]
-    fn explicit_reserved_only_skips_profile_value_mismatch_candidates() {
+    fn bare_node_head_metadata_diagnostic_locates_the_authored_entry() {
+        let source = "a@{m:object = {}}:node = <tag@{m:number = {}}>\nb:object = ~a.@.m";
+        let options = CompileOptions::default();
+        let baseline = compile_owned_with_implementation(
+            source.to_owned(),
+            options.clone(),
+            ParserImplementation::Baseline,
+        );
+        let sofia = compile_owned_sofia_streaming(source.to_owned(), options.clone());
+        let (_, streamed) = collect_progressive(source, &options, 1);
+        for errors in [baseline.errors, sofia.errors, streamed.prevalidation_errors] {
+            let [error] = errors.as_slice() else {
+                panic!("one datatype diagnostic expected: {errors:?}");
+            };
+            assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+            assert_eq!(error.path.as_deref(), Some("$.a"));
+            assert_eq!(
+                error.span.map(|span| span.start.offset),
+                source.find("m:number")
+            );
+        }
+    }
+
+    #[test]
+    fn known_reserved_only_skips_profile_value_mismatch_candidates() {
         use crate::{ClarifierRule, DatatypePolicy, DatatypeSemantics, ProfileDatatypeRules};
         use std::sync::Arc;
 
-        let source = "x:label = 1";
+        let source = "x@{meta:label = 1}:number = 1\ny:label = 1";
         let result = compile_owned_with_implementation(
             source.to_owned(),
             CompileOptions::default(),
@@ -2683,24 +2718,68 @@ mod tests {
             .into(),
             closed_clarifiers: false,
         });
-        for (policy, candidate_count, code) in [
+        for (mode, policy, authored_mode, candidate_count, code) in [
             (
-                DatatypePolicy::ReservedOnly,
+                None,
+                Some(DatatypePolicy::ReservedOnly),
+                "",
                 0,
                 "CUSTOM_DATATYPE_NOT_ALLOWED",
             ),
-            (DatatypePolicy::AllowCustom, 1, "DATATYPE_LITERAL_MISMATCH"),
+            (
+                Some(BehaviorMode::Strict),
+                None,
+                "",
+                0,
+                "CUSTOM_DATATYPE_NOT_ALLOWED",
+            ),
+            (
+                None,
+                None,
+                "aeon:mode = \"strict\"\n",
+                0,
+                "CUSTOM_DATATYPE_NOT_ALLOWED",
+            ),
+            (None, None, "", 1, "DATATYPE_LITERAL_MISMATCH"),
+            (
+                Some(BehaviorMode::Strict),
+                Some(DatatypePolicy::AllowCustom),
+                "",
+                1,
+                "DATATYPE_LITERAL_MISMATCH",
+            ),
         ] {
             let options = CompileOptions {
-                mode: Some(BehaviorMode::Transport),
-                datatype_policy: Some(policy),
+                mode,
+                datatype_policy: policy,
                 profile_datatype_rules: Some(Arc::clone(&rules)),
                 ..CompileOptions::default()
             };
+            let bindings = crate::document::parse_document(
+                &format!("{authored_mode}{source}"),
+                &crate::AeonCompileLimits::default(),
+            )
+            .expect("sample document");
             let mut state = ProgressiveValidationState::new(&options);
+            state.observe_bindings(&bindings);
             state.observe_events(&result.events);
             assert_eq!(state.gp_custom_value_errors.len(), candidate_count);
-            assert_eq!(state.errors()[0].code, code);
+            assert_eq!(state.gp_attribute_value_checks.len(), candidate_count);
+            let errors = state.errors();
+            assert_eq!(errors.len(), 2, "{errors:?}");
+            assert!(errors.iter().all(|error| error.code == code), "{errors:?}");
+
+            if !authored_mode.is_empty() {
+                let mut state = ProgressiveValidationState::new(&options);
+                state.observe_bindings(&bindings[1..]);
+                state.observe_events(&result.events);
+                assert_eq!(state.gp_custom_value_errors.len(), 1);
+                assert_eq!(state.gp_attribute_value_checks.len(), 1);
+                state.observe_bindings(&bindings[..1]);
+                assert!(state.gp_custom_value_errors.is_empty());
+                assert!(state.gp_attribute_value_checks.is_empty());
+                assert_eq!(state.errors(), errors);
+            }
         }
     }
 

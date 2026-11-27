@@ -2808,6 +2808,7 @@ fn validate_attribute_datatypes_in_scope(
             &binding.attributes,
             &binding.attribute_order,
             format_args!("{path}.@"),
+            None,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2869,6 +2870,7 @@ fn validate_value_attribute_datatypes(
                     attribute,
                     &attribute_order,
                     format_args!("{path}.@"),
+                    Some(path),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2896,6 +2898,7 @@ fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
     parent_path: std::fmt::Arguments<'_>,
+    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2940,6 +2943,17 @@ fn validate_attribute_datatype_map(
                 ));
             }
         } else if let Some(datatype) = &entry.datatype {
+            // An implicit node head cannot be addressed through its owner.
+            // Locate a bare object on the owning value and its authored span.
+            let object_owner = node_head_owner.filter(|_| entry.value.is_none());
+            let datatype_path = object_owner.unwrap_or(&attr_path);
+            let locate = |error: Diagnostic, path: &str| {
+                let error = error.at_path(path);
+                match (object_owner, entry.span) {
+                    (Some(_), Some(span)) => error.with_span(span),
+                    _ => error,
+                }
+            };
             let value = entry.datatype_value();
             if let Some(error) = validate_datatype_shape_light(
                 datatype,
@@ -2952,23 +2966,23 @@ fn validate_attribute_datatype_map(
                     | "INVALID_SEPARATOR_CHAR"
                     | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
-                    _ => attr_path.as_str(),
+                    _ => datatype_path,
                 };
-                checks.push(AttributeDatatypeCheck::Error(error.at_path(path_override)));
+                checks.push(AttributeDatatypeCheck::Error(locate(error, path_override)));
                 continue;
             }
             if !is_reserved_datatype(datatype) {
                 if datatype_policy == DatatypePolicy::ReservedOnly {
-                    checks.push(AttributeDatatypeCheck::Error(
+                    checks.push(AttributeDatatypeCheck::Error(locate(
                         Diagnostic::new(
                             "CUSTOM_DATATYPE_NOT_ALLOWED",
                             format!(
                                 "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
-                                attr_path
+                                datatype_path
                             ),
-                        )
-                        .at_path(attr_path.clone()),
-                    ));
+                        ),
+                        datatype_path,
+                    )));
                 }
             } else if matches!(
                 value,
@@ -2981,19 +2995,20 @@ fn validate_attribute_datatype_map(
                     profile_custom: false,
                 });
             } else if !datatype_matches_value(datatype, value) {
-                checks.push(AttributeDatatypeCheck::Error(
+                checks.push(AttributeDatatypeCheck::Error(locate(
                     Diagnostic::new(
                         "DATATYPE_LITERAL_MISMATCH",
-                        datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
-                    )
-                    .at_path(attr_path.clone()),
-                ));
+                        datatype_mismatch_message(datatype_path, datatype, value.value_kind()),
+                    ),
+                    datatype_path,
+                )));
             }
         }
         validate_attribute_datatype_map(
             &entry.nested_attrs,
             &entry.nested_attr_order,
             format_args!("{attr_path}.@"),
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -3004,6 +3019,7 @@ fn validate_attribute_datatype_map(
             &entry.object_members,
             &entry.object_member_order,
             format_args!("{attr_path}"),
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
