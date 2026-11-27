@@ -156,13 +156,15 @@ pnpm run ci
 pnpm publish:preflight
 ```
 
-`pnpm run ci` includes `pnpm test:cts:film`. The TypeScript Film v1 release
-surface currently claims reader conformance only: it must decode every
-reader-decodable vector in `film-cts-v1-snapshot-0.4`: 103 direct decode cases
-plus the bytes of 13 positive producer fixtures. Its 12 encoder-only negatives
-remain outside the claim. The 34 reader-applicable logical-depth cases also
-run at every incremental split. Adding Film encoding or durable writing to a
-publishable package requires a separate release-policy update and review.
+The tagged-node development checkout runs `pnpm test:cts:film` against
+`film-tagged-node-carrier-cts.v1.next.json` from the pinned CTS authority.
+It covers direct reads and shared producer bytes at every incremental split.
+Historical CI runs the published Film 0.4 reader target on the pre-revision
+source, including its 103 direct decode cases and 13 positive producer
+fixtures. A release claim for the revised reader requires its own immutable
+specification and CTS pins, plus verification of the installed artifact.
+Adding Film encoding or durable writing to a publishable package requires a
+separate release-policy update and review.
 
 Once the artifact has been generated and reviewed for the current wrapper
 version, do not rebuild it merely to repeat verification with unchanged build

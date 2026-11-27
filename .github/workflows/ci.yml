@@ -135,10 +135,9 @@ jobs:
         run: node ../../scripts/test-typescript-node-model-cts.mjs
 
       - name: TypeScript tagged node Film reader CTS
-        run: >-
-          node ../../scripts/run-film-cts.mjs
-          --module packages/aes/dist/index.js
-          --cts "${{ github.workspace }}/node-model-cts/cts/film/v1/film-tagged-node-carrier-cts.v1.next.json"
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
+        run: pnpm test:cts:film
 
       - name: CTS claim validation
         working-directory: .
