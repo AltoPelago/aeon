@@ -35,14 +35,9 @@ Python is still the conformance-first implementation, but its supported command 
 - `telex decode`, `telex canonicalize`, and `telex materialize`
 - `--cts-validate`
 
-Current CTS status:
-
-- `core`: green
-- `aes`: green
-- `annotations`: green
-- `aeos`: green
-- portable `aes.events.v1`: green (snapshot 0.2)
-- `telex/v1`: green (snapshot 0.2)
+Current CI exercises the revised node-model lanes and tagged AES/Telex
+carrier cases. It also runs the historical fixture suite from the frozen
+pre-revision Python checkout.
 
 Implementation note:
 
@@ -375,7 +370,8 @@ result = resolve_address('$.items.\\item1\\', namespace)
 assert result['bindings'][0]['path'] == '$.items[0]'
 ```
 
-The projection preserves physical Unicode paths and node-head topology. Synthetic
+The projection preserves decoded Unicode keys, intrinsic node tags, and direct
+child paths. Synthetic
 roots and attribute spaces are objects with no inherited identity. Numeric
 children are ordered by position; object members retain first represented order.
 References remain reference occurrences and are not followed or materialized.
@@ -459,7 +455,3 @@ before producing JSON; `--json --portable-aes`, `--telex` and annotation-only
 output remain available. Direct parser/Resolve APIs retain their plain-data AST;
 use canonical addresses or portable records for interchange rather than blindly
 JSON-serializing deep convenience graphs.
-
-In the implemented 0.2 kind-split contract, `&tag("book")` matches NodeLiteral containers
-only; `&headTag("book")` matches NodeHead bindings only. Both use the existing
-authoritative node facet and allowance. Add `.*` explicitly to visit head children.

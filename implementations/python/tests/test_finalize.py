@@ -9,7 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from aeon.core import compile_source
+from aeon.core import CompileOptions, compile_source
 import aeon.finalize as finalize_module
 from aeon.finalize import (
     FinalizeOptions,
@@ -119,6 +119,19 @@ class FinalizeJsonTests(unittest.TestCase):
             },
             result["document"],
         )
+
+    def test_clones_through_node_and_binding_owned_metadata(self) -> None:
+        source = (
+            'owner@{<doc({leaf@{unit="cm"}=1})>} = 1\n'
+            'copy = ~owner.@.doc[0].leaf.@.unit\n'
+            '<root@{x@{y="value"}=0}(~root.@.x.@.y)>'
+        )
+        compiled = compile_source(source, CompileOptions(max_attribute_depth=3))
+        self.assertEqual([], compiled.errors)
+        finalized = finalize_json(compiled)
+        self.assertEqual("cm", finalized["document"]["copy"])
+        self.assertEqual(["value"], finalized["document"]["root"]["$children"])
+        self.assertNotIn("meta", finalized)
 
     def test_rejects_host_dangerous_object_projection_keys(self) -> None:
         result = finalize_json(
@@ -467,7 +480,7 @@ class FinalizeJsonTests(unittest.TestCase):
             projection=Projection("all", None),
             errors=[],
             warnings=[],
-            path_values={},
+            path_events={},
             max_materialized_weight=None,
             max_reference_depth=None,
             materialized_weight=0,

@@ -33,8 +33,8 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
     projection = Projection(opts.materialization, opts.include_paths)
     errors: list[dict[str, object]] = []
     warnings: list[dict[str, object]] = []
-    path_values = {
-        event["path"]: event["value"]
+    path_events = {
+        event["path"]: event
         for event in aes
         if isinstance(event, dict)
         and isinstance(event.get("path"), str)
@@ -45,7 +45,7 @@ def finalize_json(aes: object, options: FinalizeOptions | None = None) -> dict[s
         projection=projection,
         errors=errors,
         warnings=warnings,
-        path_values=path_values,
+        path_events=path_events,
         max_materialized_weight=opts.max_materialized_weight,
         max_reference_depth=opts.max_reference_depth,
         materialized_weight=0,
@@ -132,7 +132,7 @@ class JsonContext:
     projection: Projection
     errors: list[dict[str, object]]
     warnings: list[dict[str, object]]
-    path_values: dict[str, dict[str, object]]
+    path_events: dict[str, dict[str, object]]
     max_materialized_weight: int | None
     max_reference_depth: int | None
     materialized_weight: int
@@ -497,35 +497,67 @@ def resolve_clone_reference(value: dict[str, object], ctx: JsonContext) -> tuple
 
 
 def reference_target_value(path: str, ctx: JsonContext) -> dict[str, object] | None:
-    if path in ctx.path_values:
-        return ctx.path_values[path]
+    event = ctx.path_events.get(path)
+    if event is not None:
+        return event["value"]
     if ".@." not in path:
         return None
     try:
         details = parse_canonical_path(path)
     except ValueError:
         return None
-    for index, prefix in reversed(list(enumerate(details.prefixes[:-1]))):
-        if prefix not in ctx.path_values:
+    for index in range(len(details.prefixes) - 2, -1, -1):
+        event = ctx.path_events.get(details.prefixes[index])
+        if event is not None:
+            return descend_value(event, details.segments[index + 1:])
+    return None
+
+
+def descend_value(carrier: dict[str, object], segments: list[tuple[str, str | int]]) -> dict[str, object] | None:
+    value = carrier.get("value")
+    for role, key in segments:
+        if not isinstance(value, dict):
+            return None
+        if role == "attribute":
+            entry = raw_attribute_entry(carrier, key) or raw_attribute_entry(value, key)
+            if entry is None:
+                return None
+            carrier = entry
+            value = entry.get("value")
             continue
-        value = ctx.path_values[prefix]
-        for role, key in details.segments[index + 1:]:
-            if value.get("type") == "TypedValue":
-                value = value.get("value")
+        if value.get("type") == "TypedValue":
+            value = value.get("value")
             if not isinstance(value, dict):
                 return None
-            if role == "attribute":
-                attributes = value.get("attributes")
-                entries = (block.get("entries") for block in attributes or [] if isinstance(block, dict))
-                entry = next((block[key] for block in entries if isinstance(block, dict) and key in block), None)
-                value = entry.get("value") if isinstance(entry, dict) else None
-            elif role == "index":
-                children = value.get("children" if value.get("type") == "NodeLiteral" else "elements")
-                value = children[key] if isinstance(children, list) and isinstance(key, int) and key < len(children) else None
-            else:
-                bindings = value.get("bindings")
-                value = next((binding.get("value") for binding in bindings or [] if isinstance(binding, dict) and binding.get("key") == key), None)
-        return value if isinstance(value, dict) else None
+        if role == "index":
+            children = value.get("children" if value.get("type") == "NodeLiteral" else "elements")
+            if not isinstance(children, list) or not isinstance(key, int) or key >= len(children):
+                return None
+            value = children[key]
+            carrier = {}
+        else:
+            bindings = value.get("bindings")
+            member = next(
+                (binding for binding in bindings if isinstance(binding, dict) and binding.get("key") == key),
+                None,
+            ) if isinstance(bindings, list) else None
+            if member is None:
+                return None
+            carrier = member
+            value = member.get("value")
+    return value if isinstance(value, dict) else None
+
+
+def raw_attribute_entry(owner: dict[str, object], key: str | int) -> dict[str, object] | None:
+    annotations = owner.get("annotations")
+    if isinstance(annotations, dict) and isinstance(annotations.get(key), dict):
+        return annotations[key]
+    attributes = owner.get("attributes")
+    if isinstance(attributes, list):
+        for block in attributes:
+            entries = block.get("entries") if isinstance(block, dict) else None
+            if isinstance(entries, dict) and isinstance(entries.get(key), dict):
+                return entries[key]
     return None
 
 

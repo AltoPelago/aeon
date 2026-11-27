@@ -1077,6 +1077,7 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
     candidates: dict[tuple[str, str], tuple[int, list[object], int]] = {}
     payloads: dict[str, tuple[str, int]] = {}
     claims: list[tuple[CloneReference | PointerReference, list[object], int]] = []
+    errors: list[AeonError] = []
     ordinal = 0
     plane = "body"
     event_index = 0
@@ -1115,12 +1116,15 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
         if not descend:
             return
         if isinstance(value, ObjectNode):
-            seen: set[str] = set()
+            seen: dict[str, Binding] = {}
             for binding in value.bindings:
-                if binding.key in seen:
-                    continue
-                seen.add(binding.key)
                 child = [*path, binding.key]
+                first = seen.get(binding.key)
+                if first is not None:
+                    if isinstance(first.value, NodeLiteral) or isinstance(binding.value, NodeLiteral):
+                        errors.append(DuplicateCanonicalPathError(format_reference_target_path(child), binding.span))
+                    continue
+                seen[binding.key] = binding
                 raw_attributes(binding.attributes, child, targetable, child if targetable else owner)
                 headed(binding.value, child, targetable=targetable, owner=child if targetable else owner)
         elif isinstance(value, (ListNode, TupleLiteral, NodeLiteral)):
@@ -1155,7 +1159,6 @@ def validate_references(bindings: list[ResolvedBinding], max_attribute_depth: in
                 targets[key] = target_ordinal
             break
 
-    errors: list[AeonError] = []
     for reference, path, source_index in claims:
         source_path = format_reference_target_path(path)
         target_path = format_reference_target_path(reference.path)
@@ -1238,7 +1241,7 @@ def validate_annotation_entries(
                     errors.append(UntypedValueInStrictModeError(path, location))
             return
         expected = expected_kinds_for_reserved_datatype(datatype)
-        if expected is None and effective_policy == "reserved_only":
+        if mode in {"strict", "custom"} and expected is None and effective_policy == "reserved_only":
             errors.append(CustomDatatypeNotAllowedError(path, datatype, location))
         elif expected is not None:
             actual = datatype_check_kind(value, lookup, datatype, terminal_values)

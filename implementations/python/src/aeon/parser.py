@@ -222,7 +222,7 @@ class Parser:
             self.consume("EQUALS", "Expected '=' in header")
             self.skip_layout()
             # The structured header groups fields without adding a value nesting level.
-            value = self.parse_object() if field_name == "header" and self.check("LBRACE") else self.parse_assigned_value()
+            value = self.parse_object() if field_name == "header" and self.check("LBRACE") else self.parse_value(allow_node=False)
             end = self.previous().span.end
             if field_name == "header" and isinstance(value, ObjectNode):
                 has_structured = True
@@ -274,7 +274,7 @@ class Parser:
             self.skip_layout()
         self.consume("EQUALS", f"Expected '=' after key '{key}'")
         self.skip_separators()
-        value = self.parse_assigned_value()
+        value = self.parse_value(allow_node=False)
         end = self.previous().span.end
         if self.check("AT"):
             raise SyntaxError("Postfix literal attributes are not valid Core v1 syntax", self.peek().span)
@@ -324,7 +324,7 @@ class Parser:
                 self.skip_layout()
             self.consume("EQUALS", "Expected '=' in attribute")
             self.skip_separators()
-            value = self.parse_assigned_value()
+            value = self.parse_value(allow_node=False)
             entries[key] = AttributeEntry(
                 value=value,
                 datatype=datatype,
@@ -519,12 +519,9 @@ class Parser:
     def is_allowed_separator_spec_char(value: str) -> bool:
         return bool(re.fullmatch(r"[A-Za-z0-9!#$%&*+\-.:;=?@^_|~<>]", value))
 
-    def parse_assigned_value(self) -> Value:
-        if self.check("LANGLE"):
+    def parse_value(self, node_attribute_depth: int = 1, *, allow_node: bool = True) -> Value:
+        if not allow_node and self.check("LANGLE"):
             raise SyntaxError("A node declaration carries its own tag and metadata", self.peek().span)
-        return self.parse_value()
-
-    def parse_value(self, node_attribute_depth: int = 1) -> Value:
         counts_toward_nesting = self.check("LANGLE") or self.check("LBRACE") or self.check("LBRACKET") or self.check("LPAREN")
         if counts_toward_nesting:
             self.current_nesting_depth += 1
@@ -575,7 +572,7 @@ class Parser:
         self.skip_layout()
         self.consume("EQUALS", "Expected '=' after anonymous value head")
         self.skip_separators()
-        value = self.parse_assigned_value()
+        value = self.parse_value(allow_node=False)
         return TypedValue(
             datatype=datatype,
             attributes=attributes,

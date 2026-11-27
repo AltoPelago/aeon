@@ -3,7 +3,9 @@ import copy
 import json
 from pathlib import Path
 import unittest
-from aeon.aeos import validate, validate_telex, validate_telex_records
+from aeon.aeos import validate, validate_events, validate_telex, validate_telex_records
+from aeon.core import CompileOptions, compile_source
+from aeon.portable import project_telex_records
 from aeon.sansa import parse_address
 from aeon.telex import encode_telex, validate_telex_records as validate_portable
 
@@ -11,6 +13,23 @@ FIXTURES = Path(__file__).resolve().parents[3] / 'test-fixtures/aeos-property-se
 
 
 class AeosPropertyTests(unittest.TestCase):
+    def test_tagged_attribute_metadata_survives_native_records_and_telex(self):
+        source = r'<host@{<glyph\g\@{size:int=2}:node>, x@{y:string="value"}=0}>'
+        compiled = compile_source(source, CompileOptions(max_attribute_depth=2))
+        self.assertEqual([], compiled.errors)
+        records = project_telex_records(compiled.events)
+        limits = {"max_attribute_depth": 2}
+        wire = encode_telex(records, limits=limits)
+        schema = {"rules": [
+            {"selector": "$.host.@.\\g\\", "constraints": {"required": True}},
+            {"path": "$.host.@.glyph", "constraints": {"datatype": "node"}},
+            {"path": "$.host.@.glyph.@.size", "constraints": {"datatype": "int"}},
+            {"path": "$.host.@.x.@.y", "constraints": {"required": True, "datatype": "string"}},
+        ]}
+        for result in (validate_events(compiled.events, schema), validate_telex_records(records, schema),
+                       validate_telex(wire, schema, limits=limits)):
+            self.assertTrue(result["ok"], result["errors"])
+
     def test_shared_vectors(self):
         suite = {'tests': json.loads(FIXTURES.read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-regressions.json').read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-context-regressions.json').read_text())['tests'] + json.loads(FIXTURES.with_name('aeos-property-range-attribute-regressions.json').read_text())['tests']}
         for case in suite['tests']:

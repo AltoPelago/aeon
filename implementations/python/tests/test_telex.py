@@ -340,6 +340,31 @@ class TelexConformanceTests(unittest.TestCase):
                     self.assert_vector(vector)
         self.assertEqual(61, observed)
 
+    def test_tagged_node_carrier_cts(self) -> None:
+        for directory, manifest_name in (
+            ("aes", "aes-events-tagged-node-carrier-cts.v1.next.json"),
+            ("telex", "telex-tagged-node-carrier-cts.v1.next.json"),
+        ):
+            base = CTS_ROOT / directory / "v1"
+            manifest = json.loads((base / manifest_name).read_text(encoding="utf-8"))
+            for suite_ref in manifest["suites"]:
+                suite = json.loads((base / suite_ref["file"]).read_text(encoding="utf-8"))
+                for vector in suite["tests"]:
+                    with self.subTest(vector=vector["id"]):
+                        if directory == "telex":
+                            self.assert_vector(vector)
+                            continue
+                        payload = vector["input"]
+                        result = validate_telex_records(
+                            payload["records"], profile=payload.get("profile", "aes.complete.v1"),
+                            projection=payload.get("projection"), limits=payload.get("limits"),
+                            registered_fields=payload.get("registered_fields", []),
+                        )
+                        self.assertEqual(vector["expected"], {
+                            "valid": result["valid"], "profile": result["profile"],
+                            "diagnostic_codes": [item["code"] for item in result["diagnostics"]],
+                        })
+
     def test_draft_telex_resource_limit_vectors(self) -> None:
         manifest_path = AES_ROOT / "conformance" / "telex" / "v1" / "telex-cts.v1.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

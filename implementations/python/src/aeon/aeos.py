@@ -2138,14 +2138,20 @@ def hydrate_attribute_info_events(base_path: str, attributes: object, events_by_
         hydrate_attribute_info_events(attribute_path, info.get("attributes"), events_by_path)
 
 
-def build_attribute_info_map(attributes: object, owner: dict[str, object] | None = None) -> dict[str, dict[str, object]] | None:
+def build_attribute_info_map(
+    attributes: object,
+    owner: dict[str, object] | None = None,
+    parser_attributes: object = None,
+) -> dict[str, dict[str, object]] | None:
     from .portable import format_datatype
 
     entries = dict(attributes) if isinstance(attributes, dict) else {}
-    if owner is not None and owner.get("type") == "NodeLiteral" and isinstance(owner.get("attributes"), list):
-        for block in owner["attributes"]:
-            if isinstance(block, dict) and isinstance(block.get("entries"), dict):
-                entries.update(block["entries"])
+    owned = owner.get("attributes") if owner is not None and owner.get("type") == "NodeLiteral" else None
+    for blocks in (parser_attributes, owned):
+        if isinstance(blocks, list):
+            for block in blocks:
+                if isinstance(block, dict) and isinstance(block.get("entries"), dict):
+                    entries.update(block["entries"])
     mapped: dict[str, dict[str, object]] = {}
     for key, entry in entries.items():
         if not isinstance(entry, dict):
@@ -2153,15 +2159,16 @@ def build_attribute_info_map(attributes: object, owner: dict[str, object] | None
         value = entry.get("value")
         if not isinstance(value, dict):
             continue
+        is_node = value.get("type") == "NodeLiteral"
         mapped[str(key)] = {
             "type": value.get("type"),
-            "property_tag": value.get("tag") if value.get("type") == "NodeLiteral" else None,
+            "property_tag": value.get("tag") if is_node else None,
             "raw": value.get("raw", "") if isinstance(value.get("raw", ""), str) else "",
             "value": value.get("value", "") if isinstance(value.get("value", ""), str) else "",
             "span": to_span_tuple(value.get("span")),
-            "datatype": format_datatype(value.get("datatype") if value.get("type") == "NodeLiteral" else entry.get("datatype")),
-            "structuralId": value.get("structuralId") if value.get("type") == "NodeLiteral" else entry.get("structuralId"),
-            "attributes": build_attribute_info_map(entry.get("annotations"), value),
+            "datatype": (format_datatype(value.get("datatype")) if is_node else None) or format_datatype(entry.get("datatype")),
+            "structuralId": (value.get("structuralId") if is_node else None) or entry.get("structuralId"),
+            "attributes": build_attribute_info_map(entry.get("annotations"), value, entry.get("attributes")),
         }
     return mapped or None
 

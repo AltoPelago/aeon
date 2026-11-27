@@ -84,6 +84,14 @@ class AnnotationStreamTests(unittest.TestCase):
         self.assertEqual({"after": "node-tag", "before": "attribute-marker"}, by_comment["meta"]["placement"])
         self.assertEqual({"after": "attribute-close", "before": "node-datatype-colon"}, by_comment["scope"]["placement"])
 
+    def test_metadata_node_comments_use_real_token_boundaries(self) -> None:
+        source = '<root@\n{<doc(|a<b|/#first#/, "right"/#second#/ )>, leaf/#key#/="leaf"}>'
+        annotations = self.annotations_for(source)
+        self.assertEqual(
+            ["$.root.@.doc[0]", "$.root.@.doc[1]", "$.root.@.leaf"],
+            [annotation["target"]["path"] for annotation in annotations],
+        )
+
     def test_binding_head_gap_comments_report_placement(self) -> None:
         annotations = self.annotations_for(
             'aname/#A#/ :string = "alignment playground"\n'

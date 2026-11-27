@@ -166,6 +166,7 @@ jobs:
         run: python3 -m unittest discover -s implementations/python/tests -p 'test_*.py'
 
       - name: Pure-Python revised node model and transport regression tests
+        working-directory: .
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
           AES_ROOT: ${{ github.workspace }}/aes

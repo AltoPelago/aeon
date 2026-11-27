@@ -62,6 +62,15 @@ class CoreCompileTests(unittest.TestCase):
         self.assertEqual([], result.errors)
         self.assertEqual('$.["a.b"]', result.events[0]["path"])
 
+    def test_node_and_ordinary_keys_collide_in_metadata_objects(self) -> None:
+        for members in ("<doc>, doc=1", "doc=1, <doc>"):
+            result = compile_source("owner@{meta={" + members + "}}=0")
+            self.assertEqual([], result.events)
+            self.assertEqual(
+                [("DUPLICATE_KEY", "$.owner.@.meta.doc")],
+                [(error.code, error.path) for error in result.errors],
+            )
+
     def test_literal_words_parse_as_keys_in_key_contexts(self) -> None:
         result = compile_source(
             'yes:string = "top"\n'
