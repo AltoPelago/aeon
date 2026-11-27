@@ -436,10 +436,18 @@ function resolveDatatypeCheckKind(
             break;
         }
         seen ??= new Set();
-        if (seen.has(current)) return resolvedValueKind(current, datatype);
+        if (seen.has(current)) {
+            // Keep the entry point of a cycle for references leading into it.
+            let inCycle = false;
+            for (const reference of seen) {
+                inCycle ||= reference === current;
+                referenceCache.targets.set(reference, inCycle ? reference : current);
+            }
+            return resolvedValueKind(current, datatype);
+        }
         seen.add(current);
         const target = resolveReferenceValue(current, events, pathToIndex);
-        if (!target) return resolvedValueKind(current, datatype);
+        if (!target) break;
         current = unwrapTypedValue(target);
     }
     if (seen) {

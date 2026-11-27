@@ -420,6 +420,16 @@ describe('Core - compile()', () => {
             ]);
         });
 
+        it('keeps comments between a nested attribute block and its owner value on the owner', () => {
+            const result = compile('host@{<outer@{q@{leaf /# inner #/ = 1} /# head #/ :n=2 /@ tail(selected=true) @/}>}=0', { maxAttributeDepth: 3 });
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.outer.@.q.@.leaf' },
+                { kind: 'path', path: '$.host.@.outer.@.q' },
+                { kind: 'path', path: '$.host.@.outer.@.q' },
+            ]);
+        });
+
         it('should allow disabling annotation stream emission', () => {
             const result = compile('//# doc\na = 1', { emitAnnotations: false });
             assert.strictEqual(result.annotations, undefined);

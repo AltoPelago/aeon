@@ -75,6 +75,7 @@ interface Bindable {
     readonly path: string;
     readonly order: number;
     readonly kind: 'binding' | 'attribute';
+    readonly attributeScope?: Span;
     readonly landmarks: readonly PlacementLandmark[];
 }
 
@@ -316,8 +317,12 @@ function nearestDescendant(commentSpan: Span, container: Bindable, index: Descen
     }
     const trailingIndex = upperBound(index.ends, commentSpan.start.offset) - 1;
     const forwardIndex = lowerBound(index.starts, commentSpan.end.offset);
-    const trailingHit = trailingIndex >= 0 ? index.byEnd[trailingIndex] ?? null : null;
-    const forwardHit = forwardIndex < index.byStart.length ? index.byStart[forwardIndex] ?? null : null;
+    function inCommentScope(candidate: Bindable | undefined): Bindable | null {
+        return candidate && (!candidate.attributeScope || spanContains(candidate.attributeScope, commentSpan))
+            ? candidate : null;
+    }
+    const trailingHit = inCommentScope(index.byEnd[trailingIndex]);
+    const forwardHit = inCommentScope(index.byStart[forwardIndex]);
     if (
         container.kind === 'binding'
         && ((trailingHit?.kind === 'attribute') || (forwardHit?.kind === 'attribute'))
@@ -505,6 +510,7 @@ function attributeBindables(
                     const datatype = colon && findDatatypeLandmark(header, colon.span.end.offset, equals?.span.start.offset ?? head.end.offset);
                     entries.push({
                         path: entryPath, span: { start: span.start, end }, valueSpan: entry.value.span,
+                        attributeScope: attribute.span,
                         landmarks: [
                             { part: 'attribute-key', span: keyToken.span },
                             ...(colon ? [{ part: 'attribute-datatype-colon' as const, span: colon.span }] : []),
@@ -573,6 +579,7 @@ function attributeBindables(
         path: entry.path,
         order: orderStart + index,
         kind: 'attribute',
+        ...(entry.attributeScope ? { attributeScope: entry.attributeScope } : {}),
         landmarks: entry.landmarks,
     }));
 }
@@ -583,6 +590,7 @@ interface AttributeEntryBindable {
     readonly valueSpan: Span;
     readonly landmarks: readonly PlacementLandmark[];
     readonly valueType?: AssignmentEvent['value']['type'];
+    readonly attributeScope?: Span;
 }
 
 function semanticEventTokens(event: AssignmentEvent, tokens: readonly Token[]): readonly Token[] {
