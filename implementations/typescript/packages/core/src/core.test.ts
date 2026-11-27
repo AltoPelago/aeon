@@ -430,6 +430,24 @@ describe('Core - compile()', () => {
             ]);
         });
 
+        it('keeps a tagged attribute in its own comment scope', () => {
+            const member = 'q@{<leaf /# inner #/>} /# head #/ :n=2 /@ tail(selected=true) @/';
+            const cases = [
+                [`host@{<outer@{${member}}>}=0`, '$.host.@.outer.@.q'],
+                [`host@{${member}}=0`, '$.host.@.q'],
+                [`<outer@{${member}}>`, '$.outer.@.q'],
+            ];
+            for (const [source, path] of cases) {
+                const result = compile(source!, { maxAttributeDepth: 4 });
+                assert.deepEqual(result.errors, []);
+                assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                    { kind: 'path', path: `${path}.@.leaf` },
+                    { kind: 'path', path },
+                    { kind: 'path', path },
+                ]);
+            }
+        });
+
         it('should allow disabling annotation stream emission', () => {
             const result = compile('//# doc\na = 1', { emitAnnotations: false });
             assert.strictEqual(result.annotations, undefined);
