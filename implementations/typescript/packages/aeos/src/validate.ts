@@ -60,7 +60,6 @@ const TYPE_ALIASES: Record<string, readonly string[]> = {
     CloneReference: ['CloneReference'],
     PointerReference: ['PointerReference'],
     NodeLiteral: ['NodeLiteral'],
-    NodeHead: ['NodeHead'],
 };
 
 type AttributeInfo = {
@@ -422,6 +421,7 @@ function validateBody(
             const attributes = buildAttributeInfoMap(element?.attributes);
             const info: EventInfo = {
                 ...(typeof element?.structuralId === 'string' ? { identity: element.structuralId } : {}),
+                ...(element?.type === 'NodeLiteral' ? {nodeTag: element.tag} : {}),
                 type: typeof element?.type === 'string' ? element.type : 'Unknown',
                 raw: typeof element?.raw === 'string' ? element.raw : '',
                 value: typeof element?.value === 'string' ? element.value : '',
@@ -447,6 +447,7 @@ function validateBody(
             const nestedAttributes = buildAttributeInfoMap((entry as any)?.annotations as ReadonlyMap<string, unknown> | Record<string, unknown> | undefined);
             const info: AttributeInfo = {
                 ...(typeof (entry as any)?.structuralId === 'string' ? { identity: (entry as any).structuralId as string } : {}),
+                ...(valueNode?.type === 'NodeLiteral' ? {nodeTag: valueNode.tag} : {}),
                 type: typeof valueNode?.type === 'string' ? valueNode.type : 'Unknown',
                 raw: typeof valueNode?.raw === 'string' ? valueNode.raw : '',
                 value: typeof valueNode?.value === 'string' ? valueNode.value : '',
@@ -509,7 +510,7 @@ function validateBody(
                 const datatype = portableDatatype(event);
                 const info: EventInfo = {
                     ...(typeof event.identity === 'string' ? { identity: event.identity } : {}),
-                    ...(event.kind === 'NodeHead' ? {nodeTag: event.value} : {}),
+                    ...(event.kind === 'NodeLiteral' ? {nodeTag: event.tag} : {}),
                     type: event.kind,
                     raw: value,
                     value,
@@ -525,6 +526,7 @@ function validateBody(
                 const attributes = buildAttributeInfoMap(event.annotations);
                 const info: EventInfo = {
                     ...(typeof event.structuralId === 'string' ? { identity: event.structuralId } : {}),
+                    ...(event.value.type === 'NodeLiteral' && 'tag' in event.value ? {nodeTag: event.value.tag} : {}),
                     type: event.value.type,
                     raw: typeof event.value.raw === 'string' ? event.value.raw : '',
                     value: typeof event.value.value === 'string' ? event.value.value : '',
@@ -1056,16 +1058,10 @@ function createAeosSansaResolveNamespace(
     if (withProperties && identityState) {
         const parents = new Map<AeosSansaResolveBinding, AeosSansaResolveBinding | undefined>([[root, undefined]]);
         const pending = [root];
-        const directHeads = new Map<AeosSansaResolveBinding, readonly AeosSansaResolveBinding[]>();
         while (pending.length) {
             const binding = pending.pop()!;
             // Canonical positional order is established once during namespace construction.
             binding.children.sort((a, b) => a.index !== undefined && b.index !== undefined ? a.index - b.index : 0);
-            if (binding.info?.type === 'NodeLiteral' && binding.children.some(child => child.info === undefined)) {
-                // Index only materialized direct occurrences once, retaining
-                // actual wrong-kind metadata for SANSA's checked rejection.
-                directHeads.set(binding, binding.children.filter(child => child.info !== undefined));
-            }
             for (const child of binding.children) { parents.set(child, binding); pending.push(child); }
             if (binding.attributeSpace) { parents.set(binding.attributeSpace, binding); pending.push(binding.attributeSpace); }
         }
@@ -1079,19 +1075,15 @@ function createAeosSansaResolveNamespace(
             scope(binding, context) {
                 identityState.propertyInspections += 1;
                 if (!inside(binding, context.scopeRoot) || !inside(context.evaluationRoot, context.scopeRoot)) return 'outside';
-                if (context.directHeadOf !== undefined && (!inside(context.directHeadOf, context.scopeRoot)
-                    || context.directHeadOf.info?.type !== 'NodeLiteral' || parents.get(binding) !== context.directHeadOf
-                    || binding.info?.type !== 'NodeHead')) return 'outside';
                 return binding === context.scopeRoot ? 'root' : 'inside';
             },
-            key: binding => binding.info?.type === 'NodeHead' ? undefined : binding.name,
-            nodeKind: binding => binding.info?.type === 'NodeLiteral' ? 'NodeLiteral' : binding.info?.type === 'NodeHead' ? 'NodeHead' : 'Other',
+            key: binding => binding.name,
+            nodeKind: binding => binding.info?.type === 'NodeLiteral' ? 'NodeLiteral' : 'Other',
             nodeTag(binding) {
                 const tag = binding.info?.nodeTag;
                 if (tag !== undefined && typeof tag !== 'string') throw {type:'SansaPropertyAccessFault', kind:'invalidMetadata'};
                 return tag;
             },
-            *nodeHeads(binding) { yield* directHeads.get(binding) ?? binding.children; },
         };
     }
     return {
@@ -2018,15 +2010,14 @@ function hydratePortableContainerArities(
         }
     }
     for (const record of records) {
-        if (!['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral', 'NodeHead'].includes(record.kind)) continue;
-        const childOwner = record.kind === 'NodeLiteral' ? `${record.path}[0]` : record.path;
+        if (!['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral'].includes(record.kind)) continue;
         let count = 0;
         for (const candidate of records) {
             const candidateDetails = details.get(candidate.path);
             if (candidateDetails === undefined) continue;
             const parent = candidateDetails.prefixes.at(-2) ?? '$';
             const last = candidateDetails.segments.at(-1);
-            if (parent !== childOwner || last === undefined) continue;
+            if (parent !== record.path || last === undefined) continue;
             if (record.kind === 'ObjectNode' ? last.type === 'member' : last.type === 'index') count += 1;
         }
         containerArity.set(record.path, count);

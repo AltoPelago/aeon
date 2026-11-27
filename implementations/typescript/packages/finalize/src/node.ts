@@ -227,12 +227,19 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
             return listNode(value.elements, meta, ctx, path, projection);
         case 'TupleLiteral':
             return listNode(value.elements, meta, ctx, path, projection);
-        case 'NodeLiteral':
+        case 'NodeLiteral': {
+            const annotations = meta.annotations ?? buildAnnotations(value.attributes);
+            const nodeMeta: NodeMeta = {
+                span: meta.span,
+                ...(value.structuralId !== null ? { structuralId: value.structuralId } : {}),
+                ...(value.datatype ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
+                ...(annotations.size > 0 ? { annotations } : {}),
+            };
             return objectNode([
                 {
                     type: 'Binding',
                     key: '$node',
-                    structuralId: value.structuralId,
+                    structuralId: null,
                     value: {
                         type: 'StringLiteral',
                         value: value.tag,
@@ -284,7 +291,8 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                     attributes: [],
                     span: value.span,
                 },
-            ], meta, ctx, path, projection, { allowReservedKeys: true });
+            ], nodeMeta, ctx, path, projection, { allowReservedKeys: true });
+        }
         default:
             return scalarNode('String', '', '', meta);
     }

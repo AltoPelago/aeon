@@ -69,10 +69,8 @@ export function indexReferenceOrder(events: readonly AssignmentEvent[]): {
         if (value.type === 'ObjectNode' || value.type === 'ListNode'
             || value.type === 'TupleLiteral') {
             rawAttributes(value.attributes, path, targetable, owner);
-        } else if (value.type === 'NodeLiteral') {
-            // The implicit node head has no AEON v1 source-path spelling. Its
-            // attributes must not alias the enclosing binding's attributes.
-            rawAttributes(value.attributes, path, false, owner);
+        } else if (value.type === 'NodeLiteral' && annotations === undefined) {
+            rawAttributes(value.attributes, path, targetable, owner);
         }
         // A reference is checked before its own value becomes available. A
         // container becomes available before walking its members/positions.
@@ -174,7 +172,7 @@ function compatibilitySubpath(event: AssignmentEvent, path: Path, retained: Read
                 attributes = [];
                 continue;
             }
-            if (attributes.length === 0 && (value.type === 'ObjectNode' || value.type === 'ListNode' || value.type === 'TupleLiteral')) {
+            if (attributes.length === 0 && 'attributes' in value) {
                 attributes = value.attributes;
             }
             const entry = attributes.flatMap(attribute => [...attribute.entries])

@@ -1265,12 +1265,12 @@ describe('Core - compile()', () => {
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
         });
 
-        it('should fail-closed with INVALID_NODE_HEAD_DATATYPE and aligned messaging', () => {
+        it('should fail-closed with INVALID_NODE_DATATYPE and aligned messaging', () => {
             const result = compile('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_NODE_HEAD_DATATYPE');
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NODE_DATATYPE');
             assert.strictEqual(
                 result.errors[0]!.message,
                 "Invalid node head datatype in strict mode at '$.widget': node heads must use ':node', got ':contact'"

@@ -30,32 +30,34 @@ for (const item of [...cases.tests, ...regressions.tests, ...contextRegressions.
     }
 });
 
-test('AEOS property profile uses explicit portable source topology', async () => {
+test('AEOS property profile inspects intrinsic node tags before direct child traversal', async () => {
     const {compile} = await import('@altopelago/aeon-core');
     const {projectPortableEvents} = await import('@altopelago/aeon-aes');
-    const compiled = compile('n=<book("yes")>');
+    const compiled = compile('<book("yes")>\nroot@{<leaf(1)>} = 2');
     assert.deepEqual(compiled.errors, []);
-    const schema: SchemaV1 = {rules:[{selector:'$.n[0]&headTag("book")', constraints:{type:'NumberLiteral'}}]};
+    const schema: SchemaV1 = {rules:[
+        {selector:'$.book&tag("book")[0]', constraints:{type:'NumberLiteral', required:true}},
+        {selector:'$.root.@.leaf&tag("leaf")[0]', constraints:{type:'NumberLiteral', required:true}},
+    ]};
     const portable = projectPortableEvents(compiled.events);
     for (const result of [validateTelexRecords(portable, schema), validateTelex(encodeTelex(portable), schema)]) {
-        assert.deepEqual(result.errors.map(error => [error.code, error.path]), [['type_mismatch', '$.n[0]']]);
+        assert.deepEqual(result.errors.map(error => [error.code, error.path]), [['type_mismatch', '$.book[0]']]);
     }
     const native = validate(compiled.events as Parameters<typeof validate>[0], schema);
     assert.ok(native.errors.some(error => error.code === 'invalid_schema_policy'));
 });
 
-test('portable source content never supplies an absent direct head', async () => {
+test('a scalar node child cannot satisfy a tag predicate', async () => {
     const {compile} = await import('@altopelago/aeon-core');
     const {projectPortableEvents} = await import('@altopelago/aeon-aes');
-    for (const source of ['n=<book("x", "y")>', 'n=<book("x", "y", "z")>']) {
-        const compiled = compile(source);
-        assert.deepEqual(compiled.errors, []);
-        const records = projectPortableEvents(compiled.events);
-        const schema: SchemaV1 = {rules:[{selector:'$.n&key("n")[1]', constraints:{required:true, type:'StringLiteral'}}]};
-        for (const result of [validateTelexRecords(records, schema), validateTelex(encodeTelex(records), schema)]) {
-            assert.deepEqual(result.errors.map(error => [error.code, error.path]), [['missing_required_field', '$.n&key("n")[1]']]);
-            assert.deepEqual(result.guarantees, {});
-        }
+    const compiled = compile('<book("book", <page>)>');
+    assert.deepEqual(compiled.errors, []);
+    const records = projectPortableEvents(compiled.events);
+    const selector = '$.book[0]&tag("book")';
+    const schema: SchemaV1 = {rules:[{selector, constraints:{required:true, type:'NodeLiteral'}}]};
+    for (const result of [validateTelexRecords(records, schema), validateTelex(encodeTelex(records), schema)]) {
+        assert.deepEqual(result.errors.map(error => [error.code, error.path]), [['missing_required_field', selector]]);
+        assert.deepEqual(result.guarantees, {});
     }
 });
 

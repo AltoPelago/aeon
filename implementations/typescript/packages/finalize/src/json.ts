@@ -182,7 +182,7 @@ function payloadToJson(
         }
         document[key] = valueToJson(event.value, ctx, eventPath, projection, event.datatype);
         const attrJson = mergeAttributeJsonObjects(
-            annotationsToJson(event.annotations, ctx, eventPath, projection),
+            event.value.type === 'NodeLiteral' ? null : annotationsToJson(event.annotations, ctx, eventPath, projection),
             indexedChildAnnotationsToJson(event.value, ctx, eventPath, projection),
         );
         if (attrJson) {
@@ -376,11 +376,16 @@ function valueToJson(
                     : [];
             });
         case 'NodeLiteral': {
-            const nodeAttrs = attributesToJson(value.attributes, ctx, `${path}.@`, projection);
+            const nodeAttrs = attributesToJson(value.attributes, ctx, path, projection);
             return {
                 $node: value.tag,
                 ...(nodeAttrs ? { '@': nodeAttrs } : {}),
-                $children: value.children.map((child, index) => valueToJson(child, ctx, `${path}[${index}]`, projection)),
+                $children: value.children.flatMap((child, index) => {
+                    const childPath = `${path}[${index}]`;
+                    return shouldIncludeProjectedPath(childPath, projection)
+                        ? [valueToJson(child, ctx, childPath, projection)]
+                        : [];
+                }),
             };
         }
         case 'CloneReference': {
@@ -869,7 +874,7 @@ function annotationsToJson(
             continue;
         }
         obj[key] = valueToJson(entry.value, ctx, entryPath, projection, entry.datatype);
-        const nested = annotationsToJson(entry.annotations, ctx, entryPath, projection);
+        const nested = entry.value.type === 'NodeLiteral' ? null : annotationsToJson(entry.annotations, ctx, entryPath, projection);
         if (nested) {
             nestedAttrEntries[key] = nested;
         }

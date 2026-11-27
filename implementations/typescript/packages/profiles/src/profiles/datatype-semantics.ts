@@ -3,7 +3,7 @@ import type { Span } from '@altopelago/aeon-lexer';
 import { isReservedDatatypeName } from '../reserved-datatypes.js';
 import type { CompileCtx, ProfilePolicy } from '../types.js';
 
-type DatatypePosition = 'binding' | 'node-head' | 'argument';
+type DatatypePosition = 'binding' | 'node' | 'argument';
 type DatatypePolicy = Pick<ProfilePolicy, 'datatypeSemantics' | 'genericAdmission'> & {
     readonly allowLegacyReservedClarifiers: boolean;
 };
@@ -23,7 +23,8 @@ export function validateDatatypeSemantics(
         if (event.datatype === undefined) continue;
         const parsed = parseDatatype(event.datatype);
         if (!parsed) continue;
-        validateParsedDatatype(parsed, policy, ctx, formatPath(event.path), event.value.type);
+        validateParsedDatatype(parsed, policy, ctx, formatPath(event.path), event.value.type,
+            event.value.type === 'NodeLiteral' ? 'node' : 'binding');
     }
     validateUnprojectedClaims(aes, policy, ctx);
 }
@@ -41,7 +42,7 @@ function parsedAnnotation(annotation: TypeAnnotation | null): ParsedDatatype | n
     };
 }
 
-/** Payload descendants already have events; metadata and node-head claims do not.
+/** Payload descendants already have events; attribute descendants do not.
  * Walk each authored body root once, independently of metadata projection. */
 function validateUnprojectedClaims(aes: readonly AssignmentEvent[], policy: DatatypePolicy, ctx: Pick<CompileCtx, 'error'>): void {
     interface Task {
@@ -52,7 +53,6 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], policy: Data
         attributes?: Attributes;
         annotations?: ReadonlyMap<string, AttributeEntry> | undefined;
         span?: Span;
-        checkOnly?: boolean;
     }
     const member = (path: string, key: string) => path + formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
     const body = aes.filter(event => event.sourcePlane !== 'header');
@@ -78,8 +78,10 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], policy: Data
     while (tasks.length) {
         const task = tasks.pop()!;
         const { value, path, metadata } = task;
-        if (metadata) check(task.datatype, value, path, task.span, task.checkOnly ? 'node-head' : 'binding');
-        if (task.checkOnly) continue;
+        if (metadata) {
+            if (value.type === 'NodeLiteral') check(parsedAnnotation(value.datatype), value, path, task.span ?? value.span, 'node');
+            else check(task.datatype, value, path, task.span);
+        }
         switch (value.type) {
             case 'TypedValue':
                 if (metadata) check(parsedAnnotation(value.datatype), value.value, path, value.span);
@@ -97,15 +99,12 @@ function validateUnprojectedClaims(aes: readonly AssignmentEvent[], policy: Data
                 for (let index = value.elements.length - 1; index >= 0; index--) tasks.push({ value: value.elements[index]!, path: `${path}[${index}]`, metadata });
                 attributes(value.attributes, path);
                 break;
-            case 'NodeLiteral': {
-                const head = `${path}[0]`;
-                for (let index = value.children.length - 1; index >= 0; index--) tasks.push({ value: value.children[index]!, path: `${head}[${index}]`, metadata });
-                attributes(value.attributes, head);
-                // Queue the head claim so owning key attributes run first,
-                // matching the authored order and the Rust traversal.
-                tasks.push({ value, path: head, metadata: true, datatype: parsedAnnotation(value.datatype), span: value.headSpan ?? value.span, checkOnly: true });
+            case 'NodeLiteral':
+                for (let index = value.children.length - 1; index >= 0; index--) {
+                    tasks.push({ value: value.children[index]!, path: `${path}[${index}]`, metadata });
+                }
+                if (task.annotations === undefined) attributes(value.attributes, path);
                 break;
-            }
         }
         attributes(task.attributes, path);
         for (const [key, entry] of [...(task.annotations ?? [])].reverse()) {
@@ -127,8 +126,8 @@ function validateParsedDatatype(
     if (args.length > 0) {
         const admission = policy.genericAdmission;
         let message: string | undefined;
-        if (position === 'node-head' && !admission.nodeHeadDatatypes.includes(name)) {
-            message = `Profile does not allow generic arguments on node head datatype ':${name}'`;
+        if (position === 'node' && !admission.nodeHeadDatatypes.includes(name)) {
+            message = `Profile does not allow generic arguments on inline node datatype ':${name}'`;
         } else if (position === 'binding' && name === 'node'
             && args.some(arg => isReservedDatatypeName(arg.name) && !admission.bindingNodeReservedArguments.includes(arg.name))) {
             message = 'Profile does not allow this reserved generic argument on binding datatype :node';
@@ -138,10 +137,10 @@ function validateParsedDatatype(
         if (message) ctx.error({ code: 'PROFILE_DATATYPE_GENERIC_NOT_ALLOWED', message, ...location });
     }
 
-    if (position === 'node-head' && clarifiers.length > 0) {
+    if (position === 'node' && clarifiers.length > 0) {
         ctx.error({
             code: 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED',
-            message: 'Profile does not allow clarifiers on node head datatypes',
+            message: 'Profile does not allow clarifiers on inline node datatypes',
             ...location,
         });
     } else {

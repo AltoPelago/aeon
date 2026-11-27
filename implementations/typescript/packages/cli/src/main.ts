@@ -3413,7 +3413,7 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'UNTYPED_VALUE_IN_STRICT_MODE':
         case 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED':
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
-        case 'INVALID_NODE_HEAD_DATATYPE':
+        case 'INVALID_NODE_DATATYPE':
             return 'Mode Enforcement';
         case 'PROFILE_DATATYPE_GENERIC_NOT_ALLOWED':
         case 'PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED':

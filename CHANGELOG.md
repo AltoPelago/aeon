@@ -8,6 +8,11 @@ repositories.
 
 ## Unreleased
 
+- The TypeScript compiler accepts standalone node declarations such as
+  `<tag("hello")>`. AEON references and SANSA over portable AES use the
+  same direct child paths. Each portable node record includes its intrinsic
+  tag and metadata. TypeScript Telex writes the tag directly after the kind.
+
 - Core preserves generic arguments and clarifiers on datatype annotations,
   including node heads. GP now owns the datatype-specific restrictions and
   accepts generic arguments on `symbol`, including strict

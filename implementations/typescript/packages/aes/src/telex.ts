@@ -28,6 +28,7 @@ export interface TelexRecord {
     readonly header?: string;
     readonly path?: string;
     readonly kind?: PortableAesKind | string;
+    readonly tag?: string;
     readonly datatype?: string;
     readonly generics?: readonly AesDatatypeDescriptor[];
     readonly clarifiers?: readonly (AesStringLiteral | AesNumberLiteral)[];

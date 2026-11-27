@@ -288,7 +288,7 @@ describe('Mode Enforcement', () => {
         it('should reject non-node inline node head datatypes in strict mode', () => {
             const result = enforce('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>');
 
-            assert.ok(result.errors.some((e) => e.code === 'INVALID_NODE_HEAD_DATATYPE'));
+            assert.ok(result.errors.some((e) => e.code === 'INVALID_NODE_DATATYPE'));
         });
 
         it('should allow :node inline node head datatype in strict mode', () => {

@@ -35,7 +35,7 @@ export type ModeEnforcementErrorCode =
     | 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED'
     | 'DATATYPE_LITERAL_MISMATCH'
     | 'CUSTOM_DATATYPE_NOT_ALLOWED'
-    | 'INVALID_NODE_HEAD_DATATYPE'
+    | 'INVALID_NODE_DATATYPE'
     | 'HEADER_CONFLICT';
 
 /**
@@ -148,17 +148,17 @@ export class CustomDatatypeNotAllowedError extends ModeEnforcementError {
 }
 
 /**
- * Error: Node head datatype must remain :node in strict mode
+ * Error: Inline node datatypes must use :node in strict mode.
  */
-export class InvalidNodeHeadDatatypeError extends ModeEnforcementError {
+export class InvalidNodeDatatypeError extends ModeEnforcementError {
     constructor(span: Span, path: string, datatype: string) {
         super(
-            `Invalid node head datatype in strict mode at '${path}': node heads must use ':node', got ':${datatype}'`,
+            `Invalid node datatype in strict mode at '${path}': expected ':node', got ':${datatype}'`,
             span,
-            'INVALID_NODE_HEAD_DATATYPE',
+            'INVALID_NODE_DATATYPE',
             path
         );
-        this.name = 'InvalidNodeHeadDatatypeError';
+        this.name = 'InvalidNodeDatatypeError';
     }
 }
 
@@ -265,6 +265,26 @@ export function enforceMode(
                 resolveDatatypeCheckKind(value, events, pathToIndex, datatype, referenceCache), errors);
         }
 
+        if (event.value.type === 'NodeLiteral') {
+            const path = formatPath(event.path);
+            const datatype = event.datatype;
+            if (mode === 'strict' && datatype && datatypeBase(datatype) !== 'node') {
+                errors.push(new InvalidNodeDatatypeError(event.span, path, datatype));
+            } else if (!allowCustom && datatype && !expectedKindsForReservedDatatype(datatype)) {
+                errors.push(new CustomDatatypeNotAllowedError(event.span, path, datatype));
+            } else if (datatype) {
+                const kinds = expectedKindsForReservedDatatype(datatype) ?? customDatatypeKinds?.(datatype);
+                if (kinds && !kinds.includes('NodeLiteral')) {
+                    errors.push(new DatatypeLiteralMismatchError(event.span, path, datatype, 'NodeLiteral', kinds));
+                }
+            }
+            errors.push(...validateAnnotationEntries(
+                event.annotations, path, event.span, events, pathToIndex, mode, datatypePolicy, referenceCache
+            ));
+            errors.push(...validateAnonymousTypedValues(event.value, path, event.span, events, pathToIndex, mode, datatypePolicy));
+            continue;
+        }
+
         // Indexed list/tuple element events are synthetic structural nodes.
         // They still carry explicit annotations on authored anonymous values.
         if (isIndexedElementEvent(event)) {
@@ -338,7 +358,6 @@ export function enforceMode(
             mode,
             datatypePolicy
         ));
-        errors.push(...validateNodeHeadDatatypes(event.value, formatPath(event.path), event.span, mode));
     }
 
     // Fail-closed: return empty events if errors exist
@@ -631,9 +650,7 @@ function validateCustomMetadataKinds(
         attributes(root.attributes, owner);
         root = root.value;
     }
-    if (root.type === 'NodeLiteral') {
-        attributes(root.attributes, `${owner}[0]`);
-    } else if (root.type === 'ObjectNode' || root.type === 'ListNode' || root.type === 'TupleLiteral') {
+    if (root.type === 'ObjectNode' || root.type === 'ListNode' || root.type === 'TupleLiteral') {
         attributes(root.attributes, owner);
     }
     projected(event.annotations, owner);
@@ -678,12 +695,11 @@ function validateCustomMetadataKinds(
                 attributes(value.attributes, path);
                 break;
             case 'NodeLiteral': {
-                const head = `${path}[0]`;
                 for (let index = value.children.length - 1; index >= 0; index--) {
                     const child = value.children[index]!;
-                    tasks.push({ value: child, path: `${head}[${index}]`, span: child.span });
+                    tasks.push({ value: child, path: `${path}[${index}]`, span: child.span });
                 }
-                attributes(value.attributes, head);
+                attributes(value.attributes, path);
                 break;
             }
         }
@@ -707,7 +723,9 @@ function validateAnnotationEntries(
     const errors: ModeEnforcementError[] = [];
     for (const [key, entry] of annotations) {
         const attrPath = `${ownerPath}.@.${key}`;
-        if (!entry.datatype && (mode === 'strict' || mode === 'custom')) {
+        if (entry.value.type === 'NodeLiteral' && mode === 'strict' && entry.datatype && datatypeBase(entry.datatype) !== 'node') {
+            errors.push(new InvalidNodeDatatypeError(entry.span ?? span, attrPath, entry.datatype));
+        } else if (!entry.datatype && entry.value.type !== 'NodeLiteral' && (mode === 'strict' || mode === 'custom')) {
             const resolved = resolveReferenceValue(entry.value, events, pathToIndex) ?? entry.value;
             const actualKind = resolvedValueKind(resolved);
             errors.push(mode === 'strict' && actualKind === 'ToggleLiteral'
@@ -726,7 +744,6 @@ function validateAnnotationEntries(
                 }
             }
         }
-        errors.push(...validateNodeHeadDatatypes(entry.value, attrPath, span, mode));
         errors.push(...validateAnnotationEntries(
             entry.annotations,
             attrPath,
@@ -738,46 +755,6 @@ function validateAnnotationEntries(
             referenceCache
         ));
     }
-    return errors;
-}
-
-function validateNodeHeadDatatypes(
-    value: Value,
-    ownerPath: string,
-    span: Span,
-    mode: Mode
-): readonly ModeEnforcementError[] {
-    const errors: ModeEnforcementError[] = [];
-
-    if (value.type === 'TypedValue') {
-        errors.push(...validateNodeHeadDatatypes(value.value, ownerPath, span, mode));
-        return errors;
-    }
-
-    if (value.type === 'NodeLiteral') {
-        const headDatatype = value.datatype ? formatTypeAnnotation(value.datatype) : null;
-        if (mode === 'strict' && headDatatype && value.datatype!.name.toLowerCase() !== 'node') {
-            errors.push(new InvalidNodeHeadDatatypeError(span, ownerPath, headDatatype));
-        }
-        for (let i = 0; i < value.children.length; i++) {
-            errors.push(...validateNodeHeadDatatypes(value.children[i]!, `${ownerPath}[${i}]`, span, mode));
-        }
-        return errors;
-    }
-
-    if (value.type === 'ObjectNode') {
-        for (const binding of value.bindings) {
-            errors.push(...validateNodeHeadDatatypes(binding.value, `${ownerPath}.${binding.key}`, span, mode));
-        }
-        return errors;
-    }
-
-    if (value.type === 'ListNode' || value.type === 'TupleLiteral') {
-        for (let i = 0; i < value.elements.length; i++) {
-            errors.push(...validateNodeHeadDatatypes(value.elements[i]!, `${ownerPath}[${i}]`, span, mode));
-        }
-    }
-
     return errors;
 }
 

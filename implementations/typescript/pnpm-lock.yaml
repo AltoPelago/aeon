@@ -27,8 +27,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: 0.15.0
-        version: 0.15.0
+        specifier: git+https://github.com/AltoPelago/sansa.git#eb31cd0d7b9d926663896de7530706ed71229ac5
+        version: https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5
     devDependencies:
       '@altopelago/aeon-lexer':
         specifier: workspace:*
@@ -155,8 +155,8 @@ importers:
         specifier: workspace:*
         version: link:../lexer
       '@altopelago/sansa':
-        specifier: 0.15.0
-        version: 0.15.0
+        specifier: git+https://github.com/AltoPelago/sansa.git#eb31cd0d7b9d926663896de7530706ed71229ac5
+        version: https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5
 
   packages/profiles:
     dependencies:
@@ -203,8 +203,8 @@ importers:
         specifier: workspace:*
         version: link:../finalize
       '@altopelago/sansa':
-        specifier: 0.15.0
-        version: 0.15.0
+        specifier: git+https://github.com/AltoPelago/sansa.git#eb31cd0d7b9d926663896de7530706ed71229ac5
+        version: https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5
 
   packages/sdk-internal:
     dependencies:
@@ -221,8 +221,8 @@ importers:
         specifier: workspace:*
         version: link:../annotation-stream
       '@altopelago/sansa':
-        specifier: 0.15.0
-        version: 0.15.0
+        specifier: git+https://github.com/AltoPelago/sansa.git#eb31cd0d7b9d926663896de7530706ed71229ac5
+        version: https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5
 
   packages/transport: {}
 
@@ -302,8 +302,8 @@ importers:
   tools/sansa-resolve-cts-runner:
     dependencies:
       '@altopelago/sansa':
-        specifier: 0.15.0
-        version: 0.15.0
+        specifier: git+https://github.com/AltoPelago/sansa.git#eb31cd0d7b9d926663896de7530706ed71229ac5
+        version: https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5
     devDependencies:
       '@types/node':
         specifier: ^26.6.6
@@ -311,8 +311,9 @@ importers:
 
 packages:
 
-  '@altopelago/sansa@0.15.0':
-    resolution: {integrity: sha512-+dWvxYYPfG1d9th6mhZbXhLsZvoboe4UHISz2jQcB+hlE3u+pOQw2p2OHiVGYp8pnkYf8ZFdZ1mlxzQoLdPIdw==}
+  '@altopelago/sansa@https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5':
+    resolution: {gitHosted: true, integrity: sha512-IT1CNKaCLlgQnzeYLHfTlm2bRLwFdtJ4TyfaUuxeJKMbi/b6GH3g6AY2Bu0POSPDpHbyGIXo9QhMGySdRhU7aA==, tarball: https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5}
+    version: 0.15.0
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -466,7 +467,7 @@ packages:
 
 snapshots:
 
-  '@altopelago/sansa@0.15.0': {}
+  '@altopelago/sansa@https://codeload.github.com/AltoPelago/sansa/tar.gz/eb31cd0d7b9d926663896de7530706ed71229ac5': {}
 
   '@types/node@26.6.6':
     dependencies:

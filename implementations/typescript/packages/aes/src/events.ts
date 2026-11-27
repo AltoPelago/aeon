@@ -133,6 +133,7 @@ export function emitEvents(
  */
 function createEvent(cb: CanonicalBinding): AssignmentEvent {
     const binding = cb.binding;
+    const metadata = binding.value.type === 'NodeLiteral' ? binding.value : binding;
 
     // Build base event
     const event: AssignmentEvent = {
@@ -140,20 +141,20 @@ function createEvent(cb: CanonicalBinding): AssignmentEvent {
         normalizedPath: formatNormalizedPath(cb.path),
         key: binding.key,
         sourcePlane: cb.sourcePlane,
-        ...(binding.structuralId !== null ? { structuralId: binding.structuralId } : {}),
+        ...(metadata.structuralId !== null ? { structuralId: metadata.structuralId } : {}),
         value: binding.value,
         span: cb.span,
     };
 
     // Add optional datatype if present
-    if (binding.datatype) {
-        (event as { datatype: string }).datatype = formatDatatypeAnnotation(binding.datatype);
+    if (metadata.datatype) {
+        (event as { datatype: string }).datatype = formatDatatypeAnnotation(metadata.datatype);
     }
 
     // Add annotations if attributes present
-    if (binding.attributes.length > 0) {
+    if (metadata.attributes.length > 0) {
         (event as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations =
-            buildAnnotations(binding.attributes);
+            buildAnnotations(metadata.attributes);
     }
 
     return event;
@@ -167,15 +168,16 @@ function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string,
 
     for (const attr of attributes) {
         for (const [key, entry] of attr.entries) {
+            const metadata = entry.value.type === 'NodeLiteral' ? entry.value : entry;
             const attrEntry: AttributeEntry = {
-                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
+                ...(metadata.structuralId !== null ? { structuralId: metadata.structuralId } : {}),
                 value: entry.value,
                 ...(entry.span !== undefined ? { span: entry.span } : {}),
             };
-            if (entry.datatype) {
-                (attrEntry as { datatype: string }).datatype = formatDatatypeAnnotation(entry.datatype);
+            if (metadata.datatype) {
+                (attrEntry as { datatype: string }).datatype = formatDatatypeAnnotation(metadata.datatype);
             }
-            const nestedAnnotations = buildAnnotations(entry.attributes);
+            const nestedAnnotations = buildAnnotations(metadata.attributes);
             if (nestedAnnotations.size > 0) {
                 (attrEntry as { annotations: ReadonlyMap<string, AttributeEntry> }).annotations = nestedAnnotations;
             }

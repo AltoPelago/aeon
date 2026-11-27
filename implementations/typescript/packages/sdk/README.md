@@ -49,11 +49,10 @@ const result = evaluateQuery(
 keeps finalization diagnostics alongside a portable AES-backed namespace, so
 AEON values that are not representable in strict JSON remain queryable. Native
 assignment events are first projected through the complete portable AES
-topology: a node binding is a `NodeLiteral`, its tag is a distinct `NodeHead`
-child, and node content appears beneath that head. The adapter uses normative
-PascalCase representation kinds, preserves datatype components, translates
-reference targets into the same portable address domain, and derives portable
-origin and UTF-8 byte spans from the exact source text.
+topology. A node is one `NodeLiteral` record with an intrinsic tag and direct
+indexed children. Reference targets retain the same structural path in AEON
+and portable AES. The adapter preserves datatype components and derives byte
+spans and portable origin from the exact UTF-8 source.
 
 The namespace exposes payload bindings by default; pass
 `{ namespace: { scope: 'header' | 'full' } }` to select another document plane.
@@ -83,32 +82,24 @@ paths.
 
 #### Experimental standalone property Resolve
 
-The coordinated SANSA 0.15 integration supports literal `&key("...")`,
-`&tag("...")` and `&headTag("...")` filters through this namespace's explicit
-`properties` facet. See the [provider/host matrix](../../../../docs/property-selector-support.md):
+The revised node model uses SANSA's checked `&key("...")` and
+`&tag("...")` filters through the namespace's `properties` facet.
 
 ```ts
-const { namespace: document } = readAeonNamespace('item = <widget("hello")>');
-const selected = resolveAddress('$.*&key("item")&tag("widget")', document, {
-  maxPropertyInspections: 1000,
-});
-// The original item container is returned; its address remains '$.item'.
+const { namespace } = readAeonNamespace('<widget("hello")>');
+const selected = resolveAddress('$.widget&tag("widget")', namespace);
+// The selected node's address is '$.widget'. Its first child is '$.widget[0]'.
 ```
 
-Keys come from authored member metadata, including an empty member name, and
-indices do not become keys. Tag inspection uses directly owned `NodeHead`
-occurrences, never ordinary `tag` fields or a cached container tag. A contextual
-root hides its incoming key while retaining intrinsic node tags. Attribute-space
-transitions establish boundaries; inspecting a binding outside its boundary or
-from another namespace fails without exposing foreign metadata.
+Keys come from authored member metadata, including empty member names. Indexed
+nodes expose their tag and position. A contextual root hides its incoming key
+and retains its intrinsic tag. Attribute-space transitions establish scope
+boundaries. Editing a display binding does not change the metadata captured when
+the namespace was built.
 
-The adapter captures authoritative topology/metadata when it builds the namespace;
-editing public display fields cannot change that authority. This adds linear
-construction storage; scope checks follow graph ancestry and have depth-dependent
-cost. Head enumeration streams the captured direct heads without making an
-inspection-time array copy. Resolve's logical allowance is separate from those
-adapter costs: it defaults to 10,000, has portable maximum 1,000,000, and counts
-candidates and yielded direct heads, including misses and repeated occurrences.
+The property allowance counts each candidate inspection, including misses and
+repeated occurrences. It defaults to 10,000 with a maximum of 1,000,000. Namespace
+construction and ancestry traversal have separate costs.
 
 Direct read-only Query is also admitted in the coordinated candidate (see below).
 Activation, mutation, Instruction and references remain closed to properties.
@@ -125,12 +116,9 @@ separate. No release or deployment is authorized by this development support.
   `identity`, when present, is separate opaque structural-occurrence metadata;
   SANSA mutation adapters can combine it with observed-state checks to reject
   stale targets.
-- Namespace addresses follow complete portable AES event paths. In particular,
-  `<tag("value")>` exposes the outer node at its assignment address, its head at
-  `[0]`, and its first content value at `[0][0]`. Binding/key metadata remains
-  on the outer occurrence; tag metadata remains on the `NodeHead` occurrence.
-  References are translated through these levels so their targets stay in the
-  same address domain as resolution.
+- The node authored as `<tag("value")>` is at `$.tag` and its first child
+  is at `$.tag[0]`. `~tag[0]`, `~>tag[0]` and exact SANSA `$.tag[0]`
+  identify the same structural occurrence in the payload scope.
 - AES retains the source numeric lexeme. The namespace exposes finite AEON
   numbers as canonical strings by default and supplies the same lexeme to
   SANSA's exact numeric comparator. Pass

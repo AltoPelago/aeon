@@ -152,13 +152,14 @@ test('materializes an AEON document after a Telex round trip', () => {
 config\CONFIG\@{scope\META\ = "test"} = {
   title:string = "Demo"
   values:list<int> = [2, 3, 4]
-  card:node = <tag\HEAD\@{role = "button"}(\CHILD\@{lang = "en"}:string = "hello", true)>
+  <tag\CARD\@{role = "button"}:node(\CHILD\@{lang = "en"}:string = "hello", true)>
   copy = ~config.values
   pointer = ~>config.title
 }`;
   const exported = aeonToTelex(source, { includeHeaders: true });
   assert.equal(exported.compile.errors.length, 0);
   assert.ok(exported.telex);
+  assert.match(exported.telex, /path=\$\.config\.tag\nkind=NodeLiteral\ntag=tag\n/u);
 
   const imported = readTelexDocumentChecked(exported.telex, {
     finalize: { mode: 'loose', scope: 'full' },
@@ -173,7 +174,7 @@ config\CONFIG\@{scope\META\ = "test"} = {
       config: {
         title: 'Demo',
         values: [2, 3, 4],
-        card: {
+        tag: {
           $node: 'tag',
           '@': { role: 'button' },
           $children: ['hello', true],
@@ -181,7 +182,7 @@ config\CONFIG\@{scope\META\ = "test"} = {
         copy: [2, 3, 4],
         pointer: '~>config.title',
         '@': {
-          card: {
+          tag: {
             '@items': {
               '0': { lang: 'en' },
             },
@@ -280,17 +281,17 @@ test('readAeonChecked throws on compile/finalize errors and indexes events by ca
 
 test('readAeonChecked preserves structural identities on its public AES surface', () => {
   const source = String.raw`aeon:mode = "loose"
-value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\(\CHILD\:string = "text")>`;
+<tag\ROOT\@{source\META\:string = "user"}(\CHILD\:string = "text")>`;
   const result = readAeonChecked(source, {
     finalize: { mode: 'loose' },
   });
-  const event = result.eventsByPath.get('$.value');
+  const event = result.eventsByPath.get('$.tag');
 
   assert.equal(event?.structuralId, 'ROOT');
   assert.equal(event?.annotations?.get('source')?.structuralId, 'META');
   assert.equal(event?.value.type, 'NodeLiteral');
   if (event?.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
-  assert.equal(event.value.structuralId, 'HEAD');
+  assert.equal(event.value.structuralId, 'ROOT');
   assert.equal(event.value.children[0]?.type, 'TypedValue');
   if (event.value.children[0]?.type !== 'TypedValue') assert.fail('Expected headed child');
   assert.equal(event.value.children[0].structuralId, 'CHILD');

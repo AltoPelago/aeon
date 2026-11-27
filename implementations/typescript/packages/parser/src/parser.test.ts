@@ -135,7 +135,7 @@ describe('Parser', () => {
                 'yes:string = "top"',
                 'copy:string = ~yes',
                 'true@{no:string = "attr"}:string = "named true"',
-                'node:node = <on(off)>',
+                '<on:node(off)>',
                 'group:object = {',
                 '  false:boolean = true',
                 '  off:toggle = yes',
@@ -247,19 +247,19 @@ describe('Parser', () => {
         });
 
         it('should preserve structural identities on attribute-entry and node heads', () => {
-            const tokens = tokenize(String.raw`value@{source\META\:string = "user"} = <tag\HEAD\>`).tokens;
+            const tokens = tokenize(String.raw`<tag\NODE\@{source\META\:string = "user"}>`).tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
             const binding = result.document!.bindings[0]!;
-            assert.strictEqual(binding.attributes[0]!.entries.get('source')!.structuralId, 'META');
             assert.strictEqual(binding.value.type, 'NodeLiteral');
             if (binding.value.type !== 'NodeLiteral') assert.fail('Expected NodeLiteral');
-            assert.strictEqual(binding.value.structuralId, 'HEAD');
+            assert.strictEqual(binding.value.structuralId, 'NODE');
+            assert.strictEqual(binding.value.attributes[0]!.entries.get('source')!.structuralId, 'META');
         });
 
         it('should retain the exact node-head and attribute-entry ranges independently', () => {
-            const source = String.raw`value = <"tag😀"\HEAD\@{role:string = "café"}:node("child")>`;
+            const source = String.raw`<"tag😀"\HEAD\@{role:string = "café"}:node("child")>`;
             const result = parse(tokenize(source).tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -282,7 +282,7 @@ describe('Parser', () => {
         });
 
         it('should reject duplicate structural identities across attribute-entry and node heads', () => {
-            const tokens = tokenize(String.raw`value@{source\same\ = "user"} = <tag\same\>`).tokens;
+            const tokens = tokenize(String.raw`<tag\same\@{source\same\ = "user"}>`).tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.some(error => error.code === 'DUPLICATE_STRUCTURAL_IDENTITY'));
@@ -353,7 +353,7 @@ b = [\A1\ = 2]`).tokens;
                 '  mode:number = "strict"',
                 '  a = { c:n = 0 }',
                 '  b@{a:n = 2} = 2',
-                '  n:node = <a(<a(<a@{g:string = "h"}()>)>)>',
+                '  n:list = [<a(<a(<a@{g:string = "h"}()>)>)>]',
                 '}',
             ].join('\n')).tokens;
             const result = parse(tokens);
@@ -368,7 +368,7 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(header.bindings[1]!.datatype?.name, 'number');
             assert.strictEqual(header.bindings[2]!.value.type, 'ObjectNode');
             assert.strictEqual(header.bindings[3]!.attributes.length, 1);
-            assert.strictEqual(header.bindings[4]!.value.type, 'NodeLiteral');
+            assert.strictEqual(header.bindings[4]!.value.type, 'ListNode');
         });
 
         it('should parse contiguous shorthand header bindings before body bindings', () => {
@@ -421,8 +421,8 @@ b = [\A1\ = 2]`).tokens;
         it('should parse parameterized object and node binding claims in core v1', () => {
             const tokens = tokenize([
                 'scores:object<number> = { alice:number = 10 }',
-                'doc:node<html> = <html>',
-                'child:node<node> = <tag>',
+                '<html:node<html>>',
+                '<tag:node<node>>',
                 'missing:null<number> = !none',
                 'bad:nan<number> = NaN',
                 'fast:infinity<speedofmass> = Infinity',
@@ -432,10 +432,14 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors.length, 0);
             assert.strictEqual(result.document!.bindings[0]!.datatype?.name, 'object');
             assert.deepStrictEqual(result.document!.bindings[0]!.datatype?.genericArgs, ['number']);
-            assert.strictEqual(result.document!.bindings[1]!.datatype?.name, 'node');
-            assert.deepStrictEqual(result.document!.bindings[1]!.datatype?.genericArgs, ['html']);
-            assert.strictEqual(result.document!.bindings[2]!.datatype?.name, 'node');
-            assert.deepStrictEqual(result.document!.bindings[2]!.datatype?.genericArgs, ['node']);
+            assert.strictEqual(result.document!.bindings[1]!.value.type, 'NodeLiteral');
+            const node1 = result.document!.bindings[1]!.value;
+            assert.ok(node1.type === 'NodeLiteral');
+            assert.deepStrictEqual(node1.datatype?.genericArgs, ['html']);
+            assert.strictEqual(result.document!.bindings[2]!.value.type, 'NodeLiteral');
+            const node2 = result.document!.bindings[2]!.value;
+            assert.ok(node2.type === 'NodeLiteral');
+            assert.deepStrictEqual(node2.datatype?.genericArgs, ['node']);
             assert.strictEqual(result.document!.bindings[3]!.datatype?.name, 'null');
             assert.deepStrictEqual(result.document!.bindings[3]!.datatype?.genericArgs, ['number']);
             assert.strictEqual(result.document!.bindings[4]!.datatype?.name, 'nan');
@@ -445,15 +449,17 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should preserve reserved child datatype claims on ordinary node bindings', () => {
-            const tokens = tokenize('tag:node<string> = <tag>').tokens;
+            const tokens = tokenize('<tag:node<string>>').tokens;
             const result = parse(tokens);
 
             assert.deepStrictEqual(result.errors, []);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['string']);
+            const node = result.document!.bindings[0]!.value;
+            assert.ok(node.type === 'NodeLiteral');
+            assert.deepStrictEqual(node.datatype?.genericArgs, ['string']);
         });
 
         it('should parse node<T> on node heads', () => {
-            const tokens = tokenize('title:node = <title:node<string>("Hello")>').tokens;
+            const tokens = tokenize('<title:node<string>("Hello")>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -1090,7 +1096,7 @@ b = [\A1\ = 2]`).tokens;
                 'a:sansa = $.name/* block */',
                 'b:sansa = $.name// line',
                 'c:list = [$.name]',
-                'd:node = <tag($.name)>',
+                '<tag:node($.name)>',
                 'e:tuple = ($.name)',
             ].join('\n')).tokens;
             const result = parse(tokens);
@@ -1392,7 +1398,9 @@ b = [\A1\ = 2]`).tokens;
             const result = parse(tokens);
 
             assert.deepStrictEqual(result.errors, []);
-            assert.deepStrictEqual(result.document!.bindings[0]!.datatype!.genericArgs, ['string']);
+            const node = result.document!.bindings[0]!.value;
+            assert.ok(node.type === 'NodeLiteral');
+            assert.deepStrictEqual(node.datatype?.genericArgs, ['string']);
         });
 
         it('should preserve generics on reserved boolean datatypes', () => {
@@ -1525,8 +1533,22 @@ b = [\A1\ = 2]`).tokens;
             assert.strictEqual(result.errors[0]!.code, 'SYNTAX_ERROR');
         });
 
+        it('rejects external bindings and anonymous wrappers around node declarations', () => {
+            for (const source of [
+                'page:node = <page>',
+                'doc = {page = <page>}',
+                'host@{page = <page>} = 1',
+                'list = [:node = <page>]',
+                'list = [@{label = "x"} = <page>]',
+            ]) {
+                const result = parse(tokenize(source).tokens);
+                assert.equal(result.errors[0]?.code, 'SYNTAX_ERROR', source);
+                assert.match(result.errors[0]?.message ?? '', /carries its own tag and metadata/, source);
+            }
+        });
+
         it('should parse introducer node syntax', () => {
-            const tokens = tokenize('item = <tag("x", ~a)>').tokens;
+            const tokens = tokenize('<tag("x", ~a)>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -1539,7 +1561,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should parse anonymous typed node children', () => {
-            const tokens = tokenize('item:node = <page(:string = "hello", <tag>, :int32 = 3)>').tokens;
+            const tokens = tokenize('<page:node(:string = "hello", <tag>, :int32 = 3)>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -1644,7 +1666,7 @@ b = [\A1\ = 2]`).tokens;
             const malformedListHeadMissingElement = parse(tokenize('a:list[ = 3 ]').tokens);
             assert.ok(malformedListHeadMissingElement.errors.length > 0);
 
-            const nodeChild = parse(tokenize('a:node = <tag(:n = :n = 3)>').tokens);
+            const nodeChild = parse(tokenize('<tag:node(:n = :n = 3)>').tokens);
             assert.ok(nodeChild.errors.length > 0);
 
             const repeatedAttributeBlock = parse(tokenize('a:list = [@{unit:n=3}@{a:n=2}:n = 3]').tokens);
@@ -1652,7 +1674,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should reject same-line node children without comma separation', () => {
-            const tokens = tokenize('item = <tag("x" ~a)>').tokens;
+            const tokens = tokenize('<tag("x" ~a)>').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -1660,7 +1682,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should parse empty node shorthand', () => {
-            const tokens = tokenize('item = <tag>').tokens;
+            const tokens = tokenize('<tag>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -1673,7 +1695,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should parse empty attributed node shorthand', () => {
-            const tokens = tokenize('item = <span@{id="text"}:node>').tokens;
+            const tokens = tokenize('<span@{id="text"}:node>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -1687,7 +1709,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should reject repeated node head attribute blocks', () => {
-            const tokens = tokenize('item = <span@{id="text"}@{class="body"}:node>').tokens;
+            const tokens = tokenize('<span@{id="text"}@{class="body"}:node>').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -1695,7 +1717,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should reject node syntax without a trailing closing angle', () => {
-            const tokens = tokenize('item = <tag("x")').tokens;
+            const tokens = tokenize('<tag("x")').tokens;
             const result = parse(tokens);
 
             assert.ok(result.errors.length > 0);
@@ -1703,7 +1725,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should parse node attributes and inline node datatype', () => {
-            const tokens = tokenize('item = <span@{id="text"}:node("hello")>').tokens;
+            const tokens = tokenize('<span@{id="text"}:node("hello")>').tokens;
             const result = parse(tokens);
 
             assert.strictEqual(result.errors.length, 0);
@@ -1716,7 +1738,7 @@ b = [\A1\ = 2]`).tokens;
         });
 
         it('should preserve generics and clarifiers on the same node head', () => {
-            const tokens = tokenize('item = <tag:pair<int32,string>["x"]("x")>').tokens;
+            const tokens = tokenize('<tag:pair<int32,string>["x"]("x")>').tokens;
             const result = parse(tokens);
 
             assert.deepStrictEqual(result.errors, []);

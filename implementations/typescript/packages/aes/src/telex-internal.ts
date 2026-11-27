@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Kept behaviorally aligned with the published Telex v1 reference codec.
+// Implements the TypeScript candidate Telex v1 mapping.
 const UTF8_ENCODER = new TextEncoder();
 const ASCII_ONLY = /^[\x00-\x7F]*$/u;
 const PAYLOAD_REQUIRES_ESCAPING = /[\\\u0000-\u001F\u007F\uD800-\uDFFF]/u;
@@ -25,6 +25,7 @@ const TELEX_FIELD_ORDER = new Map([
   'header',
   'path',
   'kind',
+  'tag',
   'datatype',
   'identity',
   'value',
@@ -35,6 +36,7 @@ const AES_CORE_FIELDS = [
   'header',
   'path',
   'kind',
+  'tag',
   'datatype',
   'generics',
   'clarifiers',
@@ -66,12 +68,11 @@ const VALUE_KINDS = new Set([
   'ListNode',
   'TupleLiteral',
   'NodeLiteral',
-  'NodeHead',
   'CloneReference',
   'PointerReference',
 ]);
 const VALUELESS_KINDS = new Set(['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral']);
-const INDEX_CONTAINER_KINDS = new Set(['ListNode', 'TupleLiteral', 'NodeHead']);
+const INDEX_CONTAINER_KINDS = new Set(['ListNode', 'TupleLiteral', 'NodeLiteral']);
 const VALUE_CONTAINER_KINDS = new Set(['ObjectNode', 'ListNode', 'TupleLiteral', 'NodeLiteral']);
 const EXACT_VALUES = new Map([
   ['InfinityLiteral', new Set(['Infinity', '-Infinity'])],
@@ -585,7 +586,10 @@ export function prepareTelexValidationRecords(state, records, firstRecord) {
       ));
     }
 
-    if (knownKind) validateEventValue(event, recordIndex, state.diagnostics, state.limits);
+    if (knownKind) {
+      validateEventValue(event, recordIndex, state.diagnostics, state.limits);
+      validateNodeTag(event, pathDetails?.segments.at(-1), state.limits, state.diagnostics, context);
+    }
     validateOptionalCoreFields(event, recordIndex, state.diagnostics, state.limits);
 
     state.events.push({ event, index: recordIndex, addressField, address, pathDetails, knownKind });
@@ -674,16 +678,6 @@ function validateEventValue(event, index, diagnostics, limits) {
       { ...context, field: 'value' },
     ));
   }
-  if (event.kind === 'NodeHead' && event.value.length === 0) {
-    diagnostics.push(diagnostic(
-      'AES_INVALID_VALUE',
-      'Node tags must not be empty',
-      { ...context, field: 'value' },
-    ));
-  }
-  if (event.kind === 'NodeHead') {
-    validateCodepointLimit('max_key_segment_codepoints', event.value, limits.maxKeySegmentCodepoints, diagnostics, context, 'value');
-  }
   if (event.kind === 'WTCDateTimeLiteral') {
     const separator = event.value.lastIndexOf('&');
     const reference = separator === -1 ? undefined : event.value.slice(separator + 1);
@@ -707,6 +701,29 @@ function validateEventValue(event, index, diagnostics, limits) {
         { ...context, field: 'value' },
       ));
     }
+  }
+}
+
+function validateNodeTag(event, segment, limits, diagnostics, context) {
+  const details = { ...context, field: 'tag' };
+  if (event.kind !== 'NodeLiteral') {
+    if (Object.hasOwn(event, 'tag')) {
+      diagnostics.push(diagnostic('AES_UNEXPECTED_TAG', `Kind '${event.kind}' must not carry 'tag'`, details));
+    }
+    return;
+  }
+  if (!Object.hasOwn(event, 'tag') || event.tag === '') {
+    diagnostics.push(diagnostic('AES_INVALID_TAG', "Kind 'NodeLiteral' requires a non-empty 'tag'", details));
+    return;
+  }
+  if (typeof event.tag !== 'string') return;
+  if (/[\uD800-\uDFFF]/u.test(event.tag)) {
+    diagnostics.push(diagnostic('AES_INVALID_TAG', 'A node tag must consist of Unicode scalars', details));
+    return;
+  }
+  validateCodepointLimit('max_key_segment_codepoints', event.tag, limits.maxKeySegmentCodepoints, diagnostics, context, 'tag');
+  if ((segment?.type === 'member' || segment?.type === 'attribute') && segment.value !== event.tag) {
+    diagnostics.push(diagnostic('AES_INVALID_TAG', "A named node's tag must equal the terminal address key", details));
   }
 }
 
@@ -837,9 +854,6 @@ function validateCompleteStream(events, diagnostics) {
           { record: index, path: address, requiredPath: '$' },
         ));
       }
-      if (event.kind === 'NodeHead') {
-        diagnostics.push(invalidNodeHeadPlacement(event, index));
-      }
       continue;
     }
 
@@ -857,25 +871,8 @@ function validateCompleteStream(events, diagnostics) {
 
     if (segment.type === 'member' && parent.event.kind !== 'ObjectNode') {
       diagnostics.push(incompatibleParent(event, index, parentPath, parent.event.kind, 'ObjectNode'));
-    } else if (segment.type === 'index') {
-      if (parent.event.kind === 'NodeLiteral') {
-        if (event.kind !== 'NodeHead') {
-          diagnostics.push(incompatibleParent(event, index, parentPath, 'NodeLiteral', 'NodeHead child'));
-        }
-      } else if (!INDEX_CONTAINER_KINDS.has(parent.event.kind)) {
-        diagnostics.push(incompatibleParent(
-          event,
-          index,
-          parentPath,
-          parent.event.kind,
-          'ListNode, TupleLiteral, NodeLiteral, or NodeHead',
-        ));
-      }
-    }
-
-    if (event.kind === 'NodeHead'
-      && (segment.type !== 'index' || parent.event.kind !== 'NodeLiteral')) {
-      diagnostics.push(invalidNodeHeadPlacement(event, index));
+    } else if (segment.type === 'index' && !INDEX_CONTAINER_KINDS.has(parent.event.kind)) {
+      diagnostics.push(incompatibleParent(event, index, parentPath, parent.event.kind, 'ListNode, TupleLiteral, or NodeLiteral'));
     }
   }
 }
@@ -903,16 +900,6 @@ function incompatibleParent(event, index, parentPath, actual, expected) {
     'AES_INCOMPATIBLE_PARENT',
     `Parent '${parentPath}' has kind '${actual}'; expected ${expected}`,
     { record: index, path: address, requiredPath: parentPath },
-  );
-}
-
-function invalidNodeHeadPlacement(event, index) {
-  const addressField = recordAddressField(event);
-  const address = addressField === null ? undefined : event[addressField];
-  return diagnostic(
-    'AES_INVALID_NODE_HEAD',
-    "A 'NodeHead' must be an indexed direct child of a 'NodeLiteral'",
-    { record: index, ...(typeof address === 'string' ? { path: address } : {}) },
   );
 }
 
