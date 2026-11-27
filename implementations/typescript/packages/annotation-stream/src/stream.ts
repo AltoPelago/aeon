@@ -1,4 +1,4 @@
-import { buildAnnotations, formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
+import { formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
 import { tokenize, type CommentMetadata, type Span, type Token, TokenType } from '@altopelago/aeon-lexer';
 
 export type AnnotationKind = 'doc' | 'annotation' | 'hint' | 'reserved';
@@ -472,16 +472,58 @@ function attributeBindables(
         }
     }
 
-    function visitNode(value: Extract<Value, { type: 'NodeLiteral' }>, path: string, namedAttribute = false): void {
-        // Descendants have their own bindables. Read only this node's delimiters
-        // and head, so its landmarks do not rescan nested children.
+    type Attribute = Extract<Value, { type: 'NodeLiteral' }>['attributes'][number];
+
+    function tokensOutside(span: Span, nested: readonly { readonly span: Span }[]): Token[] {
         const tokens: Token[] = [];
-        let start = value.span.start;
-        for (const child of [...value.attributes, ...value.children]) {
-            for (const token of tokensInSpan({ start, end: child.span.start })) tokens.push(token);
-            start = child.span.end;
+        let start = span.start;
+        for (const entry of nested) {
+            for (const token of tokensInSpan({ start, end: entry.span.start })) tokens.push(token);
+            start = entry.span.end;
         }
-        for (const token of tokensInSpan({ start, end: value.span.end })) tokens.push(token);
+        for (const token of tokensInSpan({ start, end: span.end })) tokens.push(token);
+        return tokens;
+    }
+
+    function visitAttributes(attributes: readonly Attribute[], path: string): void {
+        for (const attribute of attributes) {
+            for (const [key, entry] of attribute.entries) {
+                const entryPath = formatAttributePath(path, key);
+                if (entry.value.type === 'NodeLiteral') {
+                    visitNode(entry.value, entryPath, true);
+                    continue;
+                }
+                const span = entry.span ?? entry.value.span;
+                const head = { start: span.start, end: entry.value.span.start };
+                const header = tokensOutside(head, entry.attributes);
+                const keyToken = header[0];
+                if (keyToken) {
+                    const next = eventTokens[lowerBound(starts, span.end.offset)];
+                    const end = next && next.span.start.offset < attribute.span.end.offset ? next.span.start : span.end;
+                    const equals = header.find(token => token.type === TokenType.Equals);
+                    const colon = header.find(token => token.type === TokenType.Colon);
+                    const datatype = colon && findDatatypeLandmark(header, colon.span.end.offset, equals?.span.start.offset ?? head.end.offset);
+                    entries.push({
+                        path: entryPath, span: { start: span.start, end }, valueSpan: entry.value.span,
+                        landmarks: [
+                            { part: 'attribute-key', span: keyToken.span },
+                            ...(colon ? [{ part: 'attribute-datatype-colon' as const, span: colon.span }] : []),
+                            ...(datatype ? [{ part: 'attribute-datatype' as const, span: datatype.span }] : []),
+                            ...(equals ? [{ part: 'attribute-equals' as const, span: equals.span }] : []),
+                            { part: 'attribute-value', span: entry.value.span },
+                        ],
+                    });
+                }
+                visitAttributes(entry.attributes, entryPath);
+                visitValue(entry.value, entryPath, false);
+            }
+        }
+    }
+
+    function visitNode(value: Extract<Value, { type: 'NodeLiteral' }>, path: string, namedAttribute = false): void {
+        // Descendant spans have their own bindables. Keep only this node's
+        // delimiters and head token landmarks.
+        const tokens = tokensOutside(value.span, [...value.attributes, ...value.children]);
         const landmarks = [
             ...findNodeValueLandmarks(tokens, value.span),
             ...value.children.map(child => ({ part: 'node-child-value' as const, span: child.span })),
@@ -489,11 +531,7 @@ function attributeBindables(
         const entry = { path, span: value.span, valueSpan: value.span, valueType: value.type, landmarks };
         if (namedAttribute) intrinsic.set(value.span.start.offset, entry);
         else nodeDescendants.push(entry);
-        if (value.attributes.length > 0) {
-            const head = { start: value.span.start, end: value.headSpan?.end ?? value.attributes.at(-1)!.span.end };
-            entries.push(...findNodeHeadAttributeEntryBindables(tokensInSpan(head), path, head));
-            visitAnnotations(buildAnnotations(value.attributes), path);
-        }
+        visitAttributes(value.attributes, path);
         for (const [index, child] of value.children.entries()) visitValue(child, `${path}[${index}]`, true);
     }
 
@@ -508,18 +546,15 @@ function attributeBindables(
         }
         switch (value.type) {
             case 'TypedValue':
-                if (value.attributes.length > 0) {
-                    const head = { start: value.span.start, end: value.value.span.start };
-                    entries.push(...findAttributeEntryBindables(tokensInSpan(head), path, head.start.offset, head.end.offset));
-                    visitAnnotations(buildAnnotations(value.attributes), path);
-                }
+                visitAttributes(value.attributes, path);
                 visitValue(value.value, path, false);
                 break;
             case 'ObjectNode':
                 for (const binding of value.bindings) {
                     const keyPath = formatPath({ segments: [{ type: 'root' }, { type: 'member', key: binding.key }] });
-                    visitValue(binding.value, path + keyPath.slice(1), insideNode);
-                    visitAnnotations(buildAnnotations(binding.attributes), path + keyPath.slice(1));
+                    const childPath = path + keyPath.slice(1);
+                    visitValue(binding.value, childPath, insideNode);
+                    visitAttributes(binding.attributes, childPath);
                 }
                 break;
             case 'ListNode':

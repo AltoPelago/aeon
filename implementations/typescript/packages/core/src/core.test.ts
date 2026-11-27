@@ -1298,6 +1298,15 @@ describe('Core - compile()', () => {
             }
         });
 
+        it('validates transitive clone and pointer kinds inside metadata-only nodes', () => {
+            for (const reference of ['~alias', '~>alias']) {
+                const source = `leaf:n=1\nalias:n=~leaf\n<root@{<inside({cell:n=${reference}})>}>`;
+                assert.deepEqual(compile(source, { mode: 'strict' }).errors, []);
+                const mismatch = compile(source.replace('cell:n=', 'cell:string='), { mode: 'strict' });
+                assert.deepEqual(mismatch.errors.map(error => error.code), ['DATATYPE_LITERAL_MISMATCH']);
+            }
+        });
+
         it('reports typed descendant errors once for quoted node paths', () => {
             const result = compile('<outer({<"inner key"(:number = "bad")>})>', { mode: 'strict' });
             assert.equal(result.errors.filter(error => error.code === 'DATATYPE_LITERAL_MISMATCH').length, 1);

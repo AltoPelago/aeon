@@ -267,7 +267,7 @@ export function enforceMode(
                 if (error) errors.push(error);
             } else {
                 if ((validation === 'node-child' || validation === 'node-member') && datatype) {
-                    const error = validateAnonymousDatatype(value, datatype, span, path, events, pathToIndex, mode, datatypePolicy);
+                    const error = validateAnonymousDatatype(value, datatype, span, path, events, pathToIndex, mode, datatypePolicy, referenceCache);
                     if (error) {
                         errors.push(error);
                         return;
@@ -294,7 +294,7 @@ export function enforceMode(
         if (event.value.type === 'NodeLiteral') {
             const error = validateNodeDatatype(event.value, owner, event.span, mode, allowCustom, customDatatypeKinds);
             if (error) errors.push(error);
-            errors.push(...validateAnonymousTypedValues(event.value, owner, event.span, events, pathToIndex, mode, datatypePolicy));
+            errors.push(...validateAnonymousTypedValues(event.value, owner, event.span, events, pathToIndex, mode, datatypePolicy, referenceCache));
             continue;
         }
 
@@ -369,7 +369,8 @@ export function enforceMode(
             events,
             pathToIndex,
             mode,
-            datatypePolicy
+            datatypePolicy,
+            referenceCache
         ));
     }
 
@@ -494,6 +495,7 @@ function validateAnonymousTypedValues(
     pathToIndex: ReadonlyMap<string, number>,
     mode: Mode,
     datatypePolicy: DatatypePolicy,
+    referenceCache: DatatypeReferenceCache,
     descendant = false,
 ): readonly ModeEnforcementError[] {
     // Each projected node validates its own children. Skip a second walk of the
@@ -505,31 +507,31 @@ function validateAnonymousTypedValues(
         if (value.datatype) {
             const datatype = formatDatatypeAnnotation(value.datatype);
             const error = validateAnonymousDatatype(value.value, datatype, value.span, ownerPath,
-                events, pathToIndex, mode, datatypePolicy);
+                events, pathToIndex, mode, datatypePolicy, referenceCache);
             if (error) errors.push(error);
         }
 
-        errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy, true));
+        errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy, referenceCache, true));
         return errors;
     }
 
     if (value.type === 'ObjectNode') {
         for (const binding of value.bindings) {
-            errors.push(...validateAnonymousTypedValues(binding.value, appendModeMemberPath(ownerPath, binding.key), span, events, pathToIndex, mode, datatypePolicy, true));
+            errors.push(...validateAnonymousTypedValues(binding.value, appendModeMemberPath(ownerPath, binding.key), span, events, pathToIndex, mode, datatypePolicy, referenceCache, true));
         }
         return errors;
     }
 
     if (value.type === 'ListNode' || value.type === 'TupleLiteral') {
         for (let i = 0; i < value.elements.length; i++) {
-            errors.push(...validateAnonymousTypedValues(value.elements[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, true));
+            errors.push(...validateAnonymousTypedValues(value.elements[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, referenceCache, true));
         }
         return errors;
     }
 
     if (value.type === 'NodeLiteral') {
         for (let i = 0; i < value.children.length; i++) {
-            errors.push(...validateAnonymousTypedValues(value.children[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, true));
+            errors.push(...validateAnonymousTypedValues(value.children[i]!, `${ownerPath}[${i}]`, span, events, pathToIndex, mode, datatypePolicy, referenceCache, true));
         }
     }
 
@@ -539,11 +541,10 @@ function validateAnonymousTypedValues(
 function validateAnonymousDatatype(
     value: Value, datatype: string, span: Span, path: string,
     events: readonly AssignmentEvent[], pathToIndex: ReadonlyMap<string, number>,
-    mode: Mode, datatypePolicy: DatatypePolicy,
+    mode: Mode, datatypePolicy: DatatypePolicy, referenceCache: DatatypeReferenceCache,
 ): ModeEnforcementError | undefined {
     const expectedKinds = expectedKindsForReservedDatatype(datatype);
-    const resolved = resolveReferenceValue(value, events, pathToIndex) ?? value;
-    const actualKind = resolvedValueKind(resolved, datatype);
+    const actualKind = resolveDatatypeCheckKind(value, events, pathToIndex, datatype, referenceCache);
     if (datatypeBase(datatype) === 'switch' && actualKind === 'ToggleLiteral') {
         return new CustomToggleAliasNotAllowedError(span, path, datatype);
     }
