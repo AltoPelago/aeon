@@ -25,6 +25,7 @@ use aes_telex::{
 use serde::de::DeserializeOwned;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 
+pub mod profiles;
 pub mod sansa_document;
 
 pub use aeon_core::{CompileToTelexOptions, CompileToTelexResult};

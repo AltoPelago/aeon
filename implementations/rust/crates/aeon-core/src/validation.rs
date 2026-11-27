@@ -11,7 +11,8 @@ use crate::pathing::{
 use crate::temporal::invalid_temporal_literal;
 use crate::{
     AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath, DatatypePolicy,
-    Diagnostic, PathSegment, ReferenceSegment, SourcePlane, Span, Value, format_path,
+    DatatypeProfile, Diagnostic, PathSegment, ReferenceSegment, SourcePlane, Span, Value,
+    format_path,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -726,7 +727,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
     max_separator_depth: usize,
     max_generic_depth: usize,
     recovery: bool,
-    gp_active: bool,
+    datatype_profile: Option<DatatypeProfile<'_>>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
@@ -764,12 +765,9 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 datatype_policy,
             ) {
                 errors.push(error);
-            } else if gp_active
-                && let Some(error) = crate::gp_custom_generic_value_error(
-                    datatype,
-                    resolved_value.value_kind(),
-                    path,
-                )
+            } else if let Some(profile) = datatype_profile
+                && let Some(error) =
+                    profile.custom_value_error(datatype, resolved_value.value_kind(), path)
             {
                 errors.push(error.with_span(event.span));
             }
@@ -781,7 +779,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
-        gp_active,
+        datatype_profile,
         errors,
     );
 }
@@ -1008,7 +1006,7 @@ pub(crate) fn validate_datatypes_light(
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    gp_active: bool,
+    datatype_profile: Option<DatatypeProfile<'_>>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
@@ -1094,12 +1092,9 @@ pub(crate) fn validate_datatypes_light(
                         .at_path(event.path.clone())
                         .with_span(event.span),
                 );
-            } else if gp_active
-                && let Some(error) = crate::gp_custom_generic_value_error(
-                    datatype,
-                    resolved_value.value_kind(),
-                    &event.path,
-                )
+            } else if let Some(profile) = datatype_profile
+                && let Some(error) =
+                    profile.custom_value_error(datatype, resolved_value.value_kind(), &event.path)
             {
                 errors.push(error.with_span(event.span));
             }
@@ -1111,7 +1106,7 @@ pub(crate) fn validate_datatypes_light(
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
-        gp_active,
+        datatype_profile,
         errors,
     );
 }
@@ -1631,7 +1626,7 @@ fn separator_spec_depth(datatype: &str) -> usize {
     datatype_bracket_specs(datatype).len()
 }
 
-fn datatype_base(datatype: &str) -> &str {
+pub(crate) fn datatype_base(datatype: &str) -> &str {
     let generic_idx = datatype.find('<');
     let separator_idx = datatype.find('[');
     let end_idx = match (generic_idx, separator_idx) {
@@ -1644,9 +1639,14 @@ fn datatype_base(datatype: &str) -> &str {
 }
 
 pub(crate) fn is_reserved_datatype(datatype: &str) -> bool {
-    let base = datatype_base(datatype);
+    is_reserved_datatype_name(datatype_base(datatype))
+}
+
+/// Whether a name denotes a datatype reserved by Core.
+#[must_use]
+pub fn is_reserved_datatype_name(name: &str) -> bool {
     matches!(
-        base,
+        name,
         "number"
             | "n"
             | "int"
@@ -2316,13 +2316,18 @@ pub(crate) enum AttributeDatatypeCheck {
         path: String,
         datatype: String,
         value: Value,
-        custom_generic: bool,
+        profile_custom: bool,
     },
 }
 
 impl AttributeDatatypeCheck {
-    pub(crate) fn gp_custom_value(datatype: &str, value: &Value, path: &str) -> Option<Self> {
-        if is_reserved_datatype(datatype) || !crate::datatype_has_generic_args(datatype) {
+    pub(crate) fn profile_custom_value(
+        profile: DatatypeProfile<'_>,
+        datatype: &str,
+        value: &Value,
+        path: &str,
+    ) -> Option<Self> {
+        if !profile.checks_custom_kind(datatype) {
             return None;
         }
         let mut value = value;
@@ -2337,14 +2342,17 @@ impl AttributeDatatypeCheck {
                 path: path.to_owned(),
                 datatype: datatype.to_owned(),
                 value: value.clone(),
-                custom_generic: true,
+                profile_custom: true,
             });
         }
-        crate::gp_custom_generic_value_error(datatype, value.value_kind(), path).map(Self::Error)
+        profile
+            .custom_value_error(datatype, value.value_kind(), path)
+            .map(Self::Error)
     }
 
     pub(crate) fn diagnostic<'a>(
         &'a self,
+        profile: Option<DatatypeProfile<'_>>,
         resolve: impl FnOnce(&'a Value) -> CompactDatatypeValue,
     ) -> Option<Diagnostic> {
         match self {
@@ -2353,14 +2361,12 @@ impl AttributeDatatypeCheck {
                 path,
                 datatype,
                 value,
-                custom_generic,
+                profile_custom,
             } => {
-                if *custom_generic {
-                    return crate::gp_custom_generic_value_error(
-                        datatype,
-                        resolve(value).value_kind(),
-                        path,
-                    );
+                if *profile_custom {
+                    return profile.and_then(|profile| {
+                        profile.custom_value_error(datatype, resolve(value).value_kind(), path)
+                    });
                 }
                 let resolved = resolve(value);
                 (!datatype_matches_compact_value(datatype, &resolved)).then(|| {
@@ -2762,7 +2768,7 @@ fn validate_resolved_attribute_datatypes(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    gp_active: bool,
+    datatype_profile: Option<DatatypeProfile<'_>>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mut checks = Vec::new();
@@ -2774,15 +2780,18 @@ fn validate_resolved_attribute_datatypes(
         max_generic_depth,
         &mut checks,
     );
-    if gp_active && datatype_policy == DatatypePolicy::AllowCustom {
-        crate::gp_attributes::collect_gp_attribute_value_checks(
+    if let Some(profile) = datatype_profile
+        && datatype_policy == DatatypePolicy::AllowCustom
+    {
+        crate::gp_attributes::collect_profile_attribute_value_checks(
+            profile,
             authored_targets.paths.bindings,
             &mut checks,
         );
     }
     let mut references = DatatypeReferenceCache::default();
     for check in &checks {
-        errors.extend(check.diagnostic(|value| {
+        errors.extend(check.diagnostic(datatype_profile, |value| {
             references.resolve(value, |segments| authored_targets.lookup(segments))
         }));
     }
@@ -2970,7 +2979,7 @@ fn validate_attribute_datatype_map(
                     path: attr_path,
                     datatype: datatype.clone(),
                     value: value.clone(),
-                    custom_generic: false,
+                    profile_custom: false,
                 });
             } else if !datatype_matches_value(datatype, value) {
                 checks.push(AttributeDatatypeCheck::Error(

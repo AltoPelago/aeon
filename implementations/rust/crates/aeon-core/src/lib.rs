@@ -9,6 +9,7 @@ mod lexer;
 mod limits;
 mod pathing;
 mod portable;
+mod profile_rules;
 mod progressive;
 mod radix;
 mod resource_limits;
@@ -22,6 +23,7 @@ mod validation;
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
+use std::sync::Arc;
 
 pub use document::parse_document;
 pub use engine::{
@@ -29,7 +31,7 @@ pub use engine::{
     EventBatch, EventBatches, SourceRetention,
 };
 use flatten::{ValidationEvent, flatten_document, flatten_validation_document};
-use gp_attributes::validate_gp_unprojected_datatypes;
+use gp_attributes::validate_profile_unprojected_datatypes;
 pub use header::strip_leading_bom;
 use header::{extract_header_fields, lower_header, strip_preamble};
 pub use pathing::format_path;
@@ -42,6 +44,10 @@ pub use portable::{
     compile_to_telex, export_telex, export_telex_owned, project_aes_event_records,
     project_aes_event_records_taken, project_portable_events, project_telex_records,
 };
+use profile_rules::DatatypeProfile;
+pub use profile_rules::{
+    ClarifierRule, DatatypeSemantics, GenericAdmissionPolicy, ProfileDatatypeRules,
+};
 pub use radix::{
     RadixBaseResolution, radix_base_from_number, radix_digit_value,
     resolve_radix_base_from_components, resolve_radix_base_from_datatype,
@@ -53,6 +59,7 @@ pub use sansa::{
     parse_address as parse_sansa_address, resolve_address as resolve_sansa_address,
     resolve_parsed_address as resolve_parsed_sansa_address,
 };
+pub use validation::is_reserved_datatype_name;
 #[doc(hidden)]
 pub use validation::{AssignmentReferenceTarget, resolve_assignment_reference_target};
 use validation::{
@@ -259,6 +266,8 @@ pub struct CompileOptions {
     pub max_structured_comment_characters: usize,
     pub datatype_policy: Option<DatatypePolicy>,
     pub profile: Option<String>,
+    /// Trusted datatype rules. If present, these take precedence over ID-based profile selection.
+    pub profile_datatype_rules: Option<Arc<ProfileDatatypeRules>>,
     pub mode: Option<BehaviorMode>,
     pub shallow_event_values: bool,
     pub emit_binding_projections: bool,
@@ -290,6 +299,7 @@ impl Default for CompileOptions {
             max_structured_comment_characters: 1_048_576,
             datatype_policy: None,
             profile: None,
+            profile_datatype_rules: None,
             mode: None,
             shallow_event_values: false,
             emit_binding_projections: true,
@@ -300,6 +310,12 @@ impl Default for CompileOptions {
 }
 
 impl CompileOptions {
+    pub(crate) fn loaded_datatype_profile(&self) -> Option<DatatypeProfile<'_>> {
+        self.profile_datatype_rules
+            .as_deref()
+            .map(DatatypeProfile::Loaded)
+    }
+
     #[must_use]
     pub fn effective_max_clarifier_values(&self) -> usize {
         self.max_clarifier_values
@@ -949,7 +965,7 @@ fn benchmark_validation_phases_with_implementation(
         options.datatype_policy,
         options.effective_max_clarifier_values(),
         options.max_generic_depth,
-        uses_gp_profile(options.profile.as_deref(), &lowered),
+        selected_datatype_profile(&options, &lowered),
         &mut datatype_errors,
     );
     let datatype_validation_ns = datatype_start.elapsed().as_nanos();
@@ -1200,7 +1216,7 @@ fn finalize_compile(
         .include_header
         .then(|| extract_header_fields(&bindings));
 
-    let gp_active = uses_gp_profile(options.profile.as_deref(), &bindings);
+    let datatype_profile = selected_datatype_profile(&options, &bindings);
     if options.emit_binding_projections {
         validate_datatypes(
             &flattened.events,
@@ -1212,7 +1228,7 @@ fn finalize_compile(
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
             options.recovery,
-            gp_active,
+            datatype_profile,
             &mut errors,
         );
     } else {
@@ -1226,21 +1242,27 @@ fn finalize_compile(
             options.effective_max_clarifier_values(),
             options.max_generic_depth,
             options.recovery,
-            gp_active,
+            datatype_profile,
             &mut errors,
         );
     }
-    if gp_active {
+    if let Some(profile) = datatype_profile {
         if options.emit_binding_projections {
-            validate_gp_event_datatypes(&flattened.events, &flattened.bindings, &mut errors);
+            validate_profile_event_datatypes(
+                profile,
+                &flattened.events,
+                &flattened.bindings,
+                &mut errors,
+            );
         } else {
-            validate_gp_event_datatypes(
+            validate_profile_event_datatypes(
+                profile,
                 &flattened.events,
                 &flattened.rendered_event_paths,
                 &mut errors,
             );
         }
-        validate_gp_unprojected_datatypes(&bindings, &mut errors, None);
+        validate_profile_unprojected_datatypes(profile, &bindings, &mut errors, None);
     }
     validate_compact_reference_steps(
         &flattened.reference_steps,
@@ -1324,7 +1346,7 @@ fn validate_only_compile(
     trace_compile("compile:validation_only:event_lookup");
     let event_lookup = build_validation_event_lookup(&flattened.events, &mut errors);
     trace_compile("compile:validation_only:datatypes");
-    let gp_active = uses_gp_profile(options.profile.as_deref(), &bindings);
+    let datatype_profile = selected_datatype_profile(&options, &bindings);
     validate_datatypes_light(
         &flattened.events,
         &event_lookup,
@@ -1333,12 +1355,12 @@ fn validate_only_compile(
         options.datatype_policy,
         options.effective_max_clarifier_values(),
         options.max_generic_depth,
-        gp_active,
+        datatype_profile,
         &mut errors,
     );
-    if gp_active {
-        validate_gp_validation_datatypes(&flattened.events, &mut errors);
-        validate_gp_unprojected_datatypes(&bindings, &mut errors, None);
+    if let Some(profile) = datatype_profile {
+        validate_profile_validation_datatypes(profile, &flattened.events, &mut errors);
+        validate_profile_unprojected_datatypes(profile, &bindings, &mut errors, None);
     }
     trace_compile("compile:validation_only:references");
     validate_compact_reference_steps(
@@ -1374,14 +1396,6 @@ enum GpDatatypePosition {
     Argument,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GpDatatypeClarifierRule {
-    None,
-    RadixBase,
-    SeparatorChars,
-    EncodingName,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum GpClarifierValue {
     String,
@@ -1394,6 +1408,15 @@ struct GpDatatypeSurface {
     name: String,
     args: Vec<GpDatatypeSurface>,
     clarifiers: Option<Vec<GpClarifierValue>>,
+}
+
+fn selected_datatype_profile<'a>(
+    options: &'a CompileOptions,
+    bindings: &[Binding],
+) -> Option<DatatypeProfile<'a>> {
+    options.loaded_datatype_profile().or_else(|| {
+        uses_gp_profile(options.profile.as_deref(), bindings).then_some(DatatypeProfile::BuiltinGp)
+    })
 }
 
 fn uses_gp_profile(option_profile: Option<&str>, bindings: &[Binding]) -> bool {
@@ -1418,22 +1441,8 @@ fn datatype_has_generic_args(datatype: &str) -> bool {
         .is_some_and(|index| datatype.as_bytes()[index] == b'<')
 }
 
-fn gp_custom_generic_value_error(datatype: &str, kind: &str, path: &str) -> Option<Diagnostic> {
-    if matches!(
-        kind,
-        "ListNode" | "TupleLiteral" | "CloneReference" | "PointerReference"
-    ) || !datatype_has_generic_args(datatype)
-        || validation::is_reserved_datatype(datatype)
-    {
-        return None;
-    }
-    Some(Diagnostic::new(
-        "DATATYPE_LITERAL_MISMATCH",
-        format!("Datatype/literal mismatch at '{path}': datatype ':{datatype}' expects ListNode or TupleLiteral, got {kind}"),
-    ).at_path(path))
-}
-
-pub(crate) fn validate_gp_event_datatypes<P: AsRef<str>>(
+pub(crate) fn validate_profile_event_datatypes<P: AsRef<str>>(
+    profile: DatatypeProfile<'_>,
     events: &[AssignmentEvent],
     rendered_paths: &[P],
     errors: &mut Vec<Diagnostic>,
@@ -1449,7 +1458,8 @@ pub(crate) fn validate_gp_event_datatypes<P: AsRef<str>>(
             .get(index)
             .map(|path| path.as_ref().to_owned())
             .unwrap_or_else(|| format_path(&event.path));
-        validate_gp_datatype_surface(
+        validate_profile_datatype_surface(
+            profile,
             &surface,
             &rendered_path,
             event.span,
@@ -1460,7 +1470,11 @@ pub(crate) fn validate_gp_event_datatypes<P: AsRef<str>>(
     }
 }
 
-fn validate_gp_validation_datatypes(events: &[ValidationEvent<'_>], errors: &mut Vec<Diagnostic>) {
+fn validate_profile_validation_datatypes(
+    profile: DatatypeProfile<'_>,
+    events: &[ValidationEvent<'_>],
+    errors: &mut Vec<Diagnostic>,
+) {
     for event in events {
         let Some(datatype) = event.datatype.as_deref() else {
             continue;
@@ -1468,7 +1482,8 @@ fn validate_gp_validation_datatypes(events: &[ValidationEvent<'_>], errors: &mut
         let Some(surface) = parse_gp_datatype_surface(datatype) else {
             continue;
         };
-        validate_gp_datatype_surface(
+        validate_profile_datatype_surface(
+            profile,
             &surface,
             &event.path,
             event.span,
@@ -1479,7 +1494,8 @@ fn validate_gp_validation_datatypes(events: &[ValidationEvent<'_>], errors: &mut
     }
 }
 
-fn validate_gp_datatype_surface(
+fn validate_profile_datatype_surface(
+    profile: DatatypeProfile<'_>,
     datatype: &GpDatatypeSurface,
     rendered_path: &str,
     span: Span,
@@ -1489,32 +1505,30 @@ fn validate_gp_datatype_surface(
 ) {
     let name = datatype.name.as_str();
     if !datatype.args.is_empty() {
-        let message = if position == GpDatatypePosition::NodeHead && name != "node" {
-            Some("Profile only allows generic arguments on node head datatype :node".to_owned())
+        let message = if position == GpDatatypePosition::NodeHead
+            && !profile.allows_node_head_generic(name)
+        {
+            Some(match profile {
+                DatatypeProfile::BuiltinGp => {
+                    "Profile only allows generic arguments on node head datatype :node".to_owned()
+                }
+                DatatypeProfile::Loaded(_) => format!(
+                    "Profile does not allow generic arguments on node head datatype ':{name}'"
+                ),
+            })
         } else if position == GpDatatypePosition::Binding
             && name == "node"
             && datatype
                 .args
                 .iter()
-                .any(|arg| arg.name != "node" && validation::is_reserved_datatype(&arg.name))
+                .any(|arg| !profile.allows_binding_node_argument(&arg.name))
         {
-            Some(
-                "Profile binding datatype :node accepts only node or custom datatype arguments"
-                    .to_owned(),
-            )
-        } else if validation::is_reserved_datatype(name)
-            && !matches!(
-                name,
-                "list"
-                    | "tuple"
-                    | "triple"
-                    | "object"
-                    | "node"
-                    | "null"
-                    | "nan"
-                    | "infinity"
-                    | "symbol"
-            )
+            Some(match profile {
+                DatatypeProfile::BuiltinGp => "Profile binding datatype :node accepts only node or custom datatype arguments",
+                DatatypeProfile::Loaded(_) => "Profile does not allow this reserved generic argument on binding datatype :node",
+            }.to_owned())
+        } else if (validation::is_reserved_datatype(name) && !profile.allows_reserved_generic(name))
+            || (!validation::is_reserved_datatype(name) && !profile.allows_custom_generic())
         {
             Some(format!(
                 "Profile does not allow generic arguments on datatype ':{name}'"
@@ -1532,7 +1546,7 @@ fn validate_gp_datatype_surface(
     }
 
     if let Some(clarifiers) = &datatype.clarifiers {
-        match gp_datatype_clarifier_rule(name) {
+        match profile.clarifier_rule(name) {
             _ if position == GpDatatypePosition::NodeHead => {
                 errors.push(
                     Diagnostic::new(
@@ -1543,7 +1557,7 @@ fn validate_gp_datatype_surface(
                     .with_span(span),
                 );
             }
-            Some(GpDatatypeClarifierRule::RadixBase) => {
+            Some(ClarifierRule::RadixBase) => {
                 if !valid_radix_base_clarifiers(clarifiers) {
                     errors.push(
                         Diagnostic::new(
@@ -1558,7 +1572,7 @@ fn validate_gp_datatype_surface(
                     );
                 }
             }
-            Some(GpDatatypeClarifierRule::SeparatorChars) => {
+            Some(ClarifierRule::SeparatorChars) => {
                 if clarifiers.is_empty()
                     || clarifiers
                         .iter()
@@ -1577,7 +1591,7 @@ fn validate_gp_datatype_surface(
                     );
                 }
             }
-            Some(GpDatatypeClarifierRule::EncodingName) => {
+            Some(ClarifierRule::EncodingName) => {
                 if clarifiers.len() != 1
                     || !matches!(clarifiers.first(), Some(GpClarifierValue::String))
                 {
@@ -1594,8 +1608,10 @@ fn validate_gp_datatype_surface(
                     );
                 }
             }
-            None if custom_clarifier_literal => {}
-            Some(GpDatatypeClarifierRule::None) | None => {
+            None if custom_clarifier_literal
+                && (matches!(profile, DatatypeProfile::BuiltinGp)
+                    || !validation::is_reserved_datatype(name)) => {}
+            Some(ClarifierRule::None) | None => {
                 errors.push(
                     Diagnostic::new(
                         "PROFILE_DATATYPE_CLARIFIER_NOT_ALLOWED",
@@ -1612,7 +1628,8 @@ fn validate_gp_datatype_surface(
     }
 
     for arg in &datatype.args {
-        validate_gp_datatype_surface(
+        validate_profile_datatype_surface(
+            profile,
             arg,
             rendered_path,
             span,
@@ -1631,12 +1648,12 @@ fn gp_custom_clarifier_literal(value: &Value) -> bool {
     }
 }
 
-fn gp_datatype_clarifier_rule(name: &str) -> Option<GpDatatypeClarifierRule> {
+fn gp_datatype_clarifier_rule(name: &str) -> Option<ClarifierRule> {
     match name {
-        "decimal" | "radix16" | "kadot" | "symbol" => Some(GpDatatypeClarifierRule::None),
-        "radix" => Some(GpDatatypeClarifierRule::RadixBase),
-        "sep" | "separator" => Some(GpDatatypeClarifierRule::SeparatorChars),
-        "encoding" | "inline" | "embed" => Some(GpDatatypeClarifierRule::EncodingName),
+        "decimal" | "radix16" | "kadot" | "symbol" => Some(ClarifierRule::None),
+        "radix" => Some(ClarifierRule::RadixBase),
+        "sep" | "separator" => Some(ClarifierRule::SeparatorChars),
+        "encoding" | "inline" | "embed" => Some(ClarifierRule::EncodingName),
         _ => None,
     }
 }
