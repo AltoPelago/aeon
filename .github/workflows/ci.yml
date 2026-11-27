@@ -112,8 +112,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: ddf5c1b3428f75ddd2857feb3184354deb2a1d34 # Revised node development suites
+          ref: d63e5713d77702b8d1738744ca66f917b3c22ffa # Draft generic admission targets
           path: aeonite-cts
+
+      - name: Checkout revised node CTS fixtures
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: aeonite-org/aeonite-cts
+          ref: ddf5c1b3428f75ddd2857feb3184354deb2a1d34
+          path: node-model-cts
 
       - name: Checkout aeonite-specs for the GP profile contract
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -124,7 +131,7 @@ jobs:
 
       - name: TypeScript revised node model CTS
         env:
-          AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
         run: node ../../scripts/test-typescript-node-model-cts.mjs
 
       - name: CTS claim validation

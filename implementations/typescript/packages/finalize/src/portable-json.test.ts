@@ -50,6 +50,22 @@ pointer = ~>config.title`);
         );
     });
 
+    it('counts indexed child annotation leaves emitted inside a cloned node attribute', () => {
+        const records = [
+            { path: '$.outer', kind: 'NodeLiteral', tag: 'outer' },
+            { path: '$.outer.@.tag', kind: 'NodeLiteral', tag: 'tag' },
+            { path: '$.outer.@.tag[0]', kind: 'NumberLiteral', value: '2' },
+            { path: '$.outer.@.tag[0].@.x', kind: 'NumberLiteral', value: '1' },
+            { path: '$.copy', kind: 'CloneReference', value: '$.outer' },
+        ] as const;
+        const limited = finalizePortableJson(records, { maxMaterializedWeight: 3 });
+        assert.equal(limited.document.copy, '~outer');
+        assert.ok(limited.meta?.errors?.some(error => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+        const complete = finalizePortableJson(records, { maxMaterializedWeight: 4 });
+        assert.deepEqual(complete.meta?.errors ?? [], []);
+        assert.deepEqual(complete.document.copy, complete.document.outer);
+    });
+
     it('applies clone depth and materialized-weight limits', () => {
         const records = [
             { path: '$.base', kind: 'ObjectNode' },

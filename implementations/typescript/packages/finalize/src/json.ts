@@ -639,7 +639,8 @@ function measureMaterializedWeight(
                 if (!shouldIncludeProjectedPath(childProjectionPath, ctx.projection)) return sum;
                 return sum
                     + measureMaterializedWeight(binding.value, ctx, childPath, stack, childProjectionPath)
-                    + measureAttributeWeight(binding.attributes, ctx, childPath, stack, childProjectionPath);
+                    + measureAttributeWeight(binding.attributes, ctx, childPath, stack, childProjectionPath)
+                    + measureIndexedAttributeWeight(binding.value, ctx, childPath, stack, childProjectionPath);
             }, 0);
         case 'ListNode':
         case 'TupleLiteral':
@@ -682,9 +683,22 @@ function measureAttributeWeight(
             if (!shouldIncludeProjectedPath(entryProjectionPath, ctx.projection)) continue;
             total += measureMaterializedWeight(entry.value, ctx, entryPath, stack, entryProjectionPath);
             total += measureAttributeWeight(entry.attributes, ctx, entryPath, stack, entryProjectionPath);
+            total += measureIndexedAttributeWeight(entry.value, ctx, entryPath, stack, entryProjectionPath);
         }
     }
     return total;
+}
+
+function measureIndexedAttributeWeight(
+    value: Value, ctx: JsonContext, path: string, stack: Set<string>, projectedPath: string,
+): number {
+    let weight = 0;
+    for (const [index, child] of (indexedChildren(value) ?? []).entries()) {
+        if (child.type === 'TypedValue' && child.attributes.length > 0) {
+            weight += measureAttributeWeight(child.attributes, ctx, `${path}[${index}]`, stack, `${projectedPath}[${index}]`);
+        }
+    }
+    return weight;
 }
 
 function formatCloneTargetPath(pathParts: readonly ReferencePathPart[]): string {
@@ -743,17 +757,18 @@ function attributesToJson(
     return Object.keys(obj).length > 0 ? obj : null;
 }
 
+function indexedChildren(value: Value): readonly Value[] | undefined {
+    if (value.type === 'ListNode' || value.type === 'TupleLiteral') return value.elements;
+    return value.type === 'NodeLiteral' ? value.children : undefined;
+}
+
 function indexedChildAnnotationsToJson(
     value: Value,
     ctx: JsonContext,
     path: string,
     projection: ProjectionState
 ): JsonObject | null {
-    const children = value.type === 'ListNode' || value.type === 'TupleLiteral'
-        ? value.elements
-        : value.type === 'NodeLiteral'
-            ? value.children
-            : null;
+    const children = indexedChildren(value);
     if (!children) return null;
 
     const itemAttrs: JsonObject = {};

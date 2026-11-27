@@ -473,13 +473,25 @@ function attributeBindables(
     }
 
     function visitNode(value: Extract<Value, { type: 'NodeLiteral' }>, path: string, namedAttribute = false): void {
-        const nodeTokens = tokensInSpan(value.span);
-        const entry = { path, span: value.span, valueSpan: value.span,
-            valueType: value.type, landmarks: findNodeValueLandmarks(nodeTokens, value.span) };
+        // Descendants have their own bindables. Read only this node's delimiters
+        // and head, so its landmarks do not rescan nested children.
+        const tokens: Token[] = [];
+        let start = value.span.start;
+        for (const child of [...value.attributes, ...value.children]) {
+            for (const token of tokensInSpan({ start, end: child.span.start })) tokens.push(token);
+            start = child.span.end;
+        }
+        for (const token of tokensInSpan({ start, end: value.span.end })) tokens.push(token);
+        const landmarks = [
+            ...findNodeValueLandmarks(tokens, value.span),
+            ...value.children.map(child => ({ part: 'node-child-value' as const, span: child.span })),
+        ].sort(compareLandmarks);
+        const entry = { path, span: value.span, valueSpan: value.span, valueType: value.type, landmarks };
         if (namedAttribute) intrinsic.set(value.span.start.offset, entry);
         else nodeDescendants.push(entry);
         if (value.attributes.length > 0) {
-            entries.push(...findNodeHeadAttributeEntryBindables(nodeTokens, path, value.span));
+            const head = { start: value.span.start, end: value.headSpan?.end ?? value.attributes.at(-1)!.span.end };
+            entries.push(...findNodeHeadAttributeEntryBindables(tokensInSpan(head), path, head));
             visitAnnotations(buildAnnotations(value.attributes), path);
         }
         for (const [index, child] of value.children.entries()) visitValue(child, `${path}[${index}]`, true);

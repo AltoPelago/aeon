@@ -84,6 +84,16 @@ describe('Tagged node JSON finalization', () => {
         assert.deepEqual(finalizeJson(resolveRefs(ordinary).aes).document, finalizeJson(ordinary).document);
     });
 
+    it('charges indexed child annotation leaves emitted inside a cloned node attribute', () => {
+        const events = compileToEvents('<outer@{<tag(@{x=1}=2)>}>\ncopy = ~outer');
+        const limited = finalizeJson(events, { maxMaterializedWeight: 3 });
+        assert.equal(limited.document.copy, '~outer');
+        assert.ok(limited.meta?.errors?.some(error => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+        const complete = finalizeJson(events, { maxMaterializedWeight: 4 });
+        assert.deepEqual(complete.meta?.errors ?? [], []);
+        assert.deepEqual(complete.document.copy, complete.document.outer);
+    });
+
     it('charges the materialized children of a projected node clone', () => {
         const events = compileToEvents('<big(1,2,3)>\ncopy:node=~big');
         const result = finalizeJson(events, {

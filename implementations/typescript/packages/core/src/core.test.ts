@@ -1288,6 +1288,7 @@ describe('Core - compile()', () => {
             const cases = [
                 ['outer:list=[@{<inner@{a:number="bad"}>}:number=1]', '$.outer[0].@.inner.@.a'],
                 ['<outer@{<inner(:number="bad")>}>', '$.outer.@.inner[0]'],
+                ['<outer@{<inner({k:number="bad"})>}>', '$.outer.@.inner[0].k'],
             ];
             for (const [source, expectedPath] of cases) {
                 const result = compile(source!, { mode: 'strict', maxAttributeDepth: 2 });

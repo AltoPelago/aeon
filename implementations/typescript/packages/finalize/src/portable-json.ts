@@ -318,24 +318,39 @@ function materializeClone(
     }
 }
 
-function measureWeight(indexed: IndexedRecord, ctx: MaterializeContext, stack: Set<string>): number {
-    const cached = ctx.materializedWeightCache.get(indexed.address);
+function measureWeight(
+    indexed: IndexedRecord, ctx: MaterializeContext, stack: Set<string>, includeMetadata = false,
+): number {
+    const cacheKey = `${includeMetadata ? 'member' : 'value'}:${indexed.address}`;
+    const cached = ctx.materializedWeightCache.get(cacheKey);
     if (cached !== undefined) return cached;
     if (stack.has(indexed.address)) return 1;
     const nextStack = new Set(stack);
     nextStack.add(indexed.address);
     const index = planeFor(indexed, ctx);
+    const kind = indexed.record.kind;
     let weight: number;
 
-    switch (indexed.record.kind) {
+    switch (kind) {
         case 'ObjectNode':
+            weight = structuralChildren(index, indexed.address)
+                .reduce((sum, child) => sum + measureWeight(child, ctx, nextStack, true), 0);
+            break;
         case 'ListNode':
         case 'TupleLiteral':
-        case 'NodeLiteral':
-            weight = structuralChildren(index, indexed.address).reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0)
-                + attributeChildren(index, indexed.address).reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0);
-            if (indexed.record.kind === 'NodeLiteral') weight += 1;
+        case 'NodeLiteral': {
+            const children = structuralChildren(index, indexed.address);
+            weight = children.reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0);
+            if (kind === 'NodeLiteral') weight += 1;
+            if (includeMetadata) {
+                for (const child of children) {
+                    if (child.segment.type === 'index' && child.record.kind !== 'NodeLiteral') {
+                        weight += measureAttributeWeight(child, ctx, index, nextStack);
+                    }
+                }
+            }
             break;
+        }
         case 'CloneReference': {
             const target = ctx.body.byAddress.get(indexed.record.value ?? '');
             weight = target === undefined ? 1 : measureWeight(target, ctx, nextStack);
@@ -344,8 +359,18 @@ function measureWeight(indexed: IndexedRecord, ctx: MaterializeContext, stack: S
         default:
             weight = 1;
     }
-    ctx.materializedWeightCache.set(indexed.address, weight);
+    if (kind === 'NodeLiteral' || includeMetadata) {
+        weight += measureAttributeWeight(indexed, ctx, index, nextStack);
+    }
+    ctx.materializedWeightCache.set(cacheKey, weight);
     return weight;
+}
+
+function measureAttributeWeight(
+    indexed: IndexedRecord, ctx: MaterializeContext, index: PlaneIndex, stack: Set<string>,
+): number {
+    return attributeChildren(index, indexed.address)
+        .reduce((sum, child) => sum + measureWeight(child, ctx, stack, true), 0);
 }
 
 function recordMetadata(indexed: IndexedRecord, ctx: MaterializeContext, outputPath = indexed.address): JsonObject | null {

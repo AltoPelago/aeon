@@ -266,14 +266,14 @@ export function enforceMode(
                 const error = validateNodeDatatype(value, path, span, mode, allowCustom, customDatatypeKinds);
                 if (error) errors.push(error);
             } else {
-                if (validation === 'node-child' && datatype) {
+                if ((validation === 'node-child' || validation === 'node-member') && datatype) {
                     const error = validateAnonymousDatatype(value, datatype, span, path, events, pathToIndex, mode, datatypePolicy);
                     if (error) {
                         errors.push(error);
                         return;
                     }
                 }
-                if (validation === 'node-attribute') {
+                if (validation === 'node-attribute' || validation === 'node-member' && !datatype) {
                     const error = validateAttributeDatatype(value, datatype ?? undefined, path, span,
                         events, pathToIndex, mode, datatypePolicy, referenceCache);
                     if (error) {
@@ -666,7 +666,7 @@ function validateNodeDatatype(
 function validateMetadataDatatypes(
     event: AssignmentEvent,
     owner: string,
-    check: (value: Value, path: string, span: Span, datatype: string | null | undefined, validation?: 'node-attribute' | 'node-child') => void,
+    check: (value: Value, path: string, span: Span, datatype: string | null | undefined, validation?: 'node-attribute' | 'node-child' | 'node-member') => void,
 ): void {
     interface Claim {
         readonly value: Value;
@@ -674,7 +674,7 @@ function validateMetadataDatatypes(
         readonly datatype?: string | null;
         readonly span: Span;
         readonly projectedNodeAttributes?: boolean;
-        readonly validation?: 'node-attribute' | 'node-child';
+        readonly validation?: 'node-attribute' | 'node-child' | 'node-member';
         readonly nodePayload?: boolean;
     }
 
@@ -733,9 +733,9 @@ function validateMetadataDatatypes(
                     tasks.push({
                         value: binding.value, path: child, span: binding.span,
                         datatype: binding.datatype && formatDatatypeAnnotation(binding.datatype),
-                        ...(nodePayload ? { nodePayload } : {}),
+                        ...(nodePayload ? { nodePayload, validation: 'node-member' } : {}),
                     });
-                    attributes(binding.attributes, child);
+                    attributes(binding.attributes, child, nodePayload);
                 }
                 attributes(value.attributes, path);
                 break;
