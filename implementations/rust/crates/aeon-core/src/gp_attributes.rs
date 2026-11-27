@@ -1,10 +1,10 @@
-//! GP metadata and node-head claims do not have AssignmentEvents. Walk authored occurrences
+//! Profile metadata and node-head claims do not have AssignmentEvents. Walk authored occurrences
 //! before projection can discard metadata, without following references.
 use super::pathing::is_identifier;
 use super::validation::AttributeDatatypeCheck;
 use super::{
-    AttributeValue, Binding, Diagnostic, GpDatatypePosition, Span, Value,
-    gp_custom_clarifier_literal, parse_gp_datatype_surface, validate_gp_datatype_surface,
+    AttributeValue, Binding, DatatypeProfile, Diagnostic, GpDatatypePosition, Span, Value,
+    gp_custom_clarifier_literal, parse_gp_datatype_surface, validate_profile_datatype_surface,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -70,17 +70,19 @@ fn push_attributes<'a>(
     }
 }
 
-pub(crate) fn validate_gp_unprojected_datatypes(
+pub(crate) fn validate_profile_unprojected_datatypes(
+    profile: DatatypeProfile<'_>,
     bindings: &[Binding],
     errors: &mut Vec<Diagnostic>,
     mut value_checks: Option<&mut Vec<AttributeDatatypeCheck>>,
 ) {
     visit_gp_unprojected_datatypes(bindings, |datatype, value, path, span, position| {
         if let Some(checks) = value_checks.as_deref_mut() {
-            collect_value_check(checks, datatype, value, path, position);
+            collect_value_check(profile, checks, datatype, value, path, position);
         }
         if let Some(surface) = parse_gp_datatype_surface(datatype) {
-            validate_gp_datatype_surface(
+            validate_profile_datatype_surface(
+                profile,
                 &surface,
                 path,
                 span,
@@ -92,16 +94,18 @@ pub(crate) fn validate_gp_unprojected_datatypes(
     });
 }
 
-pub(crate) fn collect_gp_attribute_value_checks(
+pub(crate) fn collect_profile_attribute_value_checks(
+    profile: DatatypeProfile<'_>,
     bindings: &[Binding],
     checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     visit_gp_unprojected_datatypes(bindings, |datatype, value, path, _, position| {
-        collect_value_check(checks, datatype, value, path, position);
+        collect_value_check(profile, checks, datatype, value, path, position);
     });
 }
 
 fn collect_value_check(
+    profile: DatatypeProfile<'_>,
     checks: &mut Vec<AttributeDatatypeCheck>,
     datatype: &str,
     value: Option<&Value>,
@@ -110,7 +114,8 @@ fn collect_value_check(
 ) {
     if position == GpDatatypePosition::Binding
         && let Some(value) = value
-        && let Some(check) = AttributeDatatypeCheck::gp_custom_value(datatype, value, path)
+        && let Some(check) =
+            AttributeDatatypeCheck::profile_custom_value(profile, datatype, value, path)
     {
         checks.push(check);
     }
@@ -159,7 +164,7 @@ fn visit_gp_unprojected_datatypes(
                 if let Some(datatype) = entry.datatype.as_deref() {
                     visit(
                         datatype,
-                        entry.value.as_ref(),
+                        Some(entry.datatype_value()),
                         &path,
                         span,
                         GpDatatypePosition::Binding,

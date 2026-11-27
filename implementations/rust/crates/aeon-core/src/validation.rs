@@ -11,7 +11,8 @@ use crate::pathing::{
 use crate::temporal::invalid_temporal_literal;
 use crate::{
     AssignmentEvent, AttributeValue, BehaviorMode, Binding, CanonicalPath, DatatypePolicy,
-    Diagnostic, PathSegment, ReferenceSegment, SourcePlane, Span, Value, format_path,
+    DatatypeProfile, Diagnostic, PathSegment, ReferenceSegment, SourcePlane, Span, Value,
+    format_path,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -726,7 +727,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
     max_separator_depth: usize,
     max_generic_depth: usize,
     recovery: bool,
-    gp_active: bool,
+    datatype_profile: Option<DatatypeProfile<'_>>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
@@ -764,12 +765,9 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
                 datatype_policy,
             ) {
                 errors.push(error);
-            } else if gp_active
-                && let Some(error) = crate::gp_custom_generic_value_error(
-                    datatype,
-                    resolved_value.value_kind(),
-                    path,
-                )
+            } else if let Some(profile) = datatype_profile
+                && let Some(error) =
+                    profile.custom_value_error(datatype, resolved_value.value_kind(), path)
             {
                 errors.push(error.with_span(event.span));
             }
@@ -781,7 +779,7 @@ pub(crate) fn validate_datatypes<P: AsRef<str>>(
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
-        gp_active,
+        datatype_profile,
         errors,
     );
 }
@@ -991,7 +989,8 @@ pub(crate) fn collect_attribute_datatype_checks(
 ) {
     validate_attribute_datatypes_in_scope(
         bindings,
-        &CanonicalPath::root(),
+        "$",
+        None,
         mode,
         effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
@@ -1008,7 +1007,7 @@ pub(crate) fn validate_datatypes_light(
     datatype_policy: Option<DatatypePolicy>,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    gp_active: bool,
+    datatype_profile: Option<DatatypeProfile<'_>>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mode = effective_mode.unwrap_or_else(|| extract_behavior_mode(bindings));
@@ -1094,12 +1093,9 @@ pub(crate) fn validate_datatypes_light(
                         .at_path(event.path.clone())
                         .with_span(event.span),
                 );
-            } else if gp_active
-                && let Some(error) = crate::gp_custom_generic_value_error(
-                    datatype,
-                    resolved_value.value_kind(),
-                    &event.path,
-                )
+            } else if let Some(profile) = datatype_profile
+                && let Some(error) =
+                    profile.custom_value_error(datatype, resolved_value.value_kind(), &event.path)
             {
                 errors.push(error.with_span(event.span));
             }
@@ -1111,7 +1107,7 @@ pub(crate) fn validate_datatypes_light(
         datatype_policy,
         max_separator_depth,
         max_generic_depth,
-        gp_active,
+        datatype_profile,
         errors,
     );
 }
@@ -1229,10 +1225,10 @@ pub enum AssignmentReferenceTarget<'a> {
 }
 
 impl<'a> AssignmentReferenceTarget<'a> {
-    fn value(self) -> Option<&'a Value> {
+    fn datatype_value(self) -> &'a Value {
         match self {
-            Self::Value(value) => Some(value),
-            Self::Attribute(attribute) => attribute.value.as_ref(),
+            Self::Value(value) => value,
+            Self::Attribute(attribute) => attribute.datatype_value(),
         }
     }
 }
@@ -1631,7 +1627,7 @@ fn separator_spec_depth(datatype: &str) -> usize {
     datatype_bracket_specs(datatype).len()
 }
 
-fn datatype_base(datatype: &str) -> &str {
+pub(crate) fn datatype_base(datatype: &str) -> &str {
     let generic_idx = datatype.find('<');
     let separator_idx = datatype.find('[');
     let end_idx = match (generic_idx, separator_idx) {
@@ -1644,9 +1640,14 @@ fn datatype_base(datatype: &str) -> &str {
 }
 
 pub(crate) fn is_reserved_datatype(datatype: &str) -> bool {
-    let base = datatype_base(datatype);
+    is_reserved_datatype_name(datatype_base(datatype))
+}
+
+/// Whether a name denotes a datatype reserved by Core.
+#[must_use]
+pub fn is_reserved_datatype_name(name: &str) -> bool {
     matches!(
-        base,
+        name,
         "number"
             | "n"
             | "int"
@@ -2316,13 +2317,18 @@ pub(crate) enum AttributeDatatypeCheck {
         path: String,
         datatype: String,
         value: Value,
-        custom_generic: bool,
+        profile_custom: bool,
     },
 }
 
 impl AttributeDatatypeCheck {
-    pub(crate) fn gp_custom_value(datatype: &str, value: &Value, path: &str) -> Option<Self> {
-        if is_reserved_datatype(datatype) || !crate::datatype_has_generic_args(datatype) {
+    pub(crate) fn profile_custom_value(
+        profile: DatatypeProfile<'_>,
+        datatype: &str,
+        value: &Value,
+        path: &str,
+    ) -> Option<Self> {
+        if !profile.checks_custom_kind(datatype) {
             return None;
         }
         let mut value = value;
@@ -2337,14 +2343,17 @@ impl AttributeDatatypeCheck {
                 path: path.to_owned(),
                 datatype: datatype.to_owned(),
                 value: value.clone(),
-                custom_generic: true,
+                profile_custom: true,
             });
         }
-        crate::gp_custom_generic_value_error(datatype, value.value_kind(), path).map(Self::Error)
+        profile
+            .custom_value_error(datatype, value.value_kind(), path)
+            .map(Self::Error)
     }
 
     pub(crate) fn diagnostic<'a>(
         &'a self,
+        profile: Option<DatatypeProfile<'_>>,
         resolve: impl FnOnce(&'a Value) -> CompactDatatypeValue,
     ) -> Option<Diagnostic> {
         match self {
@@ -2353,14 +2362,12 @@ impl AttributeDatatypeCheck {
                 path,
                 datatype,
                 value,
-                custom_generic,
+                profile_custom,
             } => {
-                if *custom_generic {
-                    return crate::gp_custom_generic_value_error(
-                        datatype,
-                        resolve(value).value_kind(),
-                        path,
-                    );
+                if *profile_custom {
+                    return profile.and_then(|profile| {
+                        profile.custom_value_error(datatype, resolve(value).value_kind(), path)
+                    });
                 }
                 let resolved = resolve(value);
                 (!datatype_matches_compact_value(datatype, &resolved)).then(|| {
@@ -2748,11 +2755,7 @@ impl<'a> AuthoredDatatypeTargets<'a> {
                 members.get(key).copied()
             },
         )?;
-        // Attribute objects have a member map rather than a scalar value slot.
-        static OBJECT: Value = Value::ObjectNode {
-            bindings: Vec::new(),
-        };
-        Some(target.value().unwrap_or(&OBJECT))
+        Some(target.datatype_value())
     }
 }
 
@@ -2762,7 +2765,7 @@ fn validate_resolved_attribute_datatypes(
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
-    gp_active: bool,
+    datatype_profile: Option<DatatypeProfile<'_>>,
     errors: &mut Vec<Diagnostic>,
 ) {
     let mut checks = Vec::new();
@@ -2774,15 +2777,18 @@ fn validate_resolved_attribute_datatypes(
         max_generic_depth,
         &mut checks,
     );
-    if gp_active && datatype_policy == DatatypePolicy::AllowCustom {
-        crate::gp_attributes::collect_gp_attribute_value_checks(
+    if let Some(profile) = datatype_profile
+        && datatype_policy == DatatypePolicy::AllowCustom
+    {
+        crate::gp_attributes::collect_profile_attribute_value_checks(
+            profile,
             authored_targets.paths.bindings,
             &mut checks,
         );
     }
     let mut references = DatatypeReferenceCache::default();
     for check in &checks {
-        errors.extend(check.diagnostic(|value| {
+        errors.extend(check.diagnostic(datatype_profile, |value| {
             references.resolve(value, |segments| authored_targets.lookup(segments))
         }));
     }
@@ -2790,7 +2796,8 @@ fn validate_resolved_attribute_datatypes(
 
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
-    parent: &CanonicalPath,
+    parent: &str,
+    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2798,11 +2805,12 @@ fn validate_attribute_datatypes_in_scope(
     checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
     for binding in bindings {
-        let path = parent.member(binding.key.clone());
+        let path = render_child_member_path(parent, &binding.key);
         validate_attribute_datatype_map(
             &binding.attributes,
             &binding.attribute_order,
-            &path,
+            format_args!("{path}.@"),
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2812,6 +2820,7 @@ fn validate_attribute_datatypes_in_scope(
         validate_value_attribute_datatypes(
             &binding.value,
             &path,
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2823,7 +2832,8 @@ fn validate_attribute_datatypes_in_scope(
 
 fn validate_value_attribute_datatypes(
     value: &Value,
-    path: &CanonicalPath,
+    path: &str,
+    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2834,6 +2844,7 @@ fn validate_value_attribute_datatypes(
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
             bindings,
             path,
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2844,7 +2855,8 @@ fn validate_value_attribute_datatypes(
             for (index, item) in items.iter().enumerate() {
                 validate_value_attribute_datatypes(
                     item,
-                    &path.index(index),
+                    &render_child_index_path(path, index),
+                    node_head_owner,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2863,7 +2875,8 @@ fn validate_value_attribute_datatypes(
                 validate_attribute_datatype_map(
                     attribute,
                     &attribute_order,
-                    path,
+                    format_args!("{path}.@"),
+                    node_head_owner.or(Some(path)),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2874,7 +2887,8 @@ fn validate_value_attribute_datatypes(
             for (index, child) in children.iter().enumerate() {
                 validate_value_attribute_datatypes(
                     child,
-                    &path.index(index),
+                    &render_child_index_path(path, index),
+                    node_head_owner,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2890,18 +2904,23 @@ fn validate_value_attribute_datatypes(
 fn validate_attribute_datatype_map(
     attributes: &BTreeMap<String, AttributeValue>,
     attribute_order: &[String],
-    owner_path: &CanonicalPath,
+    parent_path: std::fmt::Arguments<'_>,
+    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
     max_generic_depth: usize,
     checks: &mut Vec<AttributeDatatypeCheck>,
 ) {
+    if attribute_order.is_empty() {
+        return;
+    }
+    let parent_path = parent_path.to_string();
     for key in attribute_order {
         let Some(entry) = attributes.get(key) else {
             continue;
         };
-        let attr_path = format!("{}.@.{}", format_path(owner_path), key);
+        let attr_path = render_child_member_path(&parent_path, key);
         if entry.datatype.is_none()
             && matches!(mode, BehaviorMode::Strict | BehaviorMode::Custom)
             && let Some(value) = &entry.value
@@ -2930,9 +2949,19 @@ fn validate_attribute_datatype_map(
                     .at_path(attr_path.clone()),
                 ));
             }
-        } else if let Some(datatype) = &entry.datatype
-            && let Some(value) = &entry.value
-        {
+        } else if let Some(datatype) = &entry.datatype {
+            // An implicit node head cannot be addressed through its owner.
+            // Locate a bare object on the owning value and its authored span.
+            let object_owner = node_head_owner.filter(|_| entry.value.is_none());
+            let datatype_path = object_owner.unwrap_or(&attr_path);
+            let locate = |error: Diagnostic, path: &str| {
+                let error = error.at_path(path);
+                match (object_owner, entry.span) {
+                    (Some(_), Some(span)) => error.with_span(span),
+                    _ => error,
+                }
+            };
+            let value = entry.datatype_value();
             if let Some(error) = validate_datatype_shape_light(
                 datatype,
                 value,
@@ -2944,48 +2973,49 @@ fn validate_attribute_datatype_map(
                     | "INVALID_SEPARATOR_CHAR"
                     | "CLARIFIER_VALUES_EXCEEDED"
                     | "GENERIC_DEPTH_EXCEEDED" => "$",
-                    _ => attr_path.as_str(),
+                    _ => datatype_path,
                 };
-                checks.push(AttributeDatatypeCheck::Error(error.at_path(path_override)));
+                checks.push(AttributeDatatypeCheck::Error(locate(error, path_override)));
                 continue;
             }
             if !is_reserved_datatype(datatype) {
                 if datatype_policy == DatatypePolicy::ReservedOnly {
-                    checks.push(AttributeDatatypeCheck::Error(
+                    checks.push(AttributeDatatypeCheck::Error(locate(
                         Diagnostic::new(
                             "CUSTOM_DATATYPE_NOT_ALLOWED",
                             format!(
                                 "Custom datatype not allowed in typed mode at '{}': ':{datatype}' requires --datatype-policy allow_custom",
-                                attr_path
+                                datatype_path
                             ),
-                        )
-                        .at_path(attr_path.clone()),
-                    ));
+                        ),
+                        datatype_path,
+                    )));
                 }
             } else if matches!(
                 value,
                 Value::CloneReference { .. } | Value::PointerReference { .. }
             ) {
                 checks.push(AttributeDatatypeCheck::Reference {
-                    path: attr_path,
+                    path: attr_path.clone(),
                     datatype: datatype.clone(),
                     value: value.clone(),
-                    custom_generic: false,
+                    profile_custom: false,
                 });
             } else if !datatype_matches_value(datatype, value) {
-                checks.push(AttributeDatatypeCheck::Error(
+                checks.push(AttributeDatatypeCheck::Error(locate(
                     Diagnostic::new(
                         "DATATYPE_LITERAL_MISMATCH",
-                        datatype_mismatch_message(&attr_path, datatype, value.value_kind()),
-                    )
-                    .at_path(attr_path.clone()),
-                ));
+                        datatype_mismatch_message(datatype_path, datatype, value.value_kind()),
+                    ),
+                    datatype_path,
+                )));
             }
         }
         validate_attribute_datatype_map(
             &entry.nested_attrs,
             &entry.nested_attr_order,
-            owner_path,
+            format_args!("{attr_path}.@"),
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2995,7 +3025,8 @@ fn validate_attribute_datatype_map(
         validate_attribute_datatype_map(
             &entry.object_members,
             &entry.object_member_order,
-            owner_path,
+            format_args!("{attr_path}"),
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -3005,7 +3036,8 @@ fn validate_attribute_datatype_map(
         if let Some(value) = &entry.value {
             validate_value_attribute_datatypes(
                 value,
-                owner_path,
+                &attr_path,
+                node_head_owner,
                 mode,
                 datatype_policy,
                 max_separator_depth,

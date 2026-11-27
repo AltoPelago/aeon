@@ -6,6 +6,42 @@ validation, materialization, and portable AES/Telex interchange. The Sofia
 parser is available through feature-gated runtime adapters while its public
 facade rollout is evaluated separately.
 
+## Load a profile contract
+
+Read a trusted `.aeon` profile artifact and pass its source to
+`profiles::load_profile_contract`. The loader validates the artifact as
+plain Core v1 data. Use the returned policy for repeated compilation.
+
+```rust
+use altopelago_aeon::profiles::load_profile_contract;
+
+let artifact = std::fs::read_to_string("aeon.gp.profile.v1.aeon")?;
+let policy = load_profile_contract(&artifact)?;
+let result = policy.compile("duration:symbol<time> = |1min|", Default::default());
+assert!(result.errors.is_empty());
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Use `policy.compile_options(options)` to pass the loaded rules through
+`LoadOptions::compile` or to the native compiler. The selected rules take
+precedence over profile identifiers in document headers or compile options.
+Explicit caller mode and datatype policy options override the corresponding
+profile defaults. Profiles that omit `generic_admission`, including GP 1.0.0,
+use Core's generic admission and still apply declared datatype semantics.
+The loaded GP policy requires a declared rule for each clarifier-bearing
+datatype. Collection, container, and capability declarations are available
+as metadata.
+
+From `implementations/rust`, test the official artifact against the opt-in
+GP profile CTS. The runner verifies the artifact hash and version using the
+specs registry.
+
+```sh
+cargo run --locked -p altopelago-aeon --example gp_profile_cts -- \
+  /path/to/aeonite-specs/resources/contracts/v1 \
+  /path/to/aeonite-cts/cts/profile/v1/gp-profile-cts.v1.next.json
+```
+
 ## SANSA document projection
 
 Property selectors are delivered through the authoritative document

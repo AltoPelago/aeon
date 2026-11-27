@@ -87,6 +87,7 @@ dependencies = [
  "altopelago-sansa-runtime",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
