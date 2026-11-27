@@ -6,8 +6,11 @@ use crate::{Diagnostic, datatype_has_generic_args, gp_datatype_clarifier_rule};
 /// Datatype rules selected by a caller for Core validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileDatatypeRules {
-    pub generic_admission: GenericAdmissionPolicy,
+    /// An omitted record leaves generic admission to Core.
+    pub generic_admission: Option<GenericAdmissionPolicy>,
     pub datatype_semantics: BTreeMap<String, DatatypeSemantics>,
+    /// Reject clarifiers whose datatype has no declared rule.
+    pub closed_clarifiers: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +45,13 @@ pub(crate) enum DatatypeProfile<'a> {
 }
 
 impl DatatypeProfile<'_> {
+    pub(crate) fn enforces_generic_admission(self) -> bool {
+        match self {
+            Self::BuiltinGp => true,
+            Self::Loaded(rules) => rules.generic_admission.is_some(),
+        }
+    }
+
     pub(crate) fn allows_reserved_generic(self, name: &str) -> bool {
         match self {
             Self::BuiltinGp => matches!(
@@ -56,21 +66,30 @@ impl DatatypeProfile<'_> {
                     | "infinity"
                     | "symbol"
             ),
-            Self::Loaded(rules) => rules.generic_admission.reserved_datatypes.contains(name),
+            Self::Loaded(rules) => rules
+                .generic_admission
+                .as_ref()
+                .is_some_and(|admission| admission.reserved_datatypes.contains(name)),
         }
     }
 
     pub(crate) fn allows_custom_generic(self) -> bool {
         match self {
             Self::BuiltinGp => true,
-            Self::Loaded(rules) => rules.generic_admission.custom_labels,
+            Self::Loaded(rules) => rules
+                .generic_admission
+                .as_ref()
+                .is_some_and(|admission| admission.custom_labels),
         }
     }
 
     pub(crate) fn allows_node_head_generic(self, name: &str) -> bool {
         match self {
             Self::BuiltinGp => name == "node",
-            Self::Loaded(rules) => rules.generic_admission.node_head_datatypes.contains(name),
+            Self::Loaded(rules) => rules
+                .generic_admission
+                .as_ref()
+                .is_some_and(|admission| admission.node_head_datatypes.contains(name)),
         }
     }
 
@@ -82,8 +101,8 @@ impl DatatypeProfile<'_> {
             Self::BuiltinGp => name == "node",
             Self::Loaded(rules) => rules
                 .generic_admission
-                .binding_node_reserved_arguments
-                .contains(name),
+                .as_ref()
+                .is_some_and(|admission| admission.binding_node_reserved_arguments.contains(name)),
         }
     }
 
@@ -94,6 +113,13 @@ impl DatatypeProfile<'_> {
                 .datatype_semantics
                 .get(name)
                 .map(|rule| rule.clarifiers),
+        }
+    }
+
+    pub(crate) fn allows_undeclared_literal_clarifier(self, name: &str) -> bool {
+        match self {
+            Self::BuiltinGp => true,
+            Self::Loaded(rules) => !rules.closed_clarifiers && !is_reserved_datatype(name),
         }
     }
 
@@ -119,28 +145,28 @@ impl DatatypeProfile<'_> {
             Self::BuiltinGp if matches!(kind, "ListNode" | "TupleLiteral") => return None,
             Self::BuiltinGp => "ListNode or TupleLiteral".to_owned(),
             Self::Loaded(rules) => {
-                let admission = &rules.generic_admission;
+                let generic_kinds = rules
+                    .generic_admission
+                    .as_ref()
+                    .filter(|admission| generic && admission.custom_labels)
+                    .map(|admission| &admission.custom_value_kinds);
                 if let Some(rule) = rules.datatype_semantics.get(datatype_base(datatype)) {
                     if rule.literal_family == kind
-                        && (!generic
-                            || !admission.custom_labels
-                            || admission.custom_value_kinds.contains(kind))
+                        && generic_kinds.is_none_or(|kinds| kinds.contains(kind))
                     {
                         return None;
                     }
-                    if generic
-                        && admission.custom_labels
-                        && !admission.custom_value_kinds.contains(&rule.literal_family)
-                    {
+                    if generic_kinds.is_some_and(|kinds| !kinds.contains(&rule.literal_family)) {
                         "no literal family admitted by the profile".to_owned()
                     } else {
                         rule.literal_family.clone()
                     }
-                } else if admission.custom_value_kinds.contains(kind) {
-                    return None;
                 } else {
-                    admission
-                        .custom_value_kinds
+                    let kinds = generic_kinds?;
+                    if kinds.contains(kind) {
+                        return None;
+                    }
+                    kinds
                         .iter()
                         .map(String::as_str)
                         .collect::<Vec<_>>()

@@ -137,7 +137,7 @@ struct ProfileDocument {
     collections: CollectionPolicies,
     containers: ContainerPolicies,
     datatype_semantics: BTreeMap<String, Semantics>,
-    generic_admission: Admission,
+    generic_admission: Option<Admission>,
     capabilities: Capabilities,
 }
 
@@ -225,8 +225,10 @@ pub fn load_profile_contract(source: &str) -> Result<ProfilePolicy, ProfileContr
             },
         )
     })?;
-    let parsed: ProfileDocument = serde_json::from_value(plain_object(bindings, "$")?)
-        .map_err(|error| invalid("$", error.to_string()))?;
+    let document = plain_object(bindings, "$")?;
+    validate_record_shapes(&document)?;
+    let parsed: ProfileDocument =
+        serde_json::from_value(document).map_err(|error| invalid("$", error.to_string()))?;
     if parsed.profile_id.is_empty() || parsed.profile_id.trim() != parsed.profile_id {
         return Err(invalid(
             "$.profile_id",
@@ -237,32 +239,7 @@ pub fn load_profile_contract(source: &str) -> Result<ProfilePolicy, ProfileContr
         return Err(invalid("$.profile_version", "expected a semantic version"));
     }
     let CoreId::V1 = parsed.core_id;
-    let admission = parsed.generic_admission;
-    let generic_admission = GenericAdmissionPolicy {
-        reserved_datatypes: names(
-            admission.reserved_datatypes,
-            "reserved_datatypes",
-            is_reserved_datatype_name,
-        )?,
-        custom_labels: admission.custom_labels,
-        custom_value_kinds: names(admission.custom_value_kinds, "custom_value_kinds", |name| {
-            LITERAL_KINDS.contains(&name)
-                || matches!(
-                    name,
-                    "ListNode" | "TupleLiteral" | "ObjectNode" | "NodeLiteral"
-                )
-        })?,
-        node_head_datatypes: names(
-            admission.node_head_datatypes,
-            "node_head_datatypes",
-            is_datatype_name,
-        )?,
-        binding_node_reserved_arguments: names(
-            admission.binding_node_reserved_arguments,
-            "binding_node_reserved_arguments",
-            is_reserved_datatype_name,
-        )?,
-    };
+    let generic_admission = parsed.generic_admission.map(read_admission).transpose()?;
     let mut datatype_semantics = BTreeMap::new();
     for (name, rule) in parsed.datatype_semantics {
         if !is_datatype_name(&name) {
@@ -293,6 +270,7 @@ pub fn load_profile_contract(source: &str) -> Result<ProfilePolicy, ProfileContr
         );
     }
 
+    let closed_clarifiers = parsed.profile_id == "aeon.gp.profile.v1";
     Ok(ProfilePolicy {
         id: parsed.profile_id,
         version: parsed.profile_version,
@@ -312,8 +290,64 @@ pub fn load_profile_contract(source: &str) -> Result<ProfilePolicy, ProfileContr
         datatype_rules: Arc::new(ProfileDatatypeRules {
             generic_admission,
             datatype_semantics,
+            closed_clarifiers,
         }),
     })
+}
+
+fn read_admission(admission: Admission) -> Result<GenericAdmissionPolicy, ProfileContractError> {
+    Ok(GenericAdmissionPolicy {
+        reserved_datatypes: names(
+            admission.reserved_datatypes,
+            "reserved_datatypes",
+            is_reserved_datatype_name,
+        )?,
+        custom_labels: admission.custom_labels,
+        custom_value_kinds: names(admission.custom_value_kinds, "custom_value_kinds", |name| {
+            LITERAL_KINDS.contains(&name)
+                || matches!(
+                    name,
+                    "ListNode" | "TupleLiteral" | "ObjectNode" | "NodeLiteral"
+                )
+        })?,
+        node_head_datatypes: names(
+            admission.node_head_datatypes,
+            "node_head_datatypes",
+            is_datatype_name,
+        )?,
+        binding_node_reserved_arguments: names(
+            admission.binding_node_reserved_arguments,
+            "binding_node_reserved_arguments",
+            is_reserved_datatype_name,
+        )?,
+    })
+}
+
+fn validate_record_shapes(document: &JsonValue) -> Result<(), ProfileContractError> {
+    // Serde's derived structs also accept positional sequences. Contract records
+    // must use named fields, while the admission lists remain ordinary arrays.
+    for name in ["capabilities", "generic_admission"] {
+        if document.get(name).is_some_and(|record| !record.is_object()) {
+            return Err(invalid(format!("$.{name}"), "expected a named object"));
+        }
+    }
+    for name in ["collections", "containers", "datatype_semantics"] {
+        let Some(record) = document.get(name) else {
+            continue;
+        };
+        let members = record
+            .as_object()
+            .ok_or_else(|| invalid(format!("$.{name}"), "expected a named object"))?;
+        for (key, record) in members {
+            if !record.is_object() {
+                return Err(invalid(
+                    format!("$.{name}.{key}"),
+                    "expected a named object",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn plain_object(bindings: Vec<Binding>, path: &str) -> Result<JsonValue, ProfileContractError> {

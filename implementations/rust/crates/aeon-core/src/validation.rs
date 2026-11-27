@@ -1224,10 +1224,10 @@ pub enum AssignmentReferenceTarget<'a> {
 }
 
 impl<'a> AssignmentReferenceTarget<'a> {
-    fn value(self) -> Option<&'a Value> {
+    fn datatype_value(self) -> &'a Value {
         match self {
-            Self::Value(value) => Some(value),
-            Self::Attribute(attribute) => attribute.value.as_ref(),
+            Self::Value(value) => value,
+            Self::Attribute(attribute) => attribute.datatype_value(),
         }
     }
 }
@@ -2754,11 +2754,7 @@ impl<'a> AuthoredDatatypeTargets<'a> {
                 members.get(key).copied()
             },
         )?;
-        // Attribute objects have a member map rather than a scalar value slot.
-        static OBJECT: Value = Value::ObjectNode {
-            bindings: Vec::new(),
-        };
-        Some(target.value().unwrap_or(&OBJECT))
+        Some(target.datatype_value())
     }
 }
 
@@ -2939,9 +2935,8 @@ fn validate_attribute_datatype_map(
                     .at_path(attr_path.clone()),
                 ));
             }
-        } else if let Some(datatype) = &entry.datatype
-            && let Some(value) = &entry.value
-        {
+        } else if let Some(datatype) = &entry.datatype {
+            let value = entry.datatype_value();
             if let Some(error) = validate_datatype_shape_light(
                 datatype,
                 value,

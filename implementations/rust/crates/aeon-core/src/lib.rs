@@ -566,6 +566,15 @@ pub struct AttributeValue {
 }
 
 impl AttributeValue {
+    pub(crate) fn datatype_value(&self) -> &Value {
+        // An authored bare attribute object uses the member map, even when empty.
+        // Datatype checks only need its value kind.
+        static OBJECT: Value = Value::ObjectNode {
+            bindings: Vec::new(),
+        };
+        self.value.as_ref().unwrap_or(&OBJECT)
+    }
+
     #[must_use]
     pub fn leaf() -> Self {
         Self {
@@ -1504,7 +1513,7 @@ fn validate_profile_datatype_surface(
     position: GpDatatypePosition,
 ) {
     let name = datatype.name.as_str();
-    if !datatype.args.is_empty() {
+    if !datatype.args.is_empty() && profile.enforces_generic_admission() {
         let message = if position == GpDatatypePosition::NodeHead
             && !profile.allows_node_head_generic(name)
         {
@@ -1609,8 +1618,7 @@ fn validate_profile_datatype_surface(
                 }
             }
             None if custom_clarifier_literal
-                && (matches!(profile, DatatypeProfile::BuiltinGp)
-                    || !validation::is_reserved_datatype(name)) => {}
+                && profile.allows_undeclared_literal_clarifier(name) => {}
             Some(ClarifierRule::None) | None => {
                 errors.push(
                     Diagnostic::new(

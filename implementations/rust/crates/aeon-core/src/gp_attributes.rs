@@ -164,7 +164,7 @@ fn visit_gp_unprojected_datatypes(
                 if let Some(datatype) = entry.datatype.as_deref() {
                     visit(
                         datatype,
-                        entry.value.as_ref(),
+                        Some(entry.datatype_value()),
                         &path,
                         span,
                         GpDatatypePosition::Binding,

@@ -308,6 +308,8 @@ impl ProgressiveValidationState {
         let first_event_ordinal = self.event_count;
         self.event_count = self.event_count.saturating_add(events.len());
         let datatype_profile = candidate_datatype_profile(&self.options);
+        let custom_value_profile = datatype_profile
+            .filter(|_| self.options.datatype_policy != Some(crate::DatatypePolicy::ReservedOnly));
         for (offset, (event, path)) in events.iter().zip(&rendered_paths).enumerate() {
             if !self.assume_unique_event_paths
                 && !self
@@ -334,7 +336,7 @@ impl ProgressiveValidationState {
                         reference: CompactDatatypeValue::from_value(&event.value),
                         span: event.span,
                     });
-            } else if let Some(profile) = datatype_profile
+            } else if let Some(profile) = custom_value_profile
                 && let Some(datatype) = &event.datatype
                 && let Some(error) =
                     profile.custom_value_error(datatype, event.value.value_kind(), path)
@@ -2565,49 +2567,78 @@ mod tests {
 
         let options = CompileOptions {
             profile_datatype_rules: Some(Arc::new(ProfileDatatypeRules {
-                generic_admission: GenericAdmissionPolicy {
+                generic_admission: Some(GenericAdmissionPolicy {
                     reserved_datatypes: ["number".to_owned()].into(),
                     custom_labels: true,
                     custom_value_kinds: ["ListNode".to_owned()].into(),
                     node_head_datatypes: Default::default(),
                     binding_node_reserved_arguments: Default::default(),
-                },
+                }),
                 datatype_semantics: Default::default(),
+                closed_clarifiers: false,
             })),
             ..CompileOptions::default()
         };
-        let compact = CompileOptions {
-            shallow_event_values: true,
-            emit_binding_projections: false,
-            include_event_annotations: false,
-            include_header: false,
-            ..options.clone()
-        };
-        for (source, expected) in [
-            ("x:number<string> = 1", None),
+        for (source, datatype_policy, expected) in [
+            ("x:number<string> = 1", None, None),
             (
                 "x:symbol<time> = |value|",
+                None,
                 Some(("PROFILE_DATATYPE_GENERIC_NOT_ALLOWED", "$.x")),
             ),
             (
                 "a = 1\nb:Label<number> = ~a",
+                None,
                 Some(("DATATYPE_LITERAL_MISMATCH", "$.b")),
             ),
             (
                 "a@{m:Label<number> = 1} = 1",
+                None,
                 Some(("DATATYPE_LITERAL_MISMATCH", "$.a.@.m")),
             ),
+            (
+                "a@{m:Label<number> = {leaf = 1}} = 1",
+                None,
+                Some(("DATATYPE_LITERAL_MISMATCH", "$.a.@.m")),
+            ),
+            (
+                "a@{m:Label<number> = {}} = 1",
+                Some(crate::DatatypePolicy::ReservedOnly),
+                Some(("CUSTOM_DATATYPE_NOT_ALLOWED", "$.a.@.m")),
+            ),
+            (
+                "a@{m:object = {}} = 1",
+                Some(crate::DatatypePolicy::ReservedOnly),
+                None,
+            ),
         ] {
+            let options = CompileOptions {
+                datatype_policy,
+                ..options.clone()
+            };
+            let compact = CompileOptions {
+                shallow_event_values: true,
+                emit_binding_projections: false,
+                include_event_annotations: false,
+                include_header: false,
+                ..options.clone()
+            };
             let baseline = compile_owned_with_implementation(
                 source.to_owned(),
                 options.clone(),
                 ParserImplementation::Baseline,
             );
             let sofia = compile_owned_sofia_streaming(source.to_owned(), options.clone());
-            let no_projection = compile_owned_sofia_streaming(source.to_owned(), compact.clone());
-            for result in [baseline, sofia, no_projection] {
-                let actual = result
-                    .errors
+            let (_, streamed) = collect_progressive(source, &compact, 2);
+            assert!(streamed.parse_valid, "{source}");
+            let no_projection = compile_owned_sofia_streaming(source.to_owned(), compact);
+            for errors in [
+                baseline.errors,
+                sofia.errors,
+                no_projection.errors,
+                streamed.prevalidation_errors,
+            ] {
+                let actual = errors
                     .iter()
                     .map(|error| {
                         (
@@ -2618,6 +2649,53 @@ mod tests {
                     .collect::<Vec<_>>();
                 assert_eq!(actual, expected.into_iter().collect::<Vec<_>>(), "{source}");
             }
+        }
+    }
+
+    #[test]
+    fn explicit_reserved_only_skips_profile_value_mismatch_candidates() {
+        use crate::{ClarifierRule, DatatypePolicy, DatatypeSemantics, ProfileDatatypeRules};
+        use std::sync::Arc;
+
+        let source = "x:label = 1";
+        let result = compile_owned_with_implementation(
+            source.to_owned(),
+            CompileOptions::default(),
+            ParserImplementation::Baseline,
+        );
+        assert!(result.errors.is_empty());
+        let rules = Arc::new(ProfileDatatypeRules {
+            generic_admission: None,
+            datatype_semantics: [(
+                "label".to_owned(),
+                DatatypeSemantics {
+                    literal_family: "SymbolicLiteral".to_owned(),
+                    clarifiers: ClarifierRule::None,
+                    alias_of: None,
+                    equivalent_to: None,
+                },
+            )]
+            .into(),
+            closed_clarifiers: false,
+        });
+        for (policy, candidate_count, code) in [
+            (
+                DatatypePolicy::ReservedOnly,
+                0,
+                "CUSTOM_DATATYPE_NOT_ALLOWED",
+            ),
+            (DatatypePolicy::AllowCustom, 1, "DATATYPE_LITERAL_MISMATCH"),
+        ] {
+            let options = CompileOptions {
+                mode: Some(BehaviorMode::Transport),
+                datatype_policy: Some(policy),
+                profile_datatype_rules: Some(Arc::clone(&rules)),
+                ..CompileOptions::default()
+            };
+            let mut state = ProgressiveValidationState::new(&options);
+            state.observe_events(&result.events);
+            assert_eq!(state.gp_custom_value_errors.len(), candidate_count);
+            assert_eq!(state.errors()[0].code, code);
         }
     }
 

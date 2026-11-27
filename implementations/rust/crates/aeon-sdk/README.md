@@ -26,8 +26,11 @@ Use `policy.compile_options(options)` to pass the loaded rules through
 `LoadOptions::compile` or to the native compiler. The selected rules take
 precedence over profile identifiers in document headers or compile options.
 Explicit caller mode and datatype policy options override the corresponding
-profile defaults. Collection, container, and capability declarations are
-available as metadata.
+profile defaults. Profiles that omit `generic_admission`, including GP 1.0.0,
+use Core's generic admission and still apply declared datatype semantics.
+The loaded GP policy requires a declared rule for each clarifier-bearing
+datatype. Collection, container, and capability declarations are available
+as metadata.
 
 From `implementations/rust`, test the official artifact against the opt-in
 GP profile CTS. The runner verifies the artifact hash and version using the
