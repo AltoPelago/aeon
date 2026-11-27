@@ -746,18 +746,14 @@ fn scan_attribute_bindables_at(
         }
         let key = source_key(source, key_start, key_end);
         let entry_end = scan_attribute_entry_end(source, key_end, end);
-        let equals = find_top_level_source_char(source, '=', key_end, entry_end);
-        let mut landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
-        landmarks.retain(|landmark| {
-            landmark.part != AnnotationPlacementPart::AttributeEquals
-                || Some(landmark.span.start.offset) == equals
-        });
-        let value_span = equals
-            .and_then(|equals| attribute_entry_value_span(source, equals + 1, entry_end, positions))
-            .unwrap_or(Span {
-                start: positions.position_at(key_start),
-                end: positions.position_at(key_end),
-            });
+        let landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
+        let value_start = landmarks
+            .iter()
+            .find(|landmark| landmark.part == AnnotationPlacementPart::AttributeValue)
+            .map_or_else(
+                || positions.position_at(key_start),
+                |landmark| landmark.span.start,
+            );
         let span = Span {
             start: positions.position_at(key_start),
             end: positions.position_at(entry_end),
@@ -765,7 +761,7 @@ fn scan_attribute_bindables_at(
         entries.push(Bindable {
             path: format_attribute_path(owner_path, &key),
             span,
-            value_start: value_span.start,
+            value_start,
             value_kind: BindableValueKind::Other,
             kind: BindableKind::Attribute,
             landmarks,
@@ -879,53 +875,41 @@ fn attribute_entry_landmarks(
             end: positions.position_at(key_end),
         },
     });
-    let mut offset = key_end;
-    while offset < end {
-        offset = skip_source_trivia(source, offset, end);
-        match source_char(source, offset) {
-            Some(':') => {
-                landmarks.push(PlacementLandmark {
-                    part: AnnotationPlacementPart::AttributeDatatypeColon,
-                    span: Span {
-                        start: positions.position_at(offset),
-                        end: positions.position_at(offset + 1),
-                    },
-                });
-                let dtype_start = skip_source_trivia(source, offset + 1, end);
-                let dtype_end = scan_source_datatype_end(source, dtype_start, end);
-                if dtype_start < dtype_end {
-                    landmarks.push(PlacementLandmark {
-                        part: AnnotationPlacementPart::AttributeDatatype,
-                        span: Span {
-                            start: positions.position_at(dtype_start),
-                            end: positions.position_at(dtype_end),
-                        },
-                    });
-                }
-                offset = dtype_end;
-            }
-            Some('=') => {
-                landmarks.push(PlacementLandmark {
-                    part: AnnotationPlacementPart::AttributeEquals,
-                    span: Span {
-                        start: positions.position_at(offset),
-                        end: positions.position_at(offset + 1),
-                    },
-                });
-                if let Some(value_span) =
-                    attribute_entry_value_span(source, offset + 1, end, positions)
-                {
-                    landmarks.push(PlacementLandmark {
-                        part: AnnotationPlacementPart::AttributeValue,
-                        span: value_span,
-                    });
-                    offset = value_span.end.offset;
-                } else {
-                    offset += 1;
-                }
-            }
-            Some(ch) => offset += ch.len_utf8(),
-            None => break,
+    let equals = find_top_level_source_char(source, '=', key_end, end);
+    let head_end = equals.unwrap_or(end);
+    if let Some(colon) = find_top_level_source_char(source, ':', key_end, head_end) {
+        landmarks.push(PlacementLandmark {
+            part: AnnotationPlacementPart::AttributeDatatypeColon,
+            span: Span {
+                start: positions.position_at(colon),
+                end: positions.position_at(colon + 1),
+            },
+        });
+        let datatype_start = skip_source_trivia(source, colon + 1, head_end);
+        let datatype_end = scan_source_datatype_end(source, datatype_start, head_end);
+        if datatype_start < datatype_end {
+            landmarks.push(PlacementLandmark {
+                part: AnnotationPlacementPart::AttributeDatatype,
+                span: Span {
+                    start: positions.position_at(datatype_start),
+                    end: positions.position_at(datatype_end),
+                },
+            });
+        }
+    }
+    if let Some(equals) = equals {
+        landmarks.push(PlacementLandmark {
+            part: AnnotationPlacementPart::AttributeEquals,
+            span: Span {
+                start: positions.position_at(equals),
+                end: positions.position_at(equals + 1),
+            },
+        });
+        if let Some(span) = attribute_entry_value_span(source, equals + 1, end, positions) {
+            landmarks.push(PlacementLandmark {
+                part: AnnotationPlacementPart::AttributeValue,
+                span,
+            });
         }
     }
     landmarks
@@ -2487,7 +2471,13 @@ mod tests {
 
     #[test]
     fn keeps_hints_after_the_assignment_on_the_enclosing_attribute() {
-        for members in ["flag=1, <glyph(2)>", "<glyph(2)>, flag=1", "flag=1"] {
+        for members in [
+            "flag=1, <glyph(2)>",
+            "<glyph(2)>, flag=1",
+            "flag=1",
+            r#"<"glyph=a">"#,
+            r#"<"glyph:a">"#,
+        ] {
             let source = format!("host@{{group@{{{members}}}=/? group ?/ 1}}=0");
             let records = extract_annotations(&source);
             assert_eq!(
