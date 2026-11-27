@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { finalizeNode } from './node.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
-import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
+import { resolvePaths, emitEvents, resolveRefs } from '@altopelago/aeon-aes';
 
 function compileToEvents(input: string, _legacySyntaxFlag: boolean = false, maxAttributeDepth = 1) {
     const tokens = tokenize(input).tokens;
@@ -23,6 +23,13 @@ describe('Finalization (Node)', () => {
         assert.equal(tag?.structuralId, 'ID');
         assert.equal(tag?.datatype, 'node');
         assert.equal(tag?.annotations?.get('x')?.value.type, 'NumberLiteral');
+    });
+
+    it('retains receiver identity and datatype when finalizing an eager node clone', () => {
+        const events = compileToEvents('<target:node<number>(1)>\ncopy\\COPY\\:node<string> = ~target');
+        const copy = finalizeNode(resolveRefs(events).aes).document.root.entries.get('copy');
+        assert.equal(copy?.structuralId, 'COPY');
+        assert.equal(copy?.datatype, 'node<string>');
     });
 
     it('projects direct node indices into the presentation children field', () => {

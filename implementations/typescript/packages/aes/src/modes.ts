@@ -261,12 +261,19 @@ export function enforceMode(
         }
 
         const owner = formatPath(event.path);
-        validateMetadataDatatypes(event, owner, (value, path, span, datatype, isNodeAttribute) => {
+        validateMetadataDatatypes(event, owner, (value, path, span, datatype, validation) => {
             if (value.type === 'NodeLiteral') {
                 const error = validateNodeDatatype(value, path, span, mode, allowCustom, customDatatypeKinds);
                 if (error) errors.push(error);
             } else {
-                if (isNodeAttribute) {
+                if (validation === 'node-child' && datatype) {
+                    const error = validateAnonymousDatatype(value, datatype, span, path, events, pathToIndex, mode, datatypePolicy);
+                    if (error) {
+                        errors.push(error);
+                        return;
+                    }
+                }
+                if (validation === 'node-attribute') {
                     const error = validateAttributeDatatype(value, datatype ?? undefined, path, span,
                         events, pathToIndex, mode, datatypePolicy, referenceCache);
                     if (error) {
@@ -287,9 +294,6 @@ export function enforceMode(
         if (event.value.type === 'NodeLiteral') {
             const error = validateNodeDatatype(event.value, owner, event.span, mode, allowCustom, customDatatypeKinds);
             if (error) errors.push(error);
-            errors.push(...validateAnnotationEntries(
-                event.annotations, owner, event.span, events, pathToIndex, mode, datatypePolicy, referenceCache
-            ));
             errors.push(...validateAnonymousTypedValues(event.value, owner, event.span, events, pathToIndex, mode, datatypePolicy));
             continue;
         }
@@ -500,20 +504,9 @@ function validateAnonymousTypedValues(
     if (value.type === 'TypedValue') {
         if (value.datatype) {
             const datatype = formatDatatypeAnnotation(value.datatype);
-            const expectedKinds = expectedKindsForReservedDatatype(datatype);
-            const resolved = resolveReferenceValue(value.value, events, pathToIndex) ?? value.value;
-            const actualKind = resolvedValueKind(resolved, datatype);
-            if (datatypeBase(datatype) === 'switch' && actualKind === 'ToggleLiteral') {
-                errors.push(new CustomToggleAliasNotAllowedError(value.span, ownerPath, datatype));
-            } else if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
-                errors.push(new CustomDatatypeNotAllowedError(value.span, ownerPath, datatype));
-            } else {
-                if (mode === 'strict' && !expectedKinds && actualKind === 'ToggleLiteral') {
-                    errors.push(new CustomToggleAliasNotAllowedError(value.span, ownerPath, datatype));
-                } else if (expectedKinds && !expectedKinds.includes(actualKind)) {
-                    errors.push(new DatatypeLiteralMismatchError(value.span, ownerPath, datatype, actualKind, expectedKinds));
-                }
-            }
+            const error = validateAnonymousDatatype(value.value, datatype, value.span, ownerPath,
+                events, pathToIndex, mode, datatypePolicy);
+            if (error) errors.push(error);
         }
 
         errors.push(...validateAnonymousTypedValues(value.value, ownerPath, span, events, pathToIndex, mode, datatypePolicy, true));
@@ -541,6 +534,29 @@ function validateAnonymousTypedValues(
     }
 
     return errors;
+}
+
+function validateAnonymousDatatype(
+    value: Value, datatype: string, span: Span, path: string,
+    events: readonly AssignmentEvent[], pathToIndex: ReadonlyMap<string, number>,
+    mode: Mode, datatypePolicy: DatatypePolicy,
+): ModeEnforcementError | undefined {
+    const expectedKinds = expectedKindsForReservedDatatype(datatype);
+    const resolved = resolveReferenceValue(value, events, pathToIndex) ?? value;
+    const actualKind = resolvedValueKind(resolved, datatype);
+    if (datatypeBase(datatype) === 'switch' && actualKind === 'ToggleLiteral') {
+        return new CustomToggleAliasNotAllowedError(span, path, datatype);
+    }
+    if ((mode === 'strict' || mode === 'custom') && !expectedKinds && datatypePolicy === 'reserved_only') {
+        return new CustomDatatypeNotAllowedError(span, path, datatype);
+    }
+    if (mode === 'strict' && !expectedKinds && actualKind === 'ToggleLiteral') {
+        return new CustomToggleAliasNotAllowedError(span, path, datatype);
+    }
+    if (expectedKinds && !expectedKinds.includes(actualKind)) {
+        return new DatatypeLiteralMismatchError(span, path, datatype, actualKind, expectedKinds);
+    }
+    return undefined;
 }
 
 function hasValidLiteralUnderscores(raw: string): boolean {
@@ -650,7 +666,7 @@ function validateNodeDatatype(
 function validateMetadataDatatypes(
     event: AssignmentEvent,
     owner: string,
-    check: (value: Value, path: string, span: Span, datatype: string | null | undefined, isNodeAttribute: boolean) => void,
+    check: (value: Value, path: string, span: Span, datatype: string | null | undefined, validation?: 'node-attribute' | 'node-child') => void,
 ): void {
     interface Claim {
         readonly value: Value;
@@ -658,7 +674,8 @@ function validateMetadataDatatypes(
         readonly datatype?: string | null;
         readonly span: Span;
         readonly projectedNodeAttributes?: boolean;
-        readonly isNodeAttribute?: boolean;
+        readonly validation?: 'node-attribute' | 'node-child';
+        readonly nodePayload?: boolean;
     }
 
     const tasks: Claim[] = [];
@@ -669,18 +686,20 @@ function validateMetadataDatatypes(
                 attributes(entry.attributes, path, isNodeAttribute);
                 tasks.push({
                     value: entry.value, path, span: entry.span ?? entry.value.span,
-                    datatype: entry.datatype && formatDatatypeAnnotation(entry.datatype), isNodeAttribute,
+                    datatype: entry.datatype && formatDatatypeAnnotation(entry.datatype),
+                    ...(isNodeAttribute ? { validation: 'node-attribute' } : {}),
                 });
             }
         }
     }
-    function projected(entries: ReadonlyMap<string, AttributeEntry> | undefined, owner: string): void {
+    function projected(entries: ReadonlyMap<string, AttributeEntry> | undefined, owner: string, inNode = false): void {
         for (const [key, entry] of [...(entries ?? [])].reverse()) {
             const path = appendModeMemberPath(`${owner}.@`, key);
-            projected(entry.annotations, path);
+            projected(entry.annotations, path, inNode || entry.value.type === 'NodeLiteral');
             tasks.push({
                 value: entry.value, path, span: entry.span ?? entry.value.span,
                 datatype: entry.datatype ?? null, projectedNodeAttributes: entry.annotations !== undefined,
+                ...(inNode ? { validation: 'node-attribute' } : {}),
             });
         }
     }
@@ -691,19 +710,20 @@ function validateMetadataDatatypes(
         root = root.value;
     }
     if ('attributes' in root && (root.type !== 'NodeLiteral' || event.annotations === undefined)) {
-        attributes(root.attributes, owner);
+        attributes(root.attributes, owner, root.type === 'NodeLiteral');
     }
-    projected(event.annotations, owner);
+    projected(event.annotations, owner, root.type === 'NodeLiteral');
 
     while (tasks.length > 0) {
-        const { value, path, datatype, span, projectedNodeAttributes, isNodeAttribute } = tasks.pop()!;
-        check(value, path, span, datatype, isNodeAttribute ?? false);
+        const { value, path, datatype, span, projectedNodeAttributes, validation, nodePayload } = tasks.pop()!;
+        check(value, path, span, datatype, validation);
 
         switch (value.type) {
             case 'TypedValue':
                 tasks.push({
                     value: value.value, path, span: value.span,
                     datatype: value.datatype && formatDatatypeAnnotation(value.datatype),
+                    ...(nodePayload ? { nodePayload, validation: 'node-child' } : {}),
                 });
                 attributes(value.attributes, path);
                 break;
@@ -713,6 +733,7 @@ function validateMetadataDatatypes(
                     tasks.push({
                         value: binding.value, path: child, span: binding.span,
                         datatype: binding.datatype && formatDatatypeAnnotation(binding.datatype),
+                        ...(nodePayload ? { nodePayload } : {}),
                     });
                     attributes(binding.attributes, child);
                 }
@@ -722,14 +743,14 @@ function validateMetadataDatatypes(
             case 'TupleLiteral':
                 for (let index = value.elements.length - 1; index >= 0; index--) {
                     const child = value.elements[index]!;
-                    tasks.push({ value: child, path: `${path}[${index}]`, span: child.span });
+                    tasks.push({ value: child, path: `${path}[${index}]`, span: child.span, ...(nodePayload ? { nodePayload } : {}) });
                 }
                 attributes(value.attributes, path);
                 break;
             case 'NodeLiteral': {
                 for (let index = value.children.length - 1; index >= 0; index--) {
                     const child = value.children[index]!;
-                    tasks.push({ value: child, path: `${path}[${index}]`, span: child.span });
+                    tasks.push({ value: child, path: `${path}[${index}]`, span: child.span, nodePayload: true });
                 }
                 if (!projectedNodeAttributes) attributes(value.attributes, path, true);
                 break;
@@ -754,12 +775,11 @@ function validateAnnotationEntries(
 
     const errors: ModeEnforcementError[] = [];
     for (const [key, entry] of annotations) {
-        const attrPath = `${ownerPath}.@.${key}`;
-        if (entry.value.type !== 'NodeLiteral') {
-            const error = validateAttributeDatatype(entry.value, entry.datatype, attrPath, entry.span ?? span,
-                events, pathToIndex, mode, datatypePolicy, referenceCache);
-            if (error) errors.push(error);
-        }
+        const attrPath = appendModeMemberPath(`${ownerPath}.@`, key);
+        if (entry.value.type === 'NodeLiteral') continue;
+        const error = validateAttributeDatatype(entry.value, entry.datatype, attrPath, entry.span ?? span,
+            events, pathToIndex, mode, datatypePolicy, referenceCache);
+        if (error) errors.push(error);
         errors.push(...validateAnnotationEntries(
             entry.annotations,
             attrPath,

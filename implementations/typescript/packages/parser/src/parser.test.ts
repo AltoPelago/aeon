@@ -1555,6 +1555,19 @@ b = [\A1\ = 2]`).tokens;
             assert.deepEqual(result.document?.bindings.map(binding => binding.key), ['next', 'after']);
         });
 
+        it('distinguishes multiline node heads from following typed or attributed bindings during recovery', () => {
+            for (const binding of ['good:n = 2', 'good@{x=1} = 2']) {
+                const result = parse(tokenize(`broken = nope\n<\n${binding}\nafter = 1`).tokens);
+                assert.equal(result.errors.length, 1);
+                assert.deepEqual(result.document?.bindings.map(item => item.key), ['good', 'after']);
+            }
+            for (const head of ['good:node<number>', 'good@{x=1}', 'good@{x=1}:node']) {
+                const result = parse(tokenize(`broken = nope\n<\n${head}>\nafter = 1`).tokens);
+                assert.equal(result.errors.length, 1);
+                assert.deepEqual(result.document?.bindings.map(binding => binding.key), ['good', 'after']);
+            }
+        });
+
         it('rejects external bindings and anonymous wrappers around node declarations', () => {
             for (const source of [
                 'page:node = <page>',

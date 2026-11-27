@@ -28,6 +28,7 @@ type ProjectionState = ReturnType<typeof createProjectionState>;
 type FinalizeScope = 'full' | 'header' | 'payload';
 type JsonReferenceStrategy = 'tokens' | 'link-pointers';
 type JsonContainer = JsonObject | JsonValue[];
+type JsonEndpoint = { owner: JsonContainer; key: string | number };
 
 type ResolvedCloneTarget = {
     value: Value;
@@ -62,6 +63,7 @@ type JsonContext = {
     materializedWeight: number;
     materializedWeightCache: Map<string, number>;
     projection: ProjectionState;
+    projectedArrayIndices?: WeakMap<JsonValue[], ReadonlyMap<number, number>>;
     activeClonePaths: string[];
 };
 
@@ -128,6 +130,8 @@ function finalizeJsonInternal(
         materializedWeight: 0,
         materializedWeightCache: new Map<string, number>(),
         projection,
+        ...(projection.projected && referenceStrategy === 'link-pointers'
+            ? { projectedArrayIndices: new WeakMap<JsonValue[], ReadonlyMap<number, number>>() } : {}),
         activeClonePaths: [],
     };
     const payload = payloadToJson(aes, ctx, projection, scope, options.header);
@@ -365,30 +369,14 @@ function valueToJson(
         case 'ObjectNode':
             return objectToJson(value.bindings, ctx, path, projection);
         case 'ListNode':
-            return value.elements.flatMap((element, index) => {
-                const elementPath = `${path}[${index}]`;
-                return shouldIncludeProjectedPath(elementPath, projection)
-                    ? [valueToJson(element, ctx, elementPath, projection)]
-                    : [];
-            });
         case 'TupleLiteral':
-            return value.elements.flatMap((element, index) => {
-                const elementPath = `${path}[${index}]`;
-                return shouldIncludeProjectedPath(elementPath, projection)
-                    ? [valueToJson(element, ctx, elementPath, projection)]
-                    : [];
-            });
+            return indexedValuesToJson(value.elements, ctx, path, projection);
         case 'NodeLiteral': {
             const nodeAttrs = attributesToJson(value.attributes, ctx, path, projection);
             return {
                 $node: value.tag,
                 ...(nodeAttrs ? { '@': nodeAttrs } : {}),
-                $children: value.children.flatMap((child, index) => {
-                    const childPath = `${path}[${index}]`;
-                    return shouldIncludeProjectedPath(childPath, projection)
-                        ? [valueToJson(child, ctx, childPath, projection)]
-                        : [];
-                }),
+                $children: indexedValuesToJson(value.children, ctx, path, projection),
             };
         }
         case 'CloneReference': {
@@ -434,6 +422,21 @@ function valueToJson(
         default:
             return null;
     }
+}
+
+function indexedValuesToJson(
+    values: readonly Value[], ctx: JsonContext, path: string, projection: ProjectionState,
+): JsonValue[] {
+    const result: JsonValue[] = [];
+    const indices = ctx.projectedArrayIndices ? new Map<number, number>() : undefined;
+    for (const [index, value] of values.entries()) {
+        const childPath = `${path}[${index}]`;
+        if (!shouldIncludeProjectedPath(childPath, projection)) continue;
+        indices?.set(index, result.length);
+        result.push(valueToJson(value, ctx, childPath, projection));
+    }
+    if (indices) ctx.projectedArrayIndices?.set(result, indices);
+    return result;
 }
 
 function objectToJson(bindings: readonly Binding[], ctx: JsonContext, basePath: string, projection: ProjectionState): JsonObject {
@@ -725,7 +728,10 @@ function attributesToJson(
                 projection,
                 entry.datatype ? formatDatatypeAnnotation(entry.datatype) : undefined
             );
-            const nested = attributesToJson(entry.attributes, ctx, entryPath, projection);
+            const nested = mergeAttributeJsonObjects(
+                attributesToJson(entry.attributes, ctx, entryPath, projection),
+                indexedChildAnnotationsToJson(entry.value, ctx, entryPath, projection),
+            );
             if (nested) {
                 nestedAttrEntries[key] = nested;
             }
@@ -879,7 +885,7 @@ function linkPointerReferences(
             continue;
         }
 
-        const sourceEndpoint = endpointFromCanonicalPath(payloadRoot, event.path.segments.slice(1));
+        const sourceEndpoint = endpointFromCanonicalPath(payloadRoot, event.path.segments.slice(1), ctx);
         if (!sourceEndpoint) {
             pushLinkDiagnostic(
                 ctx,
@@ -891,7 +897,7 @@ function linkPointerReferences(
             continue;
         }
 
-        const targetEndpoint = endpointFromReferencePath(payloadRoot, event.value.path);
+        const targetEndpoint = endpointFromReferencePath(payloadRoot, event.value.path, ctx);
         if (!targetEndpoint) {
             pushLinkDiagnostic(
                 ctx,
@@ -907,7 +913,7 @@ function linkPointerReferences(
             enumerable: true,
             configurable: true,
             get() {
-                return readContainerValue(targetEndpoint.owner, targetEndpoint.key);
+                return readJsonEndpoint(targetEndpoint);
             },
             set(next: JsonValue) {
                 writeContainerValue(targetEndpoint.owner, targetEndpoint.key, next);
@@ -939,42 +945,45 @@ function topLevelPayloadMemberKey(event: AssignmentEvent): string | null {
 
 function endpointFromCanonicalPath(
     root: JsonValue,
-    segments: readonly AssignmentEvent['path']['segments'][number][]
-): { owner: JsonContainer; key: string | number } | null {
+    segments: readonly AssignmentEvent['path']['segments'][number][],
+    ctx: JsonContext,
+): JsonEndpoint | null {
     if (segments.length === 0) return null;
     const parentSegments = segments.slice(0, -1);
     const last = segments[segments.length - 1];
     if (!last || last.type === 'root') return null;
-    const owner = traverseCanonicalSegments(root, parentSegments);
+    const owner = traverseCanonicalSegments(root, parentSegments, ctx);
     if (!owner) return null;
-    return locateJsonEndpoint(owner, last.type === 'member' ? last.key : last.index);
+    return locateJsonEndpoint(owner, last.type === 'member' ? last.key : last.index, ctx);
 }
 
 function endpointFromReferencePath(
     root: JsonValue,
-    pathParts: readonly ReferencePathPart[]
-): { owner: JsonContainer; key: string | number } | null {
+    pathParts: readonly ReferencePathPart[],
+    ctx: JsonContext,
+): JsonEndpoint | null {
     if (pathParts.length === 0) return null;
     const parentParts = pathParts.slice(0, -1);
     const last = pathParts[pathParts.length - 1];
     if (last === undefined || typeof last === 'object') {
         return null;
     }
-    const owner = traverseReferenceParts(root, parentParts);
-    return owner ? locateJsonEndpoint(owner, last) : null;
+    const owner = traverseReferenceParts(root, parentParts, ctx);
+    return owner ? locateJsonEndpoint(owner, last, ctx) : null;
 }
 
 function traverseCanonicalSegments(
     current: JsonValue,
-    segments: readonly AssignmentEvent['path']['segments'][number][]
+    segments: readonly AssignmentEvent['path']['segments'][number][],
+    ctx: JsonContext,
 ): JsonContainer | null {
     let node: JsonValue = current;
     for (const segment of segments) {
         if (segment.type === 'root') continue;
         if (!isContainer(node)) return null;
         const next: JsonValue | undefined = segment.type === 'member'
-            ? readContainerValue(node, segment.key)
-            : readContainerValue(node, segment.index);
+            ? readContainerValue(node, segment.key, ctx)
+            : readContainerValue(node, segment.index, ctx);
         if (next === undefined) return null;
         node = next;
     }
@@ -983,7 +992,8 @@ function traverseCanonicalSegments(
 
 function traverseReferenceParts(
     current: JsonValue,
-    parts: readonly ReferencePathPart[]
+    parts: readonly ReferencePathPart[],
+    ctx: JsonContext,
 ): JsonContainer | null {
     let node: JsonValue = current;
     for (const part of parts) {
@@ -991,7 +1001,7 @@ function traverseReferenceParts(
             return null;
         }
         if (!isContainer(node)) return null;
-        const next = readContainerValue(node, part);
+        const next = readContainerValue(node, part, ctx);
         if (next === undefined) return null;
         node = next;
     }
@@ -1002,18 +1012,24 @@ function isContainer(value: JsonValue | undefined): value is JsonContainer {
     return Array.isArray(value) || (!!value && typeof value === 'object');
 }
 
-function locateJsonEndpoint(owner: JsonContainer, key: string | number): { owner: JsonContainer; key: string | number } | null {
+function locateJsonEndpoint(owner: JsonContainer, key: string | number, ctx: JsonContext): JsonEndpoint | null {
     if (typeof key === 'string') {
         return hasSafeOwnProperty(owner as JsonObject, key) ? { owner, key } : null;
     }
     const items = Array.isArray(owner) ? owner : owner.$children;
-    return Array.isArray(items) && Object.hasOwn(items, key) ? { owner: items, key } : null;
+    if (!Array.isArray(items)) return null;
+    const projected = ctx.projectedArrayIndices?.get(items);
+    const index = projected ? projected.get(key) : key;
+    return index !== undefined && Object.hasOwn(items, index) ? { owner: items, key: index } : null;
 }
 
-function readContainerValue(container: JsonContainer, key: string | number): JsonValue | undefined {
-    const endpoint = locateJsonEndpoint(container, key);
-    if (!endpoint) return undefined;
-    return typeof key === 'number' ? (endpoint.owner as JsonValue[])[key] : (endpoint.owner as JsonObject)[key];
+function readContainerValue(container: JsonContainer, key: string | number, ctx: JsonContext): JsonValue | undefined {
+    const endpoint = locateJsonEndpoint(container, key, ctx);
+    return endpoint ? readJsonEndpoint(endpoint) : undefined;
+}
+
+function readJsonEndpoint({ owner, key }: JsonEndpoint): JsonValue | undefined {
+    return typeof key === 'number' ? (owner as JsonValue[])[key] : (owner as JsonObject)[key];
 }
 
 function writeContainerValue(container: JsonContainer, key: string | number, value: JsonValue): void {

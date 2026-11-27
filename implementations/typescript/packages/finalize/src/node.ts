@@ -1,4 +1,4 @@
-import { buildAnnotations, type AssignmentEvent } from '@altopelago/aeon-aes';
+import { buildAnnotations, formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
 import type {
     Diagnostic,
     FinalizeHeader,
@@ -228,10 +228,12 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
             return listNode(value.elements, meta, ctx, path, projection);
         case 'NodeLiteral': {
             const annotations = meta.annotations ?? buildAnnotations(value.attributes);
+            const structuralId = meta.structuralId ?? value.structuralId;
+            const datatype = meta.datatype ?? (value.datatype ? formatDatatypeAnnotation(value.datatype) : undefined);
             const nodeMeta: NodeMeta = {
                 span: meta.span,
-                ...(value.structuralId !== null ? { structuralId: value.structuralId } : {}),
-                ...(value.datatype ? { datatype: formatDatatypeAnnotation(value.datatype) } : {}),
+                ...(structuralId !== null ? { structuralId } : {}),
+                ...(datatype ? { datatype } : {}),
                 ...(annotations.size > 0 ? { annotations } : {}),
             };
             return objectNode([
@@ -354,7 +356,9 @@ function objectNode(
     const entries = new Map<string, FinalizedNode>();
     for (const binding of bindings) {
         const key = binding.key;
-        const entryPath = options.nodeWrapper && key === '$children' ? basePath : `${basePath}.${key}`;
+        const entryPath = options.nodeWrapper && key === '$children' ? basePath
+            : options.nodeWrapper && key === '@' ? `${basePath}.@`
+            : appendMemberPath(basePath, key);
         if (!(options.nodeWrapper && key === '$node') && !shouldIncludeProjectedPath(entryPath, projection)) {
             continue;
         }
@@ -421,8 +425,11 @@ function listNode(
 }
 
 function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', key: string): string {
-    if (scope === 'full') return `$.${branch}.${key}`;
-    return `$.${key}`;
+    return appendMemberPath(scope === 'full' ? `$.${branch}` : '$', key);
+}
+
+function appendMemberPath(path: string, key: string): string {
+    return path + formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
 }
 
 function isHeaderEvent(event: AssignmentEvent, key: string, header: FinalizeHeader | undefined): boolean {

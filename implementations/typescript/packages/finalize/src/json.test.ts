@@ -42,12 +42,35 @@ describe('Tagged node JSON finalization', () => {
         assert.deepEqual(result.document.tag, { $node: 'tag', $children: ['updated'] });
     });
 
+    it('uses authored indices when linking projected node children', () => {
+        const source = '<tag("first", "second")>\nkept = ~>tag[1]\nexcluded = ~>tag[0]';
+        const result = finalizeLinkedJson(compileToEvents(source), {
+            materialization: 'projected', includePaths: ['$.tag[1]', '$.kept', '$.excluded'],
+        });
+        assert.equal(result.document.kept, 'second');
+        assert.deepEqual(result.meta?.errors?.map(error => [error.code, error.path]), [
+            ['POINTER_TARGET_NOT_MATERIALIZED', '$.excluded'],
+        ]);
+        result.document.kept = 'updated';
+        assert.deepEqual(result.document.tag, { $node: 'tag', $children: ['updated'] });
+        assert.equal(result.document.excluded, '~>tag[0]');
+    });
+
     it('preserves indexed child annotations on nodes in attributes', () => {
         const events = compileToEvents('host@{<tag(@{x=1} = 2)>} = 0');
         const result = finalizeJson(events);
         assert.deepEqual(result.document, {
             host: 0, '@': { host: { tag: { $node: 'tag', $children: [2] },
                 '@': { tag: { '@items': { '0': { x: 1 } } } } } },
+        });
+    });
+
+    it('includes indexed child annotations when the attribute owner is also a node', () => {
+        const result = finalizeJson(compileToEvents('<outer@{<tag(@{x=1} = 2)>}>'));
+        assert.deepEqual(result.document, {
+            outer: { $node: 'outer', '@': {
+                tag: { $node: 'tag', $children: [2] }, '@': { tag: { '@items': { '0': { x: 1 } } } },
+            }, $children: [] },
         });
     });
 

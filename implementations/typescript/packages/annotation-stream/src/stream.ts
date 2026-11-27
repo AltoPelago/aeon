@@ -452,6 +452,10 @@ function attributeBindables(
         entries.push(...findNodeHeadAttributeEntryBindables(eventTokens, ownerPath, valueSpan));
     }
 
+    const starts = eventTokens.map(token => token.span.start.offset);
+    const tokensInSpan = (span: Span) => eventTokens.slice(
+        lowerBound(starts, span.start.offset), lowerBound(starts, span.end.offset),
+    );
     const intrinsic = new Map<number, AttributeEntryBindable>();
     const nodeDescendants: AttributeEntryBindable[] = [];
     type Value = AssignmentEvent['value'];
@@ -469,12 +473,13 @@ function attributeBindables(
     }
 
     function visitNode(value: Extract<Value, { type: 'NodeLiteral' }>, path: string, namedAttribute = false): void {
+        const nodeTokens = tokensInSpan(value.span);
         const entry = { path, span: value.span, valueSpan: value.span,
-            valueType: value.type, landmarks: findNodeValueLandmarks(eventTokens, value.span) };
+            valueType: value.type, landmarks: findNodeValueLandmarks(nodeTokens, value.span) };
         if (namedAttribute) intrinsic.set(value.span.start.offset, entry);
         else nodeDescendants.push(entry);
         if (value.attributes.length > 0) {
-            entries.push(...findNodeHeadAttributeEntryBindables(eventTokens, path, value.span));
+            entries.push(...findNodeHeadAttributeEntryBindables(nodeTokens, path, value.span));
             visitAnnotations(buildAnnotations(value.attributes), path);
         }
         for (const [index, child] of value.children.entries()) visitValue(child, `${path}[${index}]`, true);
@@ -491,7 +496,11 @@ function attributeBindables(
         }
         switch (value.type) {
             case 'TypedValue':
-                visitAnnotations(buildAnnotations(value.attributes), path);
+                if (value.attributes.length > 0) {
+                    const head = { start: value.span.start, end: value.value.span.start };
+                    entries.push(...findAttributeEntryBindables(tokensInSpan(head), path, head.start.offset, head.end.offset));
+                    visitAnnotations(buildAnnotations(value.attributes), path);
+                }
                 visitValue(value.value, path, false);
                 break;
             case 'ObjectNode':
@@ -617,7 +626,7 @@ function scanAttributeEntryBindables(
     const entries: AttributeEntryBindable[] = [];
     let index = atIndex + 1;
     let depth = 0;
-    let compositeDepth = 0;
+    const compositeClosers: TokenType[] = [];
     let keyToken: Token | undefined;
     let entryLandmarks: PlacementLandmark[] = [];
     let valueStart: Span['start'] | undefined;
@@ -665,13 +674,15 @@ function scanAttributeEntryBindables(
             continue;
         }
         if (depth === 1) {
-            if (token.type === TokenType.Comma && compositeDepth === 0) {
+            if (token.type === TokenType.Comma && compositeClosers.length === 0) {
                 finishEntry(token.span.start);
                 index += 1;
                 continue;
             }
-            if ([TokenType.LeftAngle, TokenType.LeftBracket, TokenType.LeftParen].includes(token.type)) compositeDepth += 1;
-            if ([TokenType.RightAngle, TokenType.RightBracket, TokenType.RightParen].includes(token.type)) compositeDepth -= 1;
+            if (token.type === TokenType.LeftAngle) compositeClosers.push(TokenType.RightAngle);
+            else if (token.type === TokenType.LeftBracket) compositeClosers.push(TokenType.RightBracket);
+            else if (token.type === TokenType.LeftParen) compositeClosers.push(TokenType.RightParen);
+            else if (token.type === compositeClosers.at(-1)) compositeClosers.pop();
             if (!keyToken && isSemanticToken(token)) {
                 keyToken = token;
                 entryLandmarks.push({ part: 'attribute-key', span: token.span });

@@ -404,6 +404,22 @@ describe('Core - compile()', () => {
             ]);
         });
 
+        it('binds a comment to the following attribute after a trimtick value', () => {
+            const result = compile('host@{a = >`text`, b /# note #/ = 2} = 0');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.b' },
+            ]);
+        });
+
+        it('targets attribute entries inside typed children of attribute nodes', () => {
+            const result = compile('host@{<tag(@{a=1 /# attr #/}:number = 2)>} = 0');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.tag[0].@.a' },
+            ]);
+        });
+
         it('should allow disabling annotation stream emission', () => {
             const result = compile('//# doc\na = 1', { emitAnnotations: false });
             assert.strictEqual(result.annotations, undefined);
@@ -1266,6 +1282,19 @@ describe('Core - compile()', () => {
             assert.deepEqual(result.errors.map(error => [error.code, (error as { path?: string }).path]), [
                 ['DATATYPE_LITERAL_MISMATCH', '$.outer.@.nest.inner.@.a'],
             ]);
+        });
+
+        it('validates node metadata and child claims when only the owning scalar is projected', () => {
+            const cases = [
+                ['outer:list=[@{<inner@{a:number="bad"}>}:number=1]', '$.outer[0].@.inner.@.a'],
+                ['<outer@{<inner(:number="bad")>}>', '$.outer.@.inner[0]'],
+            ];
+            for (const [source, expectedPath] of cases) {
+                const result = compile(source!, { mode: 'strict', maxAttributeDepth: 2 });
+                assert.deepEqual(result.errors.map(error => [error.code, (error as { path?: string }).path]), [
+                    ['DATATYPE_LITERAL_MISMATCH', expectedPath],
+                ]);
+            }
         });
 
         it('reports typed descendant errors once for quoted node paths', () => {

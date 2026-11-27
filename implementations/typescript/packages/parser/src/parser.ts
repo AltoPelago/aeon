@@ -99,6 +99,7 @@ class Parser {
     private current: number = 0;
     private readonly errors: ParserError[] = [];
     private structuralIdentities: Map<string, Span> | undefined;
+    private recoveryBraceEnds: ReadonlyMap<number, number> | undefined;
 
     constructor(tokens: readonly Token[], options: ParserOptions = {}) {
         this.tokens = tokens;
@@ -119,6 +120,7 @@ class Parser {
             // Error stacks may retain this receiver; operation scratch is done.
             this.tokens = emptyParserTokens;
             this.structuralIdentities = undefined;
+            this.recoveryBraceEnds = undefined;
             this.referenceReader = undefined;
             return {
                 document,
@@ -131,6 +133,7 @@ class Parser {
             // Error stacks may retain this receiver; operation scratch is done.
             this.tokens = emptyParserTokens;
             this.structuralIdentities = undefined;
+            this.recoveryBraceEnds = undefined;
             this.referenceReader = undefined;
             return {
                 document: null,
@@ -1536,11 +1539,7 @@ class Parser {
             const next = this.peekNext();
             if (this.check(TokenType.LeftAngle) && next && this.isKeyToken(next)
                 && this.peek().span.start.line > this.previous().span.end.line) {
-                const afterTag = this.peekAhead(2)?.type;
-                if (next.span.start.line === this.peek().span.start.line
-                    || afterTag === TokenType.RightAngle || afterTag === TokenType.LeftParen
-                    || afterTag === TokenType.StructuralIdentity || afterTag === TokenType.At
-                    || afterTag === TokenType.Colon) {
+                if (next.span.start.line === this.peek().span.start.line || this.looksLikeMultilineNode()) {
                     return;
                 }
             }
@@ -1552,6 +1551,43 @@ class Parser {
             }
             this.advance();
         }
+    }
+
+    private looksLikeMultilineNode(): boolean {
+        let index = this.current + 2;
+        if (this.tokens[index]?.type === TokenType.StructuralIdentity) index += 1;
+        if (this.tokens[index]?.type === TokenType.At) {
+            if (this.tokens[index + 1]?.type !== TokenType.LeftBrace) return false;
+            if (!this.recoveryBraceEnds) {
+                const opens: number[] = [];
+                const ends = new Map<number, number>();
+                for (const [offset, token] of this.tokens.entries()) {
+                    if (token.type === TokenType.LeftBrace) opens.push(offset);
+                    if (token.type === TokenType.RightBrace) {
+                        const open = opens.pop();
+                        if (open !== undefined) ends.set(open, offset);
+                    }
+                }
+                this.recoveryBraceEnds = ends;
+            }
+            const end = this.recoveryBraceEnds.get(index + 1);
+            if (end === undefined) return false;
+            index = end + 1;
+        }
+        if (this.tokens[index]?.type === TokenType.Colon) {
+            const saved = this.current;
+            try {
+                this.current = index + 1;
+                this.parseTypeAnnotation();
+                index = this.current;
+            } catch (error) {
+                if (error instanceof ParserError) return false;
+                throw error;
+            } finally {
+                this.current = saved;
+            }
+        }
+        return this.tokens[index]?.type === TokenType.LeftParen || this.tokens[index]?.type === TokenType.RightAngle;
     }
 
     private consumeSeparatorOrLineBreak(closeType: TokenType, message: string): void {

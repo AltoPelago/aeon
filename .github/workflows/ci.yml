@@ -125,7 +125,7 @@ jobs:
       - name: TypeScript revised node model CTS
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
-        run: pnpm test:cts:node-model
+        run: node ../../scripts/test-typescript-node-model-cts.mjs
 
       - name: CTS claim validation
         working-directory: .
