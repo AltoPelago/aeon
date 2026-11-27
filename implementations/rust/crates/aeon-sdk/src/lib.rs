@@ -1082,14 +1082,19 @@ mod tests {
 
     #[test]
     fn rejects_header_node_aliases_with_the_same_portable_name() {
-        let source = "aeon:header = { <extra>, <\"aeon:extra\"> }\n<main>";
-        let compiled = aeon_to_telex(source, CompileToTelexOptions::default());
-        assert!(compiled.telex.is_none());
-        assert_eq!(compiled.compile.errors[0].code, "DUPLICATE_KEY");
-        assert_eq!(
-            compiled.compile.errors[0].path.as_deref(),
-            Some(r#"$.["aeon:extra"]"#),
-        );
+        for (header, path) in [
+            (r#"<extra>, <"aeon:extra">"#, r#"$.["aeon:extra"]"#),
+            ("extra=1, <extra>", r#"$.["aeon:extra"]"#),
+            ("<extra>, extra=1", r#"$.["aeon:extra"]"#),
+            (r#""aeon:"=1, <"aeon:">"#, r#"$.["aeon:aeon:"]"#),
+            (r#"<"aeon:">, "aeon:"=1"#, r#"$.["aeon:aeon:"]"#),
+        ] {
+            let source = format!("aeon:header = {{ {header} }}\n<main>");
+            let compiled = aeon_to_telex(&source, CompileToTelexOptions::default());
+            assert!(compiled.telex.is_none());
+            assert_eq!(compiled.compile.errors[0].code, "DUPLICATE_KEY");
+            assert_eq!(compiled.compile.errors[0].path.as_deref(), Some(path));
+        }
     }
 
     #[test]

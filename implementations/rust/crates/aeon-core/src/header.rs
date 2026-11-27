@@ -61,7 +61,7 @@ impl IncrementalHeaderState {
             };
             if bindings
                 .iter()
-                .any(|field| structured_header_key(field) != field.key)
+                .any(|field| matches!(field.value, Value::NodeLiteral { .. }))
             {
                 let mut seen = HashSet::new();
                 for field in bindings {

@@ -612,7 +612,7 @@ fn collect_attribute_bindables(
             .and_then(|index| out.get(index))
     }) {
         let mut attributes = Vec::new();
-        if bindable.kind == BindableKind::Binding {
+        if bindable.span.start.offset < bindable.value_start.offset {
             attributes.extend(attribute_bindables_in_range(
                 source,
                 &bindable.path,
@@ -736,7 +736,10 @@ fn scan_attribute_bindables_at(
         let key = source_key(source, key_start, key_end);
         let entry_end = scan_attribute_entry_end(source, key_end, end);
         let landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
-        let value_span = attribute_entry_value_span(source, key_end, entry_end, positions)
+        let value_span = landmarks
+            .iter()
+            .find(|landmark| landmark.part == AnnotationPlacementPart::AttributeValue)
+            .map(|landmark| landmark.span)
             .unwrap_or(Span {
                 start: positions.position_at(key_start),
                 end: positions.position_at(key_end),
@@ -1470,6 +1473,9 @@ impl<'a, 'positions> AnnotationParser<'a, 'positions> {
                 }
                 Some(_) => {
                     let end = self.capture_scalar();
+                    if end.offset == start.offset {
+                        break;
+                    }
                     bindables.push(Bindable {
                         path: item_path,
                         span: Span { start, end },
@@ -1834,6 +1840,26 @@ impl<'a, 'positions> AnnotationParser<'a, 'positions> {
     fn capture_scalar(&mut self) -> Position {
         match self.scanner.peek() {
             Some('"') | Some('\'') | Some('`') => self.scanner.read_string(),
+            Some('$' | '?') => {
+                while let Some(ch) = self.scanner.peek() {
+                    match ch {
+                        ' ' | '\t' | '\n' | '\r' | ',' | '/' | '}' | ']' | ')' => break,
+                        '[' => {
+                            self.capture_balanced('[', ']');
+                        }
+                        '(' => {
+                            self.capture_balanced('(', ')');
+                        }
+                        '<' => {
+                            self.capture_balanced('<', '>');
+                        }
+                        '"' => self.scanner.read_string(),
+                        _ => {
+                            self.scanner.bump();
+                        }
+                    }
+                }
+            }
             Some('~') => {
                 self.scanner.bump();
                 self.skip_trivia(true);
@@ -1848,7 +1874,9 @@ impl<'a, 'positions> AnnotationParser<'a, 'positions> {
                             bracket_depth = bracket_depth.saturating_sub(1);
                             self.scanner.bump();
                         }
-                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']') if bracket_depth == 0 => {
+                        Some(' ' | '\t' | '\n' | '\r' | ',' | '}' | ']' | ')')
+                            if bracket_depth == 0 =>
+                        {
                             break;
                         }
                         Some('/') if self.scanner.peek_n(1) == Some('?') => {
@@ -2421,6 +2449,17 @@ mod tests {
                 r#"$.host.@.["line\nbreak"].@.badge"#,
                 r#"$.host.@.["line\nbreak"][1]"#
             ]
+        );
+    }
+
+    #[test]
+    fn binds_comments_after_a_structured_scalar_inside_an_attribute_node() {
+        let records = extract_annotations("host@{group@{<glyph($.items[0], /? child ?/ 2)>}=1}=0");
+        assert_eq!(
+            records[0].target,
+            AnnotationTarget::Path {
+                path: "$.host.@.group.@.glyph[1]".to_owned(),
+            },
         );
     }
 
