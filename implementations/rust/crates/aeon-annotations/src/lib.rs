@@ -590,40 +590,50 @@ fn block_kind(marker: char) -> (&'static str, &'static str, Option<&'static str>
 }
 
 fn collect_bindables(source: &str) -> Vec<Bindable> {
-    let mut parser = AnnotationParser::new(source);
+    let positions = SourcePositions::new(source);
+    let mut parser = AnnotationParser::new(source, &positions);
     let mut bindables = parser.parse_document();
-    let attribute_bindables = collect_attribute_bindables(source, &bindables);
+    let attribute_bindables = collect_attribute_bindables(source, &bindables, &positions);
     bindables.extend(attribute_bindables);
     bindables
 }
 
-fn collect_attribute_bindables(source: &str, bindables: &[Bindable]) -> Vec<Bindable> {
+fn collect_attribute_bindables(
+    source: &str,
+    bindables: &[Bindable],
+    positions: &SourcePositions,
+) -> Vec<Bindable> {
     let mut out = Vec::new();
     let mut order = bindables.len() + 1;
-    let positions = SourcePositions::new(source);
-    for bindable in bindables {
-        if bindable.kind != BindableKind::Binding {
-            continue;
+    let mut index = 0;
+    while let Some(bindable) = bindables.get(index).or_else(|| {
+        index
+            .checked_sub(bindables.len())
+            .and_then(|index| out.get(index))
+    }) {
+        let mut attributes = Vec::new();
+        if bindable.kind == BindableKind::Binding {
+            attributes.extend(attribute_bindables_in_range(
+                source,
+                &bindable.path,
+                bindable.span.start.offset,
+                bindable.value_start.offset,
+                &mut order,
+                positions,
+            ));
         }
-        let head_end = bindable.value_start.offset;
-        out.extend(attribute_bindables_in_range(
-            source,
-            &bindable.path,
-            bindable.span.start.offset,
-            head_end,
-            &mut order,
-            &positions,
-        ));
         if bindable.value_kind == BindableValueKind::Node {
-            out.extend(node_head_attribute_bindables(
+            attributes.extend(node_head_attribute_bindables(
                 source,
                 &bindable.path,
                 bindable.value_start.offset,
                 bindable.span.end.offset,
                 &mut order,
-                &positions,
+                positions,
             ));
         }
+        out.extend(attributes);
+        index += 1;
     }
     out
 }
@@ -699,6 +709,23 @@ fn scan_attribute_bindables_at(
         offset = skip_source_trivia(source, offset, end);
         if source_char(source, offset) == Some('}') {
             return (entries, offset + 1);
+        }
+        if source_char(source, offset) == Some('<') {
+            let start = positions.position_at(offset);
+            let mut parser = AnnotationParser {
+                scanner: Scanner::new_at(&source[..end], start),
+                positions,
+            };
+            if let Some(mut node) = parser.parse_node_binding(&format!("{owner_path}.@"), start) {
+                node[0].kind = BindableKind::Attribute;
+                offset = skip_source_trivia(source, node[0].span.end.offset, end);
+                if source_char(source, offset) == Some(',') {
+                    offset += 1;
+                }
+                *order += node.len();
+                entries.extend(node);
+                continue;
+            }
         }
         let key_start = offset;
         let key_end = scan_source_key_end(source, key_start, end);
@@ -1164,18 +1191,18 @@ impl SourcePositions {
     }
 }
 
-struct AnnotationParser<'a> {
+struct AnnotationParser<'a, 'positions> {
     scanner: Scanner<'a>,
-    positions: SourcePositions,
+    positions: &'positions SourcePositions,
 }
 
 const AEON_HEADER_CHILD_PARENT: &str = "$<aeon_header>";
 
-impl<'a> AnnotationParser<'a> {
-    fn new(source: &'a str) -> Self {
+impl<'a, 'positions> AnnotationParser<'a, 'positions> {
+    fn new(source: &'a str, positions: &'positions SourcePositions) -> Self {
         Self {
             scanner: Scanner::new(source),
-            positions: SourcePositions::new(source),
+            positions,
         }
     }
 
@@ -1316,7 +1343,9 @@ impl<'a> AnnotationParser<'a> {
         let mut parsed = aeon_core::parse_document(&fragment, &Default::default()).ok()?;
         let tag = parsed.pop()?.key;
         let key = if parent_path == AEON_HEADER_CHILD_PARENT {
-            tag.strip_prefix("aeon:").unwrap_or(&tag)
+            tag.strip_prefix("aeon:")
+                .filter(|suffix| !suffix.is_empty())
+                .unwrap_or(&tag)
         } else {
             &tag
         };
@@ -2016,7 +2045,7 @@ impl<'a> AnnotationParser<'a> {
                 self.scanner.source,
                 attr_start,
                 attr_end,
-                &self.positions,
+                self.positions,
             ));
             end = Some(attr_end);
             self.skip_trivia(false);
@@ -2216,7 +2245,25 @@ fn is_identifier(value: &str) -> bool {
 }
 
 fn escape_key(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    use std::fmt::Write;
+
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{08}' => escaped.push_str("\\b"),
+            '\u{0c}' => escaped.push_str("\\f"),
+            ch if ch < '\u{20}' => {
+                write!(&mut escaped, "\\u{:04x}", u32::from(ch)).expect("write to a String");
+            }
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -2354,6 +2401,27 @@ mod tests {
             })
             .collect();
         assert_eq!(paths, ["$.page", "$.page[1]", "$.later"]);
+    }
+
+    #[test]
+    fn binds_comments_inside_standalone_nodes_in_attributes() {
+        let records = extract_annotations(
+            r#"host@{<"line\nbreak"@{badge=/? badge ?/ 1}(1, /? child ?/ 2)>}=0"#,
+        );
+        let paths: Vec<_> = records
+            .iter()
+            .map(|record| match &record.target {
+                AnnotationTarget::Path { path } => path.as_str(),
+                target => panic!("unbound annotation: {target:?}"),
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                r#"$.host.@.["line\nbreak"].@.badge"#,
+                r#"$.host.@.["line\nbreak"][1]"#
+            ]
+        );
     }
 
     #[test]

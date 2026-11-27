@@ -2717,6 +2717,10 @@ mod tests {
                 "<anchor(\"text\")>\nhost@{<glyph(:number = ~anchor[0])>} = 0",
                 "$.host.@.glyph[0]",
             ),
+            (
+                "host@{data=[:object={<glyph(:number=\"oops\")>}]} = 0",
+                "$.host.@.data[0].glyph[0]",
+            ),
         ] {
             let options = CompileOptions::default();
             let baseline = compile_owned_with_implementation(

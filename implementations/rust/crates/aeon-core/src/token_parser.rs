@@ -631,8 +631,11 @@ impl<'a> TokenParser<'a> {
             match self.parse_binding(true) {
                 Ok(binding) => bindings.push(binding),
                 Err(error) => {
+                    let depth_rejected_node = error.code == "NESTING_DEPTH_EXCEEDED"
+                        && self.check(TokenKind::LeftAngle)
+                        && error.span == Some(self.peek().span);
                     errors.push(error);
-                    if self.current == binding_start && !self.is_at_end() {
+                    if depth_rejected_node || (self.current == binding_start && !self.is_at_end()) {
                         self.advance();
                     }
                     if !self.synchronize_to_next_binding() {
@@ -2459,6 +2462,29 @@ mod tests {
                 assert_eq!(recovered.errors.len(), 1);
                 assert_eq!(recovered.errors[0].code, "NESTING_DEPTH_EXCEEDED");
             }
+        }
+    }
+
+    #[test]
+    fn recovery_keeps_rejected_nested_nodes_outside_the_root_scope() {
+        let source = "before=1\n<outer(\n<inner>\n)>\nafter=2";
+        let limits = ParserLimits::new(1, 8, 8, 8, 32, 64);
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let recovered = parse_document_from_tokens_recovery_with_implementation(
+                source,
+                limits,
+                implementation,
+            );
+            assert_eq!(
+                recovered
+                    .bindings
+                    .iter()
+                    .map(|binding| binding.key.as_str())
+                    .collect::<Vec<_>>(),
+                ["before", "after"]
+            );
+            assert_eq!(recovered.errors.len(), 1);
+            assert_eq!(recovered.errors[0].code, "NESTING_DEPTH_EXCEEDED");
         }
     }
 

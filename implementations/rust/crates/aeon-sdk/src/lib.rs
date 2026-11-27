@@ -1093,6 +1093,20 @@ mod tests {
     }
 
     #[test]
+    fn preserves_a_header_node_named_like_the_namespace_prefix() {
+        let source = "aeon:header = { <\"aeon:\"(\"note\")> }\n<main>";
+        let mut options = CompileToTelexOptions::default();
+        options.telex.include_headers = true;
+        let compiled = aeon_to_telex(source, options);
+        let wire = compiled.telex.expect("Telex with the header plane");
+        let mut load_options = TelexLoadOptions::default();
+        load_options.finalize.scope = aeon_finalize::FinalizeScope::Full;
+        let document = load_telex_str::<JsonValue>(&wire, load_options).expect("load header node");
+        assert_eq!(document.document["header"]["aeon:"]["$node"], "aeon:aeon:");
+        assert_eq!(document.document["header"]["aeon:"]["$children"][0], "note");
+    }
+
+    #[test]
     fn returns_compile_errors_for_invalid_source() {
         let error = load_str::<GreetingDoc>("greeting = {\n", LoadOptions::default())
             .expect_err("compile failure");

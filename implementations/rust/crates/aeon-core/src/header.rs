@@ -201,7 +201,11 @@ pub(crate) fn extract_header_fields(bindings: &[Binding]) -> HeaderFields {
 
 fn structured_header_key(field: &Binding) -> &str {
     if matches!(field.value, Value::NodeLiteral { .. }) {
-        field.key.strip_prefix("aeon:").unwrap_or(&field.key)
+        field
+            .key
+            .strip_prefix("aeon:")
+            .filter(|suffix| !suffix.is_empty())
+            .unwrap_or(&field.key)
     } else {
         &field.key
     }

@@ -2889,10 +2889,12 @@ fn validate_value_attribute_datatypes(
             value,
             ..
         } => {
-            let AttributeValueScope::NodePayload(span) = scope else {
+            if matches!(scope, AttributeValueScope::Projected) {
                 return;
-            };
-            if let Some(datatype) = datatype {
+            }
+            if let AttributeValueScope::NodePayload(span) = scope
+                && let Some(datatype) = datatype
+            {
                 checks.extend(check_metadata_payload_type(
                     datatype,
                     value,
