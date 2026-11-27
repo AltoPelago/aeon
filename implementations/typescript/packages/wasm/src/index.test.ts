@@ -643,7 +643,25 @@ test('WASM retains header node metadata and separates colliding header and paylo
   ];
   assert.deepEqual(full.events, [...header, ...payload]);
   assert.deepEqual(runtime.processAeon(source, { finalizeScope: 'header', finalize: false }).events, header);
-  assert.deepEqual(runtime.processAeon(source, { finalize: false }).events, payload);
+  assert.deepEqual(runtime.processAeon(source, { finalize: false }).events, [header[1], ...payload]);
+});
+
+test('WASM Core summaries retain ordinary header descendants when selecting payload', async () => {
+  const runtime = await loadAeonWasm(readFileSync(resolve(packageRoot, 'pkg/aeon_wasm_bg.wasm')));
+  for (const type of ['', ':object']) {
+    const source = `aeon:header={mode="strict", meta${type}={document:string="public"}}\nbody:string="payload"`;
+    for (const scopeOptions of [{}, { finalizeScope: 'payload' }] as const) {
+      const result = runtime.processAeon(source, { finalize: false, ...scopeOptions });
+      assert.deepEqual(result.errors, []);
+      assert.deepEqual(result.events.map(({ path, sourcePlane }) => [path, sourcePlane]), [
+        ['$.["aeon:meta"].document', 'header'],
+        ['$.body', undefined],
+      ]);
+    }
+    assert.deepEqual(runtime.processAeon(source, { finalizeScope: 'payload' }).finalized.document, {
+      body: 'payload',
+    });
+  }
 });
 
 test('WASM Telex keeps tagged node paths and rejects retired record shapes', async () => {

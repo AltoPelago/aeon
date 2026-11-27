@@ -1361,11 +1361,7 @@ fn process_events(
     output.extend(
         events
             .iter()
-            .filter(|event| match scope {
-                "header" => event.source_plane == SourcePlane::Header,
-                "full" => true,
-                _ => event.source_plane == SourcePlane::Body,
-            })
+            .filter(|event| scope != "header" || event.source_plane == SourcePlane::Header)
             .map(process_event),
     );
 

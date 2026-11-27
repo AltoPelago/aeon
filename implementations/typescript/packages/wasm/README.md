@@ -56,8 +56,9 @@ of `diagnostics.errors` and `diagnostics.warnings`.
 Node event summaries expose the intrinsic `tag` at the binding's path. For
 example, `<tag("Hello")>` emits the node at `$.tag` and its direct child at
 `$.tag[0]`. An indexed node retains its tag in the summary while its path uses
-the index. Header events in a `header` or `full` one-shot result carry
-`sourcePlane: 'header'` so callers can distinguish paths shared by both planes.
+the index. In one-shot results, compiled header descendants remain visible when
+finalizing the payload. Header summaries carry `sourcePlane: 'header'` so
+callers can distinguish paths shared by both planes.
 
 For Core conformance or event-processing workloads that do not need a JSON
 document, pass `finalize: false`. This compiles Sofia directly and returns Core
@@ -101,18 +102,17 @@ shapes/unknown fields throw `TypeError`; invalid ordering/limits throw
 `RangeError`. The raw generated `canonicalize_aeon(source, optionsJson)` export
 independently rejects invalid configuration. Omitted limits use the defaults.
 
-Omitting `ordering` selects `reference-safe-v1` (canonical CTS 0.4).
-Explicit `lexical-v1` retains historical source bytes and behavior, including
-the absence of authored-reference validation. Limits are validated but only
-applied by the reference-safe contract. `processAeon` canonical output uses the
-new default too, while retaining its existing profile/materialization stages.
-Streams and Telex are unchanged. Integrity event hashing/receipt verification
-remains historical; do not silently mix hashes/signatures across contracts.
+Omitting `ordering` selects `reference-safe-v1`. Explicit `lexical-v1` orders
+named bindings lexically and skips authored-reference validation. Both options
+use the tagged-node grammar. The reference-safe contract applies the ordering
+and metadata limits. `processAeon` uses reference-safe ordering before profile
+validation and materialization.
 
-PR CI checks the actual committed binary against immutable canonical CTS 0.4 and
-TypeScript parity corpus. The browser smoke page checks the standalone API on
-the main thread and in a module worker, including Unicode symbols, fixed-point
-bytes and fail-closed reference/budget errors.
+PR CI checks the current committed binary against the tagged-node Core and
+Canonical CTS. The frozen pre-revision checkout runs the historical canonical
+CTS 0.4 and TypeScript parity corpus. The browser smoke page exercises the
+standalone API on the main thread and in a module worker, including Unicode
+symbols, fixed-point bytes and fail-closed reference and budget errors.
 
 ## Progressive streams
 
