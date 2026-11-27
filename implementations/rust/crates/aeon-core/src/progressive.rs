@@ -2670,25 +2670,40 @@ mod tests {
 
     #[test]
     fn bare_node_head_metadata_diagnostic_locates_the_authored_entry() {
-        let source = "a@{m:object = {}}:node = <tag@{m:number = {}}>\nb:object = ~a.@.m";
-        let options = CompileOptions::default();
-        let baseline = compile_owned_with_implementation(
-            source.to_owned(),
-            options.clone(),
-            ParserImplementation::Baseline,
-        );
-        let sofia = compile_owned_sofia_streaming(source.to_owned(), options.clone());
-        let (_, streamed) = collect_progressive(source, &options, 1);
-        for errors in [baseline.errors, sofia.errors, streamed.prevalidation_errors] {
-            let [error] = errors.as_slice() else {
-                panic!("one datatype diagnostic expected: {errors:?}");
+        for (source, attribute) in [
+            (
+                "a@{m:object = {}}:node = <tag@{m:number = {}}>\nb:object = ~a.@.m",
+                "m:number = {}",
+            ),
+            (
+                "a@{m:node = <good>}:node = <tag@{m:node = <inner@{q:number = {}}>}>\nb:node = ~a.@.m",
+                "q:number = {}",
+            ),
+            (
+                "a@{m:list = [{q@{n:object = {}}:number = 1}]}:node = <tag@{m:list = [{q@{n:number = {}}:number = 1}]}>\nb:object = ~a.@.m[0]",
+                "n:number = {}",
+            ),
+        ] {
+            let options = CompileOptions {
+                max_attribute_depth: 4,
+                ..CompileOptions::default()
             };
-            assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
-            assert_eq!(error.path.as_deref(), Some("$.a"));
-            assert_eq!(
-                error.span.map(|span| span.start.offset),
-                source.find("m:number")
+            let baseline = compile_owned_with_implementation(
+                source.to_owned(),
+                options.clone(),
+                ParserImplementation::Baseline,
             );
+            let sofia = compile_owned_sofia_streaming(source.to_owned(), options.clone());
+            let (_, streamed) = collect_progressive(source, &options, 1);
+            for errors in [baseline.errors, sofia.errors, streamed.prevalidation_errors] {
+                let [error] = errors.as_slice() else {
+                    panic!("one datatype diagnostic expected: {errors:?}");
+                };
+                assert_eq!(error.code, "DATATYPE_LITERAL_MISMATCH");
+                assert_eq!(error.path.as_deref(), Some("$.a"));
+                let span = error.span.expect("authored attribute span");
+                assert_eq!(&source[span.start.offset..span.end.offset], attribute);
+            }
         }
     }
 

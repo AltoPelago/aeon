@@ -990,6 +990,7 @@ pub(crate) fn collect_attribute_datatype_checks(
     validate_attribute_datatypes_in_scope(
         bindings,
         "$",
+        None,
         mode,
         effective_datatype_policy(mode, datatype_policy),
         max_separator_depth,
@@ -2796,6 +2797,7 @@ fn validate_resolved_attribute_datatypes(
 fn validate_attribute_datatypes_in_scope(
     bindings: &[Binding],
     parent: &str,
+    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2808,7 +2810,7 @@ fn validate_attribute_datatypes_in_scope(
             &binding.attributes,
             &binding.attribute_order,
             format_args!("{path}.@"),
-            None,
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2818,6 +2820,7 @@ fn validate_attribute_datatypes_in_scope(
         validate_value_attribute_datatypes(
             &binding.value,
             &path,
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2830,6 +2833,7 @@ fn validate_attribute_datatypes_in_scope(
 fn validate_value_attribute_datatypes(
     value: &Value,
     path: &str,
+    node_head_owner: Option<&str>,
     mode: BehaviorMode,
     datatype_policy: DatatypePolicy,
     max_separator_depth: usize,
@@ -2840,6 +2844,7 @@ fn validate_value_attribute_datatypes(
         Value::ObjectNode { bindings } => validate_attribute_datatypes_in_scope(
             bindings,
             path,
+            node_head_owner,
             mode,
             datatype_policy,
             max_separator_depth,
@@ -2851,6 +2856,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     item,
                     &render_child_index_path(path, index),
+                    node_head_owner,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2870,7 +2876,7 @@ fn validate_value_attribute_datatypes(
                     attribute,
                     &attribute_order,
                     format_args!("{path}.@"),
-                    Some(path),
+                    node_head_owner.or(Some(path)),
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -2882,6 +2888,7 @@ fn validate_value_attribute_datatypes(
                 validate_value_attribute_datatypes(
                     child,
                     &render_child_index_path(path, index),
+                    node_head_owner,
                     mode,
                     datatype_policy,
                     max_separator_depth,
@@ -3030,6 +3037,7 @@ fn validate_attribute_datatype_map(
             validate_value_attribute_datatypes(
                 value,
                 &attr_path,
+                node_head_owner,
                 mode,
                 datatype_policy,
                 max_separator_depth,
