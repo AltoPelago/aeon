@@ -736,10 +736,8 @@ fn scan_attribute_bindables_at(
         let key = source_key(source, key_start, key_end);
         let entry_end = scan_attribute_entry_end(source, key_end, end);
         let landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
-        let value_span = landmarks
-            .iter()
-            .find(|landmark| landmark.part == AnnotationPlacementPart::AttributeValue)
-            .map(|landmark| landmark.span)
+        let value_span = find_top_level_source_char(source, '=', key_end, entry_end)
+            .and_then(|equals| attribute_entry_value_span(source, equals + 1, entry_end, positions))
             .unwrap_or(Span {
                 start: positions.position_at(key_start),
                 end: positions.position_at(key_end),
@@ -2454,13 +2452,21 @@ mod tests {
 
     #[test]
     fn binds_comments_after_a_structured_scalar_inside_an_attribute_node() {
-        let records = extract_annotations("host@{group@{<glyph($.items[0], /? child ?/ 2)>}=1}=0");
-        assert_eq!(
-            records[0].target,
-            AnnotationTarget::Path {
-                path: "$.host.@.group.@.glyph[1]".to_owned(),
-            },
-        );
+        for members in [
+            "<glyph($.items[0], /? child ?/ 2)>",
+            "flag=1, <glyph($.items[0], /? child ?/ 2)>",
+            "<glyph($.items[0], /? child ?/ 2)>, flag=1",
+        ] {
+            let source = format!("host@{{group@{{{members}}}=1}}=0");
+            let records = extract_annotations(&source);
+            assert_eq!(
+                records[0].target,
+                AnnotationTarget::Path {
+                    path: "$.host.@.group.@.glyph[1]".to_owned(),
+                },
+                "{source}"
+            );
+        }
     }
 
     #[test]
