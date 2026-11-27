@@ -250,6 +250,17 @@ fn resolve_target(comment_span: Span, bindables: &[Bindable]) -> AnnotationTarge
     infix_containing.sort_by_key(|bindable| span_length(bindable.span));
 
     for container in &infix_containing {
+        if container.kind == BindableKind::Attribute
+            && comment_span.end.offset <= container.value_start.offset
+            && container.landmarks.iter().any(|landmark| {
+                landmark.part == AnnotationPlacementPart::AttributeEquals
+                    && landmark.span.end.offset <= comment_span.start.offset
+            })
+        {
+            return AnnotationTarget::Path {
+                path: container.path.clone(),
+            };
+        }
         let descendants = bindables
             .iter()
             .filter(|candidate| bindable_descends_from(container, candidate))
@@ -735,8 +746,13 @@ fn scan_attribute_bindables_at(
         }
         let key = source_key(source, key_start, key_end);
         let entry_end = scan_attribute_entry_end(source, key_end, end);
-        let landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
-        let value_span = find_top_level_source_char(source, '=', key_end, entry_end)
+        let equals = find_top_level_source_char(source, '=', key_end, entry_end);
+        let mut landmarks = attribute_entry_landmarks(source, key_start, entry_end, positions);
+        landmarks.retain(|landmark| {
+            landmark.part != AnnotationPlacementPart::AttributeEquals
+                || Some(landmark.span.start.offset) == equals
+        });
+        let value_span = equals
             .and_then(|equals| attribute_entry_value_span(source, equals + 1, entry_end, positions))
             .unwrap_or(Span {
                 start: positions.position_at(key_start),
@@ -2464,6 +2480,29 @@ mod tests {
                 AnnotationTarget::Path {
                     path: "$.host.@.group.@.glyph[1]".to_owned(),
                 },
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_hints_after_the_assignment_on_the_enclosing_attribute() {
+        for members in ["flag=1, <glyph(2)>", "<glyph(2)>, flag=1", "flag=1"] {
+            let source = format!("host@{{group@{{{members}}}=/? group ?/ 1}}=0");
+            let records = extract_annotations(&source);
+            assert_eq!(
+                records[0].target,
+                AnnotationTarget::Path {
+                    path: "$.host.@.group".to_owned()
+                },
+                "{source}"
+            );
+            assert_eq!(
+                records[0].placement,
+                Some(AnnotationPlacement {
+                    after: Some(AnnotationPlacementPart::AttributeEquals),
+                    before: Some(AnnotationPlacementPart::AttributeValue),
+                }),
                 "{source}"
             );
         }
