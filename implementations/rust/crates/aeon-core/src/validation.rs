@@ -1328,12 +1328,10 @@ fn validate_typed_mode_rules_in_scope(
         if matches!(parent.segments.as_slice(), [crate::PathSegment::Root]) && binding.is_header {
             continue;
         }
-        let should_emit_untyped_value_error = !binding.is_header
-            && binding.datatype.is_none()
-            && !matches!(binding.value, Value::NodeLiteral { .. })
-            && !(matches!(mode, BehaviorMode::Strict)
-                && matches!(binding.value, Value::ToggleLiteral { .. }));
-        if should_emit_untyped_value_error {
+        let strict_toggle =
+            mode == BehaviorMode::Strict && matches!(binding.value, Value::ToggleLiteral { .. });
+        let implicitly_typed = matches!(binding.value, Value::NodeLiteral { .. }) || strict_toggle;
+        if !binding.is_header && binding.datatype.is_none() && !implicitly_typed {
             errors.push(
                 Diagnostic::new(
                     "UNTYPED_VALUE_IN_STRICT_MODE",

@@ -18,7 +18,10 @@ fn resolves_the_shared_tagged_node_addresses() {
     .expect("SANSA vectors");
     let namespace = AeonSansaNamespace::compile(
         "<tag(\"Hello\", \"World\")>\nhost@{<glyph@{size = 1}>} = 1\n",
-        CompileOptions::default(),
+        CompileOptions {
+            max_attribute_depth: 2,
+            ..CompileOptions::default()
+        },
         AeonSansaScope::Payload,
         AeonNumericMaterialization::Lossless,
     )
