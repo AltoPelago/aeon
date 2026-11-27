@@ -5,7 +5,7 @@
  * pointer references (~>) as alias tokens. Output remains AES.
  */
 
-import type { AssignmentEvent, AttributeEntry } from './events.js';
+import { buildAnnotations, type AssignmentEvent, type AttributeEntry } from './events.js';
 import type { Value, Attribute, AttributeValue, Binding, ReferencePathSegment } from '@altopelago/aeon-parser';
 import type { Span } from '@altopelago/aeon-lexer';
 import { formatPath } from './paths.js';
@@ -326,9 +326,14 @@ export function resolveRefs(
             const updated = new Map<string, AttributeEntry>();
             for (const [key, entry] of entries) {
                 const nextValueEntry = resolveValue(entry.value, sourcePath, i, [sourcePath]);
-                const nextAnnotationsEntry = entry.annotations
-                    ? resolveAnnotationEntries(entry.annotations)
-                    : entry.annotations;
+                let nextAnnotationsEntry = entry.annotations;
+                if (entry.annotations) {
+                    if (entry.value.type === 'NodeLiteral' && nextValueEntry.type === 'NodeLiteral') {
+                        if (nextValueEntry !== entry.value) nextAnnotationsEntry = buildAnnotations(nextValueEntry.attributes, entry.value.attributes);
+                    } else {
+                        nextAnnotationsEntry = resolveAnnotationEntries(entry.annotations);
+                    }
+                }
                 const nextEntry = nextValueEntry === entry.value && nextAnnotationsEntry === entry.annotations
                     ? entry
                     : { ...entry, value: nextValueEntry, ...(nextAnnotationsEntry ? { annotations: nextAnnotationsEntry } : {}) };
@@ -339,9 +344,11 @@ export function resolveRefs(
 
         let annotationsChanged = false;
         let nextAnnotations = event.annotations;
-        if (event.annotations) {
+        if (event.annotations && event.value.type === 'NodeLiteral' && nextValue.type === 'NodeLiteral') {
+            if (nextValue !== event.value) nextAnnotations = buildAnnotations(nextValue.attributes, event.value.attributes);
+        } else if (event.annotations) {
             const updated = resolveAnnotationEntries(event.annotations);
-            annotationsChanged = updated !== event.annotations && Array.from(updated.entries()).some(([key, entry]) => event.annotations?.get(key) !== entry);
+            annotationsChanged = Array.from(updated.entries()).some(([key, entry]) => event.annotations?.get(key) !== entry);
             nextAnnotations = annotationsChanged ? updated : event.annotations;
         }
 

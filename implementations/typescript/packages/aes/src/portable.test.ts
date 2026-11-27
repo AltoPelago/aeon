@@ -22,8 +22,8 @@ function project(input: string) {
 
 describe('portable AES projection', () => {
     it('exposes the named legacy adapter with an explicit conversion report', () => {
-        const parsed = parse(tokenize(String.raw`a@{role = "root"} = <tag("child")>
-copy = ~a[0]
+        const parsed = parse(tokenize(String.raw`<tag@{role = "root"}("child")>
+copy = ~tag[0]
 items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.ok(parsed.document);
         const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
@@ -41,10 +41,10 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.equal(converted.report.provenanceLossless, false);
         assert.equal(converted.events.some((event) => 'span' in event), false);
         const codes = new Set(converted.report.changes.map((change) => change.code));
-        assert.equal(codes.has('AES_COMPAT_NODE_HEAD_SYNTHESIZED'), true);
+        assert.equal(converted.events.find(event => event.path === '$.tag')?.tag, 'tag');
         assert.equal(codes.has('AES_COMPAT_ATTRIBUTE_FLATTENED'), true);
         assert.equal(codes.has('AES_COMPAT_DATATYPE_EXPANDED'), true);
-        assert.equal(codes.has('AES_COMPAT_REFERENCE_TRANSLATED'), true);
+        assert.equal(converted.events.find(event => event.path === '$.copy')?.value, '$.tag[0]');
         assert.equal(codes.has('AES_COMPAT_PROVENANCE_OMITTED'), true);
     });
 
@@ -87,7 +87,7 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
 
     it('derives an exact origin and converts native UTF-16 ranges to UTF-8 byte spans', () => {
         const source = [
-            '\uFEFF' + String.raw`a = <tag\HEAD\@{role = "café"}:node("😀")>`,
+            '\uFEFF' + String.raw`<tag\NODE\@{role = "café"}:node("😀")>`,
             'b = "nai\u0308ve"',
         ].join('\r\n');
         const sourceBytes = Buffer.from(source, 'utf8');
@@ -97,12 +97,11 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         assert.deepStrictEqual(emitted.errors, []);
 
         const converted = adaptTypeScriptAssignmentEventsToPortableAes(emitted.events, { sourceBytes });
-        const origin = 'sha256:c9063ff2481e76331f175afa8a6bd4d7f850048591e737047d8a0b6fc2a701b7';
+        const origin = 'sha256:89f440463a2fdea64790344a1511238d2af592991c0818794c26e15ca82a749c';
         const expectedLexemes = new Map([
-            ['$.a', String.raw`a = <tag\HEAD\@{role = "café"}:node("😀")>`],
-            ['$.a[0]', String.raw`tag\HEAD\@{role = "café"}:node`],
-            ['$.a[0].@.role', 'role = "café"'],
-            ['$.a[0][0]', '"😀"'],
+            ['$.tag', String.raw`<tag\NODE\@{role = "café"}:node("😀")>`],
+            ['$.tag.@.role', 'role = "café"'],
+            ['$.tag[0]', '"😀"'],
             ['$.b', 'b = "nai\u0308ve"'],
         ]);
 
@@ -178,88 +177,56 @@ items:list<int> = [1]`).tokens, { maxAttributeDepth: 8 });
         );
     });
 
-    it('publishes structure-aware native-to-portable event path mappings', () => {
-        const parsed = parse(tokenize('a:node = <outer(<inner("leaf")>)>').tokens, { maxAttributeDepth: 8 });
+    it('preserves source paths across nested node occurrences', () => {
+        const parsed = parse(tokenize('<outer(<inner("leaf")>)>').tokens);
         assert.ok(parsed.document);
         const emitted = emitEvents(resolvePaths(parsed.document, { indexedPaths: true }));
         assert.deepStrictEqual(emitted.errors, []);
-
         assert.deepEqual([...createPortableEventPathMap(emitted.events)], [
-            ['$.a', '$.a'],
-            ['$.a[0]', '$.a[0][0]'],
-            ['$.a[0][0]', '$.a[0][0][0][0]'],
+            ['$.outer', '$.outer'],
+            ['$.outer[0]', '$.outer[0]'],
+            ['$.outer[0][0]', '$.outer[0][0]'],
+        ]);
+        assert.deepEqual(projectPortableEvents(emitted.events), [
+            { path: '$.outer', kind: 'NodeLiteral', tag: 'outer' },
+            { path: '$.outer[0]', kind: 'NodeLiteral', tag: 'inner' },
+            { path: '$.outer[0][0]', kind: 'StringLiteral', value: 'leaf' },
         ]);
     });
-    it('separates binding, node-head, and child identities at expanded paths', () => {
-        const events = project(String.raw`a\BINDING\ = <tag\HEAD\(\CHILD\ = "value")>`);
 
-        assert.deepStrictEqual(
-            events.map(({ path, kind, identity }) => ({ path, kind, identity: identity ?? null })),
-            [
-                { path: '$.a', kind: 'NodeLiteral', identity: 'BINDING' },
-                { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD' },
-                { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD' },
-            ],
-        );
-        assert.strictEqual(events[0]?.value, undefined);
-        assert.strictEqual(events[1]?.value, 'tag');
-        assert.strictEqual(events[1]?.span, undefined);
+    it('keeps node identity, tag and indexed child identity at their authored paths', () => {
+        assert.deepEqual(project(String.raw`<tag\NODE\(\CHILD\ = "value")>`), [
+            { path: '$.tag', kind: 'NodeLiteral', tag: 'tag', identity: 'NODE' },
+            { path: '$.tag[0]', kind: 'StringLiteral', value: 'value', identity: 'CHILD' },
+        ]);
     });
 
-    it('adds one head index for every crossed nested-node boundary', () => {
-        const events = project(String.raw`a = <outer(<inner("leaf")>)>`);
-
-        assert.deepStrictEqual(
-            events.map(({ path, kind }) => ({ path, kind })),
-            [
-                { path: '$.a', kind: 'NodeLiteral' },
-                { path: '$.a[0]', kind: 'NodeHead' },
-                { path: '$.a[0][0]', kind: 'NodeLiteral' },
-                { path: '$.a[0][0][0]', kind: 'NodeHead' },
-                { path: '$.a[0][0][0][0]', kind: 'StringLiteral' },
-            ],
-        );
+    it('keeps symbolic reference targets at the same direct child path', () => {
+        const events = project('<tag("child")>\ncopy = ~tag[0]\nalias = ~>tag[0]');
+        assert.strictEqual(events.find((event) => event.path === '$.copy')?.value, '$.tag[0]');
+        assert.strictEqual(events.find((event) => event.path === '$.alias')?.value, '$.tag[0]');
     });
 
-    it('translates reference targets across node boundaries with document structure', () => {
-        const events = project('a = <tag("child")>\ncopy = ~a[0]\nalias = ~>a[0]');
-
-        assert.strictEqual(events.find((event) => event.path === '$.copy')?.value, '$.a[0][0]');
-        assert.strictEqual(events.find((event) => event.path === '$.alias')?.value, '$.a[0][0]');
+    it('flattens node and anonymous-child attributes before structural descendants', () => {
+        const events = project(String.raw`<tag\ROOT\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }, role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>`);
+        assert.deepEqual(events.map(({ path, kind, identity }) => ({ path, kind, identity })), [
+            { path: '$.tag', kind: 'NodeLiteral', identity: 'ROOT' },
+            { path: '$.tag.@.x', kind: 'ObjectNode', identity: 'X' },
+            { path: '$.tag.@.x.@.deep', kind: 'NumberLiteral', identity: 'D' },
+            { path: '$.tag.@.x.b', kind: 'NumberLiteral', identity: 'B' },
+            { path: '$.tag.@.role', kind: 'StringLiteral', identity: 'R' },
+            { path: '$.tag[0]', kind: 'StringLiteral', identity: 'CHILD' },
+            { path: '$.tag[0].@.unit', kind: 'StringLiteral', identity: 'U' },
+        ]);
     });
 
-    it('translates reference targets across nodes inside attribute value trees', () => {
-        const events = project('a@{x = <tag("child")>} = 1\ncopy = ~a.@.x[0]');
-
-        assert.strictEqual(events.find((event) => event.path === '$.copy')?.value, '$.a.@.x[0][0]');
-    });
-
-    it('flattens nested binding, node-head, and anonymous-child attributes in preorder', () => {
-        const events = project(String.raw`a\ROOT\@{x\X\@{deep\D\ = 3} = { b\B\ = 2 }} = <tag\HEAD\@{role\R\ = "button"}(\CHILD\@{unit\U\ = "cm"} = "value")>`);
-
-        assert.deepStrictEqual(
-            events.map(({ path, kind, identity }) => ({ path, kind, identity: identity ?? null })),
-            [
-                { path: '$.a', kind: 'NodeLiteral', identity: 'ROOT' },
-                { path: '$.a.@.x', kind: 'ObjectNode', identity: 'X' },
-                { path: '$.a.@.x.@.deep', kind: 'NumberLiteral', identity: 'D' },
-                { path: '$.a.@.x.b', kind: 'NumberLiteral', identity: 'B' },
-                { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD' },
-                { path: '$.a[0].@.role', kind: 'StringLiteral', identity: 'R' },
-                { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD' },
-                { path: '$.a[0][0].@.unit', kind: 'StringLiteral', identity: 'U' },
-            ],
-        );
-    });
-
-    it('recursively expands node values inside attribute space', () => {
-        const events = project(String.raw`a@{x = <inner\HEAD\(\CHILD\ = "value")>} = 1`);
-
-        assert.deepStrictEqual(events.map(({ path, kind }) => ({ path, kind })), [
-            { path: '$.a', kind: 'NumberLiteral' },
-            { path: '$.a.@.x', kind: 'NodeLiteral' },
-            { path: '$.a.@.x[0]', kind: 'NodeHead' },
-            { path: '$.a.@.x[0][0]', kind: 'StringLiteral' },
+    it('emits attribute nodes and references to their direct children', () => {
+        assert.deepEqual(project(String.raw`a@{<inner\NODE\(\CHILD\ = "value")>} = 1
+copy = ~a.@.inner[0]`), [
+            { path: '$.a', kind: 'NumberLiteral', value: '1' },
+            { path: '$.a.@.inner', kind: 'NodeLiteral', tag: 'inner', identity: 'NODE' },
+            { path: '$.a.@.inner[0]', kind: 'StringLiteral', value: 'value', identity: 'CHILD' },
+            { path: '$.copy', kind: 'CloneReference', value: '$.a.@.inner[0]' },
         ]);
     });
 

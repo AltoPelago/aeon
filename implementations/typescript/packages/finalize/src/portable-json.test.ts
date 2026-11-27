@@ -36,7 +36,7 @@ describe('portable AES JSON finalization', () => {
         const events = compileEvents(String.raw`config\ROOT\@{scope\META\ = "test"} = {
   title:string = "Demo"
   values:list<int> = [2, 3, 4]
-  card:node = <tag\HEAD\@{role = "button"}(\CHILD\@{lang = "en"}:string = "hello", true)>
+  <tag\CARD\@{role = "button"}:node(\CHILD\@{lang = "en"}:string = "hello", true)>
 }
 copy = ~config.values
 pointer = ~>config.title`);
@@ -48,6 +48,22 @@ pointer = ~>config.title`);
             portable.meta?.warnings?.map(({ code, path }) => ({ code, path })),
             legacy.meta?.warnings?.map(({ code, path }) => ({ code, path })),
         );
+    });
+
+    it('counts indexed child annotation leaves emitted inside a cloned node attribute', () => {
+        const records = [
+            { path: '$.outer', kind: 'NodeLiteral', tag: 'outer' },
+            { path: '$.outer.@.tag', kind: 'NodeLiteral', tag: 'tag' },
+            { path: '$.outer.@.tag[0]', kind: 'NumberLiteral', value: '2' },
+            { path: '$.outer.@.tag[0].@.x', kind: 'NumberLiteral', value: '1' },
+            { path: '$.copy', kind: 'CloneReference', value: '$.outer' },
+        ] as const;
+        const limited = finalizePortableJson(records, { maxMaterializedWeight: 3 });
+        assert.equal(limited.document.copy, '~outer');
+        assert.ok(limited.meta?.errors?.some(error => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+        const complete = finalizePortableJson(records, { maxMaterializedWeight: 4 });
+        assert.deepEqual(complete.meta?.errors ?? [], []);
+        assert.deepEqual(complete.document.copy, complete.document.outer);
     });
 
     it('applies clone depth and materialized-weight limits', () => {
@@ -65,15 +81,21 @@ pointer = ~>config.title`);
         assert.ok(weight.meta?.errors?.some((diagnostic) => diagnostic.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
     });
 
-    it('rejects portable multi-head nodes that the JSON profile cannot represent', () => {
+    it('counts the intrinsic tag when measuring an empty node clone', () => {
         const result = finalizePortableJson([
-            { path: '$.value', kind: 'NodeLiteral' },
-            { path: '$.value[0]', kind: 'NodeHead', value: 'first' },
-            { path: '$.value[1]', kind: 'NodeHead', value: 'second' },
-        ]);
+            { path: '$.value', kind: 'NodeLiteral', tag: 'value' },
+            { path: '$.copy', kind: 'CloneReference', value: '$.value' },
+        ], { maxMaterializedWeight: 0 });
+        assert.ok(result.meta?.errors?.some(diagnostic => diagnostic.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+    });
 
-        assert.equal(result.document.value, null);
-        assert.ok(result.meta?.errors?.some((diagnostic) => diagnostic.code === 'FINALIZE_UNREPRESENTABLE_NODE_HEADS'));
+    it('rejects the former portable NodeHead representation', () => {
+        const result = finalizePortableJson([
+            { path: '$.value', kind: 'NodeLiteral', tag: 'value' },
+            { path: '$.value[0]', kind: 'NodeHead', value: 'first' },
+        ]);
+        assert.deepEqual(result.document, {});
+        assert.ok(result.meta?.errors?.some(diagnostic => diagnostic.code === 'AES_UNKNOWN_KIND'));
     });
 
     it('rejects sparse indexes without allocating up to an attacker-controlled index', () => {

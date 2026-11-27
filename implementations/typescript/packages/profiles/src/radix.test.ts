@@ -8,7 +8,7 @@ import { compile } from './compile.js';
 for (const { literal, base } of fixtures.filter(f => f.testSource)) {
     test(`GP validates the exact radix-base value of ${literal} across binding, generic and item contexts`, () => {
         for (const { before, after } of contexts) {
-            const source = `${before}${literal}${after}`;
+            const source = `${before.replace('mask:node=<tag(', '<mask:node(')}${literal}${after}`;
             const core = compile(source, { profile: 'core', mode: 'strict' });
             assert.deepEqual(core.meta?.errors ?? [], [], source);
             for (const mode of ['strict', 'loose'] as const) {

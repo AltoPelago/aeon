@@ -75,6 +75,7 @@ interface Bindable {
     readonly path: string;
     readonly order: number;
     readonly kind: 'binding' | 'attribute';
+    readonly attributeScope?: Span;
     readonly landmarks: readonly PlacementLandmark[];
 }
 
@@ -316,8 +317,12 @@ function nearestDescendant(commentSpan: Span, container: Bindable, index: Descen
     }
     const trailingIndex = upperBound(index.ends, commentSpan.start.offset) - 1;
     const forwardIndex = lowerBound(index.starts, commentSpan.end.offset);
-    const trailingHit = trailingIndex >= 0 ? index.byEnd[trailingIndex] ?? null : null;
-    const forwardHit = forwardIndex < index.byStart.length ? index.byStart[forwardIndex] ?? null : null;
+    function inCommentScope(candidate: Bindable | undefined): Bindable | null {
+        return candidate && (!candidate.attributeScope || spanContains(candidate.attributeScope, commentSpan))
+            ? candidate : null;
+    }
+    const trailingHit = inCommentScope(index.byEnd[trailingIndex]);
+    const forwardHit = inCommentScope(index.byStart[forwardIndex]);
     if (
         container.kind === 'binding'
         && ((trailingHit?.kind === 'attribute') || (forwardHit?.kind === 'attribute'))
@@ -452,13 +457,160 @@ function attributeBindables(
         entries.push(...findNodeHeadAttributeEntryBindables(eventTokens, ownerPath, valueSpan));
     }
 
-    return entries.map((entry, index): Bindable => ({
+    const starts = eventTokens.map(token => token.span.start.offset);
+    const tokensInSpan = (span: Span) => eventTokens.slice(
+        lowerBound(starts, span.start.offset), lowerBound(starts, span.end.offset),
+    );
+    const intrinsic = new Map<number, AttributeEntryBindable>();
+    const nodeDescendants: AttributeEntryBindable[] = [];
+    type Value = AssignmentEvent['value'];
+
+    let nodeAttributeScopes: ReadonlyMap<number, Span> | undefined;
+
+    function attributeScopeAtNode(offset: number): Span | undefined {
+        if (!nodeAttributeScopes) {
+            const scopes = new Map<number, Span>();
+            const braces: { scope?: { start: Span['start']; end: Span['end'] }; opensAttribute: boolean }[] = [];
+            for (const [index, token] of eventTokens.entries()) {
+                if (token.type === TokenType.LeftBrace) {
+                    const previous = eventTokens[index - 1];
+                    if (previous?.type === TokenType.At) {
+                        braces.push({ scope: { start: previous.span.start, end: event.span.end }, opensAttribute: true });
+                    } else {
+                        const scope = braces.at(-1)?.scope;
+                        braces.push({ ...(scope ? { scope } : {}), opensAttribute: false });
+                    }
+                } else if (token.type === TokenType.RightBrace) {
+                    const closed = braces.pop();
+                    if (closed?.opensAttribute && closed.scope) closed.scope.end = token.span.end;
+                } else if (token.type === TokenType.LeftAngle) {
+                    const scope = braces.at(-1)?.scope;
+                    if (scope) scopes.set(token.span.start.offset, scope);
+                }
+            }
+            nodeAttributeScopes = scopes;
+        }
+        return nodeAttributeScopes.get(offset);
+    }
+
+    function visitAnnotations(annotations: AssignmentEvent['annotations'], path: string): void {
+        for (const [key, entry] of annotations ?? []) {
+            const attributePath = formatAttributePath(path, key);
+            if (entry.value.type === 'NodeLiteral') {
+                visitNode(entry.value, attributePath, true, attributeScopeAtNode(entry.value.span.start.offset));
+            } else {
+                visitValue(entry.value, attributePath, false);
+                visitAnnotations(entry.annotations, attributePath);
+            }
+        }
+    }
+
+    type Attribute = Extract<Value, { type: 'NodeLiteral' }>['attributes'][number];
+
+    function tokensOutside(span: Span, nested: readonly { readonly span: Span }[]): Token[] {
+        const tokens: Token[] = [];
+        let start = span.start;
+        for (const entry of nested) {
+            for (const token of tokensInSpan({ start, end: entry.span.start })) tokens.push(token);
+            start = entry.span.end;
+        }
+        for (const token of tokensInSpan({ start, end: span.end })) tokens.push(token);
+        return tokens;
+    }
+
+    function visitAttributes(attributes: readonly Attribute[], path: string): void {
+        for (const attribute of attributes) {
+            for (const [key, entry] of attribute.entries) {
+                const entryPath = formatAttributePath(path, key);
+                if (entry.value.type === 'NodeLiteral') {
+                    visitNode(entry.value, entryPath, true, attribute.span);
+                    continue;
+                }
+                const span = entry.span ?? entry.value.span;
+                const head = { start: span.start, end: entry.value.span.start };
+                const header = tokensOutside(head, entry.attributes);
+                const keyToken = header[0];
+                if (keyToken) {
+                    const next = eventTokens[lowerBound(starts, span.end.offset)];
+                    const end = next && next.span.start.offset < attribute.span.end.offset ? next.span.start : span.end;
+                    const equals = header.find(token => token.type === TokenType.Equals);
+                    const colon = header.find(token => token.type === TokenType.Colon);
+                    const datatype = colon && findDatatypeLandmark(header, colon.span.end.offset, equals?.span.start.offset ?? head.end.offset);
+                    entries.push({
+                        path: entryPath, span: { start: span.start, end }, valueSpan: entry.value.span,
+                        attributeScope: attribute.span,
+                        landmarks: [
+                            { part: 'attribute-key', span: keyToken.span },
+                            ...(colon ? [{ part: 'attribute-datatype-colon' as const, span: colon.span }] : []),
+                            ...(datatype ? [{ part: 'attribute-datatype' as const, span: datatype.span }] : []),
+                            ...(equals ? [{ part: 'attribute-equals' as const, span: equals.span }] : []),
+                            { part: 'attribute-value', span: entry.value.span },
+                        ],
+                    });
+                }
+                visitAttributes(entry.attributes, entryPath);
+                visitValue(entry.value, entryPath, false);
+            }
+        }
+    }
+
+    function visitNode(
+        value: Extract<Value, { type: 'NodeLiteral' }>, path: string, namedAttribute = false, attributeScope?: Span,
+    ): void {
+        // Descendant spans have their own bindables. Keep only this node's
+        // delimiters and head token landmarks.
+        const tokens = tokensOutside(value.span, [...value.attributes, ...value.children]);
+        const landmarks = [
+            ...findNodeValueLandmarks(tokens, value.span),
+            ...value.children.map(child => ({ part: 'node-child-value' as const, span: child.span })),
+        ].sort(compareLandmarks);
+        const entry = { path, span: value.span, valueSpan: value.span, valueType: value.type, landmarks,
+            ...(attributeScope ? { attributeScope } : {}) };
+        if (namedAttribute) intrinsic.set(value.span.start.offset, entry);
+        else nodeDescendants.push(entry);
+        visitAttributes(value.attributes, path);
+        for (const [index, child] of value.children.entries()) visitValue(child, `${path}[${index}]`, true);
+    }
+
+    function visitValue(value: Value, path: string, insideNode: boolean): void {
+        if (value.type === 'NodeLiteral') {
+            visitNode(value, path);
+            return;
+        }
+        if (insideNode) {
+            nodeDescendants.push({ path, span: value.span, valueSpan: value.span,
+                valueType: value.type, landmarks: [{ part: 'value', span: value.span }] });
+        }
+        switch (value.type) {
+            case 'TypedValue':
+                visitAttributes(value.attributes, path);
+                visitValue(value.value, path, false);
+                break;
+            case 'ObjectNode':
+                for (const binding of value.bindings) {
+                    const keyPath = formatPath({ segments: [{ type: 'root' }, { type: 'member', key: binding.key }] });
+                    const childPath = path + keyPath.slice(1);
+                    visitValue(binding.value, childPath, insideNode);
+                    visitAttributes(binding.attributes, childPath);
+                }
+                break;
+            case 'ListNode':
+            case 'TupleLiteral':
+                for (const [index, child] of value.elements.entries()) visitValue(child, `${path}[${index}]`, insideNode);
+                break;
+        }
+    }
+
+    visitAnnotations(event.annotations, ownerPath);
+    const ordinary = entries.filter((entry) => !intrinsic.has(entry.span.start.offset));
+    return [...ordinary, ...intrinsic.values(), ...nodeDescendants].map((entry, index): Bindable => ({
         span: entry.span,
         valueSpan: entry.valueSpan,
-        valueType: 'StringLiteral' as AssignmentEvent['value']['type'],
+        valueType: entry.valueType ?? 'StringLiteral',
         path: entry.path,
         order: orderStart + index,
         kind: 'attribute',
+        ...(entry.attributeScope ? { attributeScope: entry.attributeScope } : {}),
         landmarks: entry.landmarks,
     }));
 }
@@ -468,6 +620,8 @@ interface AttributeEntryBindable {
     readonly span: Span;
     readonly valueSpan: Span;
     readonly landmarks: readonly PlacementLandmark[];
+    readonly valueType?: AssignmentEvent['value']['type'];
+    readonly attributeScope?: Span;
 }
 
 function semanticEventTokens(event: AssignmentEvent, tokens: readonly Token[]): readonly Token[] {
@@ -558,6 +712,7 @@ function scanAttributeEntryBindables(
     const entries: AttributeEntryBindable[] = [];
     let index = atIndex + 1;
     let depth = 0;
+    const compositeClosers: TokenType[] = [];
     let keyToken: Token | undefined;
     let entryLandmarks: PlacementLandmark[] = [];
     let valueStart: Span['start'] | undefined;
@@ -605,11 +760,15 @@ function scanAttributeEntryBindables(
             continue;
         }
         if (depth === 1) {
-            if (token.type === TokenType.Comma) {
+            if (token.type === TokenType.Comma && compositeClosers.length === 0) {
                 finishEntry(token.span.start);
                 index += 1;
                 continue;
             }
+            if (token.type === TokenType.LeftAngle) compositeClosers.push(TokenType.RightAngle);
+            else if (token.type === TokenType.LeftBracket) compositeClosers.push(TokenType.RightBracket);
+            else if (token.type === TokenType.LeftParen) compositeClosers.push(TokenType.RightParen);
+            else if (token.type === compositeClosers.at(-1)) compositeClosers.pop();
             if (!keyToken && isSemanticToken(token)) {
                 keyToken = token;
                 entryLandmarks.push({ part: 'attribute-key', span: token.span });

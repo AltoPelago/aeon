@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fixtures from '../../../../../test-fixtures/reference-authored-order.json' with { type: 'json' };
+import taggedNodes from '../../../../../test-fixtures/reference-authored-order-tagged-nodes.json' with { type: 'json' };
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
 import { emitEvents, resolvePaths } from './index.js';
 import { ForwardReferenceError, validateReferences } from './references.js';
 
-for (const fixture of fixtures) {
+const revisedById = new Map<string, (typeof fixtures)[number]>(taggedNodes.map(fixture => [fixture.id, fixture]));
+for (const historicalFixture of fixtures) {
+    const fixture = revisedById.get(historicalFixture.id) ?? historicalFixture;
     test(`authored reference order: ${fixture.id}`, () => {
         const lexed = tokenize(fixture.source);
         assert.deepEqual(lexed.errors, []);
@@ -91,7 +94,7 @@ test('reference target matrix preserves indexed and compatibility paths', () => 
         { value: '[{b = 1}]', targets: ['a', 'a[0]', 'a[0].b'], aliases: ['a.b'] },
         { value: '[[{b = 1}]]', targets: ['a', 'a[0]', 'a[0][0]', 'a[0][0].b'], aliases: ['a.b'] },
         { value: '({b = 1}, 2)', targets: ['a', 'a[0]', 'a[1]', 'a[0].b'], aliases: [] },
-        { value: '<tag({b = 1})>', targets: ['a', 'a[0]', 'a[0].b'], aliases: [] },
+        { value: '<a({b = 1})>', targets: ['a', 'a[0]', 'a[0].b'], aliases: [] },
         { value: '[{b@{meta = 1} = 2}]', targets: ['a', 'a[0]', 'a[0].b', 'a[0].b.@.meta'], aliases: ['a.b', 'a.b.@.meta'] },
         { value: '[@{meta = 1} = {b = 2}]', targets: ['a', 'a[0]', 'a[0].b', 'a[0].@.meta'], aliases: ['a.b'] },
     ];
@@ -101,7 +104,8 @@ test('reference target matrix preserves indexed and compatibility paths', () => 
         for (const fixture of cases) {
             const valid = new Set([...fixture.targets, ...(!indexedPaths ? fixture.aliases : [])]);
             for (const target of targets) {
-                const source = `a = ${fixture.value}\ncopy = ~${target}`;
+                const declaration = fixture.value.startsWith('<') ? fixture.value : `a = ${fixture.value}`;
+                const source = `${declaration}\ncopy = ~${target}`;
                 const parsed = parse(tokenize(source).tokens);
                 assert.deepEqual(parsed.errors, []);
                 assert.ok(parsed.document);

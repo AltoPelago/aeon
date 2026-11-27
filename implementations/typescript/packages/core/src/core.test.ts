@@ -360,18 +360,18 @@ describe('Core - compile()', () => {
         });
 
         it('should compile introducer node syntax', () => {
-            const result = compile('view = <panel("hello", { x = 1 })>');
+            const result = compile('<panel("hello", { x = 1 })>');
             assert.strictEqual(result.errors.length, 0);
             const paths = result.events.map((e) => formatPath(e.path));
-            assert.ok(paths.includes('$.view'));
-            assert.ok(!paths.includes('$.view.x'));
+            assert.ok(paths.includes('$.panel'));
+            assert.ok(paths.includes('$.panel[1].x'));
         });
 
         it('should compile empty node shorthand', () => {
-            const result = compile('view = <panel>');
+            const result = compile('<panel>');
             assert.strictEqual(result.errors.length, 0);
             const paths = result.events.map((e) => formatPath(e.path));
-            assert.ok(paths.includes('$.view'));
+            assert.ok(paths.includes('$.panel'));
         });
 
         it('should emit annotation stream by default', () => {
@@ -384,28 +384,68 @@ describe('Core - compile()', () => {
             assert.deepStrictEqual(result.annotations?.[1]?.target, { kind: 'path', path: '$.a' });
         });
 
-        it('should keep binding and node head comments on the container path', () => {
-            const result = compile(
-                '/#1#/a/#a#/@/#@#/{/#{#/b/#b#/:/#:#/n/#n#/=/#=#/3/#3#/}/#}#/:/#:#/node/#node#/=/#=#/</#<#/tag/#tag#/(/#(#/"hello"/#"hello"#/,/#,#/"world"/#"world"#/)/#)#/>/#>#/',
-                { datatypePolicy: 'allow_custom' },
-            );
+        it('assigns inline node comments to the node, attribute and child occurrences', () => {
+            const result = compile('<tag /#node#/ @{b:n=3 /#attr#/}:node("hello" /#first#/, "world" /#second#/) >');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(annotation => [annotation.raw, annotation.target]), [
+                ['/#node#/', { kind: 'path', path: '$.tag' }],
+                ['/#attr#/', { kind: 'path', path: '$.tag.@.b' }],
+                ['/#first#/', { kind: 'path', path: '$.tag[0]' }],
+                ['/#second#/', { kind: 'path', path: '$.tag[1]' }],
+            ]);
+        });
 
-            assert.strictEqual(result.errors.length, 0);
-            const annotations = result.annotations ?? [];
-            assert.strictEqual(annotations.length, 21);
-            for (const annotation of annotations.slice(1, 4)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
+        it('uses structural paths for comments on inline attribute nodes and their children', () => {
+            const result = compile('host@{<tag /# node #/ (1, "value" /# child #/)>} = 0');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.tag' },
+                { kind: 'path', path: '$.host.@.tag[1]' },
+            ]);
+        });
+
+        it('binds a comment to the following attribute after a trimtick value', () => {
+            const result = compile('host@{a = >`text`, b /# note #/ = 2} = 0');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.b' },
+            ]);
+        });
+
+        it('targets attribute entries inside typed children of attribute nodes', () => {
+            const result = compile('host@{<tag(@{a=1 /# attr #/}:number = 2)>} = 0');
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.tag[0].@.a' },
+            ]);
+        });
+
+        it('keeps comments between a nested attribute block and its owner value on the owner', () => {
+            const result = compile('host@{<outer@{q@{leaf /# inner #/ = 1} /# head #/ :n=2 /@ tail(selected=true) @/}>}=0', { maxAttributeDepth: 3 });
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                { kind: 'path', path: '$.host.@.outer.@.q.@.leaf' },
+                { kind: 'path', path: '$.host.@.outer.@.q' },
+                { kind: 'path', path: '$.host.@.outer.@.q' },
+            ]);
+        });
+
+        it('keeps a tagged attribute in its own comment scope', () => {
+            const member = 'q@{<leaf /# inner #/>} /# head #/ :n=2 /@ tail(selected=true) @/';
+            const cases = [
+                [`host@{<outer@{${member}}>}=0`, '$.host.@.outer.@.q'],
+                [`host@{${member}}=0`, '$.host.@.q'],
+                [`<outer@{${member}}>`, '$.outer.@.q'],
+            ];
+            for (const [source, path] of cases) {
+                const result = compile(source!, { maxAttributeDepth: 4 });
+                assert.deepEqual(result.errors, []);
+                assert.deepEqual(result.annotations?.map(({ target }) => target), [
+                    { kind: 'path', path: `${path}.@.leaf` },
+                    { kind: 'path', path },
+                    { kind: 'path', path },
+                ]);
             }
-            for (const annotation of annotations.slice(4, 9)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a.@.b' }, annotation.raw);
-            }
-            for (const annotation of annotations.slice(9, 16)) {
-                assert.deepStrictEqual(annotation.target, { kind: 'path', path: '$.a' }, annotation.raw);
-            }
-            assert.deepStrictEqual(annotations[16]?.target, { kind: 'path', path: '$.a[0]' });
-            assert.deepStrictEqual(annotations[17]?.target, { kind: 'path', path: '$.a[1]' });
-            assert.deepStrictEqual(annotations[18]?.target, { kind: 'path', path: '$.a[1]' });
-            assert.deepStrictEqual(annotations[20]?.target, { kind: 'path', path: '$.a' });
         });
 
         it('should allow disabling annotation stream emission', () => {
@@ -1265,17 +1305,52 @@ describe('Core - compile()', () => {
             assert.ok(result.errors.some(e => (e as { code?: string }).code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
         });
 
-        it('should fail-closed with INVALID_NODE_HEAD_DATATYPE and aligned messaging', () => {
-            const result = compile('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>');
+        it('validates built-in datatypes on unprojected nested node attributes', () => {
+            const result = compile('<outer@{nest:object = {<inner@{a:number = "bad"}>}}>', { mode: 'strict' });
+            assert.deepEqual(result.errors.map(error => [error.code, (error as { path?: string }).path]), [
+                ['DATATYPE_LITERAL_MISMATCH', '$.outer.@.nest.inner.@.a'],
+            ]);
+        });
+
+        it('validates node metadata and child claims when only the owning scalar is projected', () => {
+            const cases = [
+                ['outer:list=[@{<inner@{a:number="bad"}>}:number=1]', '$.outer[0].@.inner.@.a'],
+                ['<outer@{<inner(:number="bad")>}>', '$.outer.@.inner[0]'],
+                ['<outer@{<inner({k:number="bad"})>}>', '$.outer.@.inner[0].k'],
+            ];
+            for (const [source, expectedPath] of cases) {
+                const result = compile(source!, { mode: 'strict', maxAttributeDepth: 2 });
+                assert.deepEqual(result.errors.map(error => [error.code, (error as { path?: string }).path]), [
+                    ['DATATYPE_LITERAL_MISMATCH', expectedPath],
+                ]);
+            }
+        });
+
+        it('validates transitive clone and pointer kinds inside metadata-only nodes', () => {
+            for (const reference of ['~alias', '~>alias']) {
+                const source = `leaf:n=1\nalias:n=~leaf\n<root@{<inside({cell:n=${reference}})>}>`;
+                assert.deepEqual(compile(source, { mode: 'strict' }).errors, []);
+                const mismatch = compile(source.replace('cell:n=', 'cell:string='), { mode: 'strict' });
+                assert.deepEqual(mismatch.errors.map(error => error.code), ['DATATYPE_LITERAL_MISMATCH']);
+            }
+        });
+
+        it('reports typed descendant errors once for quoted node paths', () => {
+            const result = compile('<outer({<"inner key"(:number = "bad")>})>', { mode: 'strict' });
+            assert.equal(result.errors.filter(error => error.code === 'DATATYPE_LITERAL_MISMATCH').length, 1);
+        });
+
+        it('should fail-closed with INVALID_NODE_DATATYPE and aligned messaging', () => {
+            const result = compile('aeon:mode = "strict"\n<tag:contact("x")>');
 
             assert.strictEqual(result.events.length, 0);
             assert.strictEqual(result.errors.length, 1);
-            assert.strictEqual(result.errors[0]!.code, 'INVALID_NODE_HEAD_DATATYPE');
+            assert.strictEqual(result.errors[0]!.code, 'INVALID_NODE_DATATYPE');
             assert.strictEqual(
                 result.errors[0]!.message,
-                "Invalid node head datatype in strict mode at '$.widget': node heads must use ':node', got ':contact'"
+                "Invalid node datatype in strict mode at '$.tag': expected ':node', got ':contact'"
             );
-            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.widget');
+            assert.strictEqual((result.errors[0] as { path?: string }).path, '$.tag');
             assert.ok(result.errors[0]!.span);
         });
     });

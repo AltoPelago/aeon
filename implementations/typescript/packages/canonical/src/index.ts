@@ -254,6 +254,11 @@ function renderHeader(document: Document, referencePath: ReferenceFormatter): st
 
 function renderBinding(binding: Binding, indent: number, referencePath: ReferenceFormatter): string[] {
     const prefix = ' '.repeat(indent);
+    if (binding.value.type === 'NodeLiteral') {
+        const lines = renderNodeValue(binding.value, indent, { inlineOnly: true }, referencePath);
+        if (lines.length === 1) return [`${prefix}${lines[0]}`];
+        return lines;
+    }
     const key = `${formatHeadKey(binding.key, binding, referencePath)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
 
     if (binding.value.type === 'ObjectNode') {
@@ -265,31 +270,12 @@ function renderBinding(binding: Binding, indent: number, referencePath: Referenc
     if (binding.value.type === 'TupleLiteral') {
         return renderTupleBinding(prefix, key, binding.value, indent, referencePath);
     }
-    if (binding.value.type === 'NodeLiteral') {
-        return renderNodeBinding(prefix, key, binding.value, indent, referencePath);
-    }
-
     const valueLines = renderValue(binding.value, indent, { inlineOnly: true }, referencePath);
     if (valueLines.length === 1) {
         return [`${prefix}${key} = ${valueLines[0] ?? ''}`];
     }
     const [first, ...rest] = valueLines;
     return [`${prefix}${key} = ${first ?? ''}`, ...rest];
-}
-
-function renderNodeBinding(
-    prefix: string,
-    key: string,
-    node: Extract<Value, { type: 'NodeLiteral' }>,
-    indent: number,
-    referencePath: ReferenceFormatter
-): string[] {
-    const renderedNode = renderNodeValue(node, indent, { inlineOnly: false }, referencePath);
-    if (renderedNode.length === 1) {
-        return [`${prefix}${key} = ${(renderedNode[0] ?? '').trimStart()}`];
-    }
-    const [first, ...rest] = renderedNode;
-    return [`${prefix}${key} = ${(first ?? '').trimStart()}`, ...rest];
 }
 
 function renderTupleBinding(prefix: string, key: string, tuple: Value, indent: number, referencePath: ReferenceFormatter): string[] {
@@ -473,7 +459,7 @@ function renderNodeValue(
     referencePath: ReferenceFormatter
 ): string[] {
     const prefix = ' '.repeat(indent);
-    const head = `<${formatHeadKey(value.tag, value, referencePath)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+    const head = `<${formatHeadKey(value.tag, value, referencePath, true)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
     const children = value.children;
     const simple = children.every(isSimpleValue);
 
@@ -525,6 +511,7 @@ function renderAttributes(attributes: readonly Attribute[], referencePath: Refer
     // presence. Normalize them away only for the experimental contract.
     if (referencePath.referenceSafe && sorted.length === 0) return '';
     const rendered = sorted.map(([key, value]) => {
+        if (value.value.type === 'NodeLiteral') return renderValueInline(value.value, referencePath);
         const nestedAttributes = renderAttributes(value.attributes, referencePath);
         const type = value.datatype ? renderType(value.datatype) : '';
         const formatted = renderValueInline(value.value, referencePath);
@@ -580,8 +567,8 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'PointerReference':
             return `~>${referencePath.format(value.path)}`;
         case 'ObjectNode': {
-            const sorted = value.bindings;
-            const bindings = sorted.map((binding) => {
+            const bindings = value.bindings.map((binding) => {
+                if (binding.value.type === 'NodeLiteral') return renderCompactInlineValue(binding.value, referencePath);
                 const key = `${formatHeadKey(binding.key, binding, referencePath)}${renderStructuralId(binding.structuralId)}${renderAttributes(binding.attributes, referencePath)}${renderType(binding.datatype)}`;
                 return `${key} = ${renderCompactInlineValue(binding.value, referencePath)}`;
             });
@@ -592,7 +579,7 @@ function renderCompactInlineValue(value: Value, referencePath: ReferenceFormatte
         case 'TupleLiteral':
             return `(${value.elements.map((element) => renderCompactInlineValue(element, referencePath)).join(', ')})`;
         case 'NodeLiteral': {
-            const head = `<${formatHeadKey(value.tag, value, referencePath)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
+            const head = `<${formatHeadKey(value.tag, value, referencePath, true)}${renderStructuralId(value.structuralId)}${renderAttributes(value.attributes, referencePath)}${renderType(value.datatype)}`;
             if (value.children.length === 0) {
                 return `${head}>`;
             }
@@ -788,11 +775,11 @@ function formatBindingKey(key: string): string {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? key : formatString(key);
 }
 
-function formatHeadKey(key: string, head: Pick<Binding, 'structuralId' | 'attributes' | 'datatype'>, contract: ReferenceFormatter): string {
+function formatHeadKey(key: string, head: Pick<Binding, 'structuralId' | 'attributes' | 'datatype'>, contract: ReferenceFormatter, isNodeTag = false): string {
     // `aeon:` is lexed as a namespace token, not a key followed by a type.
     // Only emitted head components can separate it; empty attributes vanish.
     const hasAttributes = head.attributes.some(attribute => attribute.entries.size > 0);
-    return contract.referenceSafe && key === 'aeon' && head.datatype !== null && !head.structuralId && !hasAttributes
+    return (contract.referenceSafe || isNodeTag) && key === 'aeon' && head.datatype !== null && !head.structuralId && !hasAttributes
         ? formatString(key) : formatBindingKey(key);
 }
 

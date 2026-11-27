@@ -1,0 +1,30 @@
+{
+  "source": "inventory:object = { <tag(<book(\"yes\",\"no\")>, <chapter(\"book\")>)> }",
+  "cases": [
+    {
+      "address": "$.inventory.tag.**&tag(\"book\")",
+      "paths": [
+        "$.inventory.tag[0]"
+      ],
+      "kinds": [
+        "NodeLiteral"
+      ]
+    },
+    {
+      "address": "$.inventory.tag.**&tag(\"book\").*",
+      "paths": [
+        "$.inventory.tag[0][0]",
+        "$.inventory.tag[0][1]"
+      ],
+      "kinds": [
+        "StringLiteral",
+        "StringLiteral"
+      ]
+    },
+    {
+      "address": "$.inventory.tag.*&key(\"chapter\")",
+      "paths": [],
+      "kinds": []
+    }
+  ]
+}

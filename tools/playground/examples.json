@@ -42,11 +42,11 @@
   "highlight-themes": {
     "label": "Highlight themes",
     "mode": "transport",
-    "source": "//# Compare all three highlight themes without changing source.\nlabel\\label1\\:string = \"Widget\"\nnumber:number = 12.5\nradix = %1011\ndate = 2026-11-17\ntime = 09:30:00\ntimestamp = 2026-11-17T12:00:00Z\nflag:boolean = true\nsymbol = |ready|\naddress:sansa = $.label\nnode = <tag>\n"
+    "source": "//# Compare all three highlight themes without changing source.\nlabel\\label1\\:string = \"Widget\"\nnumber:number = 12.5\nradix = %1011\ndate = 2026-11-17\ntime = 09:30:00\ntimestamp = 2026-11-17T12:00:00Z\nflag:boolean = true\nsymbol = |ready|\naddress:sansa = $.label\n<tag>\n"
   },
   "properties": {
     "label": "Property address literals",
     "mode": "transport",
-    "source": "//# Property selectors are inert address values here.\n//# Evaluate them in the SANSA playground with an authoritative namespace.\nitems = [{name=\"Widget\"}, {name=\"Bracket\"}]\nbyName:sansa = $.items.*.name&key(\"name\")\nbyTag:sansa = $.*&tag(\"widget\")\nquoted:sansa = $.[\"a&b\"]&key(\"a&b\")\nbyHead:sansa = $.**&headTag(\"widget\")\n"
+    "source": "//# Property selectors are inert address values here.\n//# Evaluate them in the SANSA playground with an authoritative namespace.\nitems = [{name=\"Widget\"}, {name=\"Bracket\"}]\nbyName:sansa = $.items.*.name&key(\"name\")\nbyTag:sansa = $.*&tag(\"widget\")\nquoted:sansa = $.[\"a&b\"]&key(\"a&b\")\ndescendants:sansa = $.**&tag(\"widget\")\n"
   }
 }

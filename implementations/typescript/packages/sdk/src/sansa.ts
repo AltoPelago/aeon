@@ -69,10 +69,8 @@ export interface ReadAeonNamespaceResult extends ReadAeonResult {
 /**
  * Adapt compiled AEON assignment events into a queryable SANSA namespace.
  *
- * Native assignment events are first projected into complete portable AES
- * topology. This keeps binding and NodeHead occurrences distinct, translates
- * reference targets through node-head levels, and exposes normative portable
- * representation kinds without losing finite-number precision.
+ * The namespace follows portable AES occurrence paths and preserves
+ * finite-number precision.
  */
 export function createAeonNamespace(
   events: readonly AeonAssignmentEvent[],
@@ -176,9 +174,7 @@ export function createAeonNamespace(
     byAddress.set(address, binding);
     parents.set(binding, parent);
     parent.children.push(binding);
-    if (binding.representationKind === 'NodeHead' && parent.representationKind === 'NodeLiteral') {
-      if (binding.nodeTag !== undefined) parent.nodeTag = binding.nodeTag;
-    }
+
   }
 
   // Capture authoritative event metadata before exposing mutable display bindings.
@@ -186,8 +182,7 @@ export function createAeonNamespace(
   const metadata = new Map([...byAddress.values()].map((binding) => [binding, {
     key: binding.name,
     kind: binding.representationKind,
-    tag: binding.representationKind === 'NodeHead' ? binding.nodeTag : undefined,
-    heads: binding.representationKind === 'NodeLiteral' ? binding.children.slice() : [],
+    tag: binding.nodeTag,
   }] as const));
   const inside = (binding: AeonSansaBinding, boundary: AeonSansaBinding): boolean => {
     if (!metadata.has(binding) || !metadata.has(boundary)) return false;
@@ -206,22 +201,14 @@ export function createAeonNamespace(
   const properties: PropertyAccess<AeonSansaBinding> = {
     scope(binding, context) {
       if (!inside(binding, context.scopeRoot) || !inside(context.evaluationRoot, context.scopeRoot)) return 'outside';
-      if (context.directHeadOf !== undefined
-        && (!inside(context.directHeadOf, context.scopeRoot)
-          || observed(context.directHeadOf).kind !== 'NodeLiteral'
-          || parents.get(binding) !== context.directHeadOf
-          || observed(binding).kind !== 'NodeHead')) return 'outside';
       return binding === context.scopeRoot ? 'root' : 'inside';
     },
     key: (binding) => observed(binding).key,
     nodeKind(binding) {
       const kind = observed(binding).kind;
-      return kind === 'NodeLiteral' || kind === 'NodeHead' ? kind : 'Other';
+      return kind === 'NodeLiteral' ? kind : 'Other';
     },
     nodeTag: (binding) => observed(binding).tag,
-    *nodeHeads(binding) {
-      yield* observed(binding).heads;
-    },
   };
 
   return {
@@ -326,7 +313,7 @@ function bindingFromPortableEvent(
   }
   const scalar = scalarFromPortableEvent(event, numericMaterialization, sourcePlane, scope);
   if (scalar.ok) binding.value = scalar.value;
-  if (event.kind === 'NodeHead' && event.value !== undefined) binding.nodeTag = event.value;
+  if (event.kind === 'NodeLiteral' && event.tag !== undefined) binding.nodeTag = event.tag;
 
   return binding;
 }
@@ -349,7 +336,6 @@ function scalarFromPortableEvent(
     case 'SeparatorLiteral':
     case 'SymbolicLiteral':
     case 'ToggleLiteral':
-    case 'NodeHead':
       return { ok: true, value: event.value ?? '' };
     case 'NumberLiteral':
       return {
@@ -418,7 +404,6 @@ function portableSemanticType(kind: PortableAeonEvent['kind']): string | undefin
     case 'ListNode':
     case 'TupleLiteral':
     case 'NodeLiteral':
-    case 'NodeHead':
     case 'CloneReference':
     case 'PointerReference':
       return undefined;
@@ -451,7 +436,6 @@ function portableScalarKind(kind: PortableAeonEvent['kind']): string | undefined
     case 'ListNode':
     case 'TupleLiteral':
     case 'NodeLiteral':
-    case 'NodeHead':
       return undefined;
   }
 }
@@ -489,7 +473,6 @@ function representationAlias(kind: string): string | undefined {
     case 'ListNode': return 'list';
     case 'TupleLiteral': return 'tuple';
     case 'NodeLiteral': return 'node';
-    case 'NodeHead': return 'nodeHead';
     case 'CloneReference': return 'cloneReference';
     case 'PointerReference': return 'pointerReference';
     default: return undefined;

@@ -292,7 +292,7 @@ function inferPhaseLabelFromCode(code: string | undefined): string | undefined {
         case 'UNTYPED_VALUE_IN_STRICT_MODE':
         case 'CUSTOM_TOGGLE_ALIAS_NOT_ALLOWED':
         case 'CUSTOM_DATATYPE_NOT_ALLOWED':
-        case 'INVALID_NODE_HEAD_DATATYPE':
+        case 'INVALID_NODE_DATATYPE':
             return 'Mode Enforcement';
         case 'PROFILE_NOT_FOUND':
         case 'PROFILE_PROCESSORS_SKIPPED':
@@ -777,7 +777,7 @@ describe('AEON CLI output contract', () => {
             const file = path.join(dir, 'node-attrs.aeon');
             fs.writeFileSync(
                 file,
-                'content:node = <span@{id="text", class:string="dark"}("hello")>\n',
+                '<span@{id="text", class:string="dark"}("hello")>\n',
                 'utf-8',
             );
             const { code, stdout, stderr } = await runCli(['inspect', file, '--json']);
@@ -814,7 +814,7 @@ describe('AEON CLI output contract', () => {
             const file = path.join(dir, 'identity.aeon');
             fs.writeFileSync(
                 file,
-                String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\>` + '\n',
+                String.raw`<tag\ROOT\@{source\META\:string = "user"}>` + '\n',
                 'utf-8',
             );
             const { code, stdout, stderr } = await runCli(['inspect', file, '--json']);
@@ -830,37 +830,26 @@ describe('AEON CLI output contract', () => {
             };
             assert.strictEqual(parsed.events[0]?.structuralId, 'ROOT');
             assert.strictEqual(parsed.events[0]?.annotations?.source?.structuralId, 'META');
-            assert.strictEqual(parsed.events[0]?.value.structuralId, 'HEAD');
+            assert.strictEqual(parsed.events[0]?.value.structuralId, 'ROOT');
         });
 
-        it('emits the portable expanded node projection on explicit request', async () => {
+        it('emits the portable projection for a tagged node on explicit request', async () => {
             const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aeon-cli-portable-node-'));
             const file = path.join(dir, 'portable-node.aeon');
             fs.writeFileSync(
                 file,
-                String.raw`a\ROOT\ = <tag\HEAD\(\CHILD\ = "value")>` + '\n',
+                String.raw`<tag\ROOT\(\CHILD\ = "value")>` + '\n',
                 'utf-8',
             );
             const { code, stdout, stderr } = await runCli(['inspect', file, '--json', '--portable-aes', '--transport']);
 
             assert.strictEqual(code, 0);
             assert.strictEqual(stderr, '');
-            const parsed = JSON.parse(stdout) as {
-                events: Array<{ path: string; kind: string; identity?: string; value?: string }>;
-            };
-            assert.deepStrictEqual(
-                parsed.events.map(({ path, kind, identity, value }) => ({
-                    path,
-                    kind,
-                    identity: identity ?? null,
-                    value: value ?? null,
-                })),
-                [
-                    { path: '$.a', kind: 'NodeLiteral', identity: 'ROOT', value: null },
-                    { path: '$.a[0]', kind: 'NodeHead', identity: 'HEAD', value: 'tag' },
-                    { path: '$.a[0][0]', kind: 'StringLiteral', identity: 'CHILD', value: 'value' },
-                ],
-            );
+            const parsed = JSON.parse(stdout);
+            assert.deepStrictEqual(parsed.events, [
+                { path: '$.tag', kind: 'NodeLiteral', identity: 'ROOT', tag: 'tag' },
+                { path: '$.tag[0]', kind: 'StringLiteral', identity: 'CHILD', value: 'value' },
+            ]);
         });
 
         it('exports Telex and keeps headers opt-in', async () => {
@@ -1296,7 +1285,7 @@ describe('AEON CLI output contract', () => {
             const file = path.join(dir, 'identity.aeon');
             fs.writeFileSync(
                 file,
-                String.raw`value\ROOT\@{source\META\:string = "user"} = <tag\HEAD\>` + '\n',
+                String.raw`<tag\ROOT\@{source\META\:string = "user"}>` + '\n',
                 'utf-8',
             );
             const { code, stdout, stderr } = await runCli(['finalize', file, '--map']);
@@ -1314,7 +1303,7 @@ describe('AEON CLI output contract', () => {
             };
             assert.strictEqual(parsed.document.entries[0]?.structuralId, 'ROOT');
             assert.strictEqual(parsed.document.entries[0]?.annotations?.source?.structuralId, 'META');
-            assert.strictEqual(parsed.document.entries[0]?.value.structuralId, 'HEAD');
+            assert.strictEqual(parsed.document.entries[0]?.value.structuralId, 'ROOT');
         });
     });
 

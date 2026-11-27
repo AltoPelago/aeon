@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fixtures from '../../../../../test-fixtures/gp-datatype-generics.json' with { type: 'json' };
+import revisedFixtures from '../../../../../test-fixtures/gp-datatype-generics-tagged-nodes.json' with { type: 'json' };
 import { compile } from './compile.js';
 
-for (const fixture of fixtures) {
+const revised = new Map(revisedFixtures.map(fixture => [fixture.id, fixture]));
+for (const historicalFixture of fixtures) {
+    const fixture = revised.get(historicalFixture.id) ?? historicalFixture;
     test(`profile datatype adornments: ${fixture.id}`, () => {
         const core = compile(fixture.source, {});
         assert.deepEqual(core.meta?.errors ?? [], []);

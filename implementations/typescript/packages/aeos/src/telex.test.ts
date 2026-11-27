@@ -67,8 +67,8 @@ describe('AEOS Telex validation', () => {
         assert.equal(result.ok, true, JSON.stringify(result.errors));
     });
 
-    it('counts node contents beneath the explicit node head', () => {
-        const wire = 'telex.aes=1\n\npath=$.node\nkind=NodeLiteral\n\npath=$.node[0]\nkind=NodeHead\nvalue=tag\n\npath=$.node[0][0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[0][1]\nkind=StringLiteral\nvalue=two\n';
+    it('counts direct node children', () => {
+        const wire = 'telex.aes=1\n\npath=$.node\nkind=NodeLiteral\ntag=node\n\npath=$.node[0]\nkind=StringLiteral\nvalue=one\n\npath=$.node[1]\nkind=StringLiteral\nvalue=two\n';
         const passing = validateTelex(wire, {
             rules: [{ path: '$.node', constraints: { type: 'NodeLiteral', min_children: 2, max_children: 2 } }],
         });

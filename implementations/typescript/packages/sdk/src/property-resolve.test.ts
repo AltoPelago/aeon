@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fixture from '../../../../../test-fixtures/property-resolve-sdk.json' with {type: 'json'};
+import fixture from '../../../../../test-fixtures/property-resolve-sdk-tagged-nodes.json' with {type: 'json'};
 import {evaluateQuery, parseAddress, planMutation, resolveAddress} from '@altopelago/sansa';
 import {readAeonNamespace, type AeonSansaBinding} from './sansa.js';
 
@@ -11,9 +11,14 @@ test('SDK authoritative property fixtures preserve text/AST handles and paths', 
   for (const item of fixture.cases) {
     const context = item.context === undefined ? undefined : resolveAddress(item.context, namespace).bindings[0];
     const parsed = parseAddress(item.address);
+    if ('parseCode' in item) {
+      assert.equal(parsed.ok, false);
+      if (!parsed.ok) assert.equal(parsed.errors[0]?.code, item.parseCode);
+      continue;
+    }
     assert.equal(parsed.ok, true, item.address);
     for (const address of [item.address, parsed.address!]) {
-      const result = resolveAddress(address, namespace, {
+      const result: ReturnType<typeof resolveAddress<AeonSansaBinding>> = resolveAddress(address, namespace, {
         ...(context === undefined ? {} : {contextualRoot: context}),
         ...(item.limit === undefined ? {} : {maxPropertyInspections: item.limit}),
       });
@@ -37,22 +42,22 @@ test('SDK authoritative property fixtures preserve text/AST handles and paths', 
 
 test('SDK property metadata remains authoritative after display fields change', () => {
   const namespace = host();
-  const value = resolveAddress('$.value', namespace).bindings[0]!;
-  const head = resolveAddress('$.value[0]', namespace).bindings[0]!;
+  const value = resolveAddress('$.tag', namespace).bindings[0]!;
+  const child = resolveAddress('$.tag[0]', namespace).bindings[0]!;
   value.name = 'forged';
   value.nodeTag = 'forged';
   value.representationKind = 'StringLiteral';
-  head.nodeTag = 'forged';
-  head.value = 'forged';
-  head.representationKind = 'ObjectNode';
+  child.nodeTag = 'forged';
+  child.value = 'forged';
+  child.representationKind = 'ObjectNode';
   value.children = [];
-  assert.deepEqual(resolveAddress('$.*&key("value")&tag("tag")', namespace).bindings, [value]);
-  assert.deepEqual(resolveAddress('$.*&key("value")&tag("forged")', namespace).bindings, []);
+  assert.deepEqual(resolveAddress('$.*&key("tag")&tag("tag")', namespace).bindings, [value]);
+  assert.deepEqual(resolveAddress('$.*&key("tag")&tag("forged")', namespace).bindings, []);
 });
 
 test('SDK property scopes reject foreign/forged roots without reading lookalike metadata', () => {
   const namespace = host();
-  const foreign = resolveAddress('$.value', host()).bindings[0]!;
+  const foreign = resolveAddress('$.tag', host()).bindings[0]!;
   let reads = 0;
   const forged = Object.defineProperty({}, 'name', {get() {reads++; throw Error('secret');}}) as AeonSansaBinding;
   for (const contextualRoot of [foreign, forged]) {
@@ -64,30 +69,16 @@ test('SDK property scopes reject foreign/forged roots without reading lookalike 
   assert.equal(reads, 0);
 });
 
-test('SDK direct-head ownership cannot be replaced by another owned node', () => {
-  const namespace = host();
-  for (const path of ['$.group.nested[0]', '$.value[0][0]']) {
-    const injected = resolveAddress(path, namespace).bindings[0]!;
-    const result = resolveAddress('$.value&tag("tag")', {
-      ...namespace,
-      properties: {...namespace.properties!, nodeHeads: function* () {yield injected;}},
-    });
-    assert.ok(!result.ok);
-    assert.equal(result.errors[0]?.code, 'SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION');
-    assert.deepEqual(result.bindings, []);
-  }
-});
-
 test('SDK repeated handles retain multiplicity and inspection charges', () => {
   const namespace = host();
-  const value = resolveAddress('$.value', namespace).bindings[0]!;
+  const value = resolveAddress('$.tag', namespace).bindings[0]!;
   const repeated = {...namespace, children: () => [value, value]};
-  const selected = resolveAddress('$.*&tag("tag")', repeated, {maxPropertyInspections: 4});
+  const selected = resolveAddress('$.*&tag("tag")', repeated, {maxPropertyInspections: 2});
   assert.deepEqual(selected.bindings, [value, value]);
-  const limited = resolveAddress('$.*&tag("tag")', repeated, {maxPropertyInspections: 3});
+  const limited = resolveAddress('$.*&tag("tag")', repeated, {maxPropertyInspections: 1});
   assert.ok(!limited.ok);
   assert.equal(limited.errors[0]?.code, 'SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED');
-  assert.equal(limited.errors[0]?.observed, 4);
+  assert.equal(limited.errors[0]?.observed, 2);
   assert.deepEqual(limited.bindings, []);
 });
 
@@ -98,17 +89,17 @@ test('SDK owning planes retain scope and closed consumer boundaries', () => {
     const result = resolveAddress(scope === 'full' ? '$.header.*&key("aeon:title")' : '$.*&key("aeon:title")', namespace);
     assert.equal(result.ok, true);
     assert.equal(result.bindings.length, scope === 'payload' ? 0 : 1);
-    const query = evaluateQuery('from $.*&key("value")\nselect .', namespace);
+    const query = evaluateQuery('from $.*&key("tag")\nselect .', namespace);
     assert.ok(query.ok);
     assert.equal(query.results.length, scope === 'payload' ? 1 : 0);
-    const mutation = planMutation({op: 'remove', target: '$.*&key("value")'}, namespace);
+    const mutation = planMutation({op: 'remove', target: '$.*&key("tag")'}, namespace);
     assert.ok(!mutation.ok);
     assert.deepEqual(mutation.errors.map(e => e.code), ['SANSA_MUTATE_NON_EXACT_TARGET']);
   }
 });
 
-test('recursive tag predicates distinguish original containers, heads and content', async () => {
-  const {default: split} = await import('../../../../../test-fixtures/tag-head-split.json', {with:{type:'json'}});
+test('recursive tag predicates select original nodes and their direct content', async () => {
+  const {default: split} = await import('../../../../../test-fixtures/node-tag-sdk.json', {with:{type:'json'}});
   const namespace = readAeonNamespace(split.source).namespace;
   for (const item of split.cases) {
     const parsed = parseAddress(item.address);
@@ -125,7 +116,7 @@ test('recursive tag predicates distinguish original containers, heads and conten
 
 
 test('SDK property Query preserves original targets, row scope, ordering and shared budgets', async () => {
-  const {default: fixtures} = await import('../../../../../test-fixtures/property-query-sdk.json', {with:{type:'json'}});
+  const {default: fixtures} = await import('../../../../../test-fixtures/property-query-sdk-tagged-nodes.json', {with:{type:'json'}});
   const {parseQuery} = await import('@altopelago/sansa');
   const namespace = readAeonNamespace(fixtures.source).namespace;
   for (const item of fixtures.cases) {

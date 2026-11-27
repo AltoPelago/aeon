@@ -1,4 +1,4 @@
-import type { AssignmentEvent } from '@altopelago/aeon-aes';
+import { buildAnnotations, formatPath, type AssignmentEvent } from '@altopelago/aeon-aes';
 import type {
     Diagnostic,
     FinalizeHeader,
@@ -20,7 +20,6 @@ type Span = AssignmentEvent['span'];
 type Value = AssignmentEvent['value'];
 type ObjectValue = Extract<Value, { type: 'ObjectNode'; bindings: readonly unknown[] }>;
 type Binding = ObjectValue['bindings'][number];
-type Attribute = Binding['attributes'][number];
 type AnnotationMap = NonNullable<AssignmentEvent['annotations']>;
 type AnnotationEntry = AnnotationMap extends ReadonlyMap<string, infer T>
     ? T
@@ -227,12 +226,21 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
             return listNode(value.elements, meta, ctx, path, projection);
         case 'TupleLiteral':
             return listNode(value.elements, meta, ctx, path, projection);
-        case 'NodeLiteral':
+        case 'NodeLiteral': {
+            const annotations = meta.annotations ?? buildAnnotations(value.attributes);
+            const structuralId = meta.structuralId ?? value.structuralId;
+            const datatype = meta.datatype ?? (value.datatype ? formatDatatypeAnnotation(value.datatype) : undefined);
+            const nodeMeta: NodeMeta = {
+                span: meta.span,
+                ...(structuralId !== null ? { structuralId } : {}),
+                ...(datatype ? { datatype } : {}),
+                ...(annotations.size > 0 ? { annotations } : {}),
+            };
             return objectNode([
                 {
                     type: 'Binding',
                     key: '$node',
-                    structuralId: value.structuralId,
+                    structuralId: null,
                     value: {
                         type: 'StringLiteral',
                         value: value.tag,
@@ -284,7 +292,8 @@ function valueToNode(value: Value, meta: NodeMeta, ctx: NodeContext, path: strin
                     attributes: [],
                     span: value.span,
                 },
-            ], meta, ctx, path, projection, { allowReservedKeys: true });
+            ], nodeMeta, ctx, path, projection, { nodeWrapper: true });
+        }
         default:
             return scalarNode('String', '', '', meta);
     }
@@ -342,16 +351,18 @@ function objectNode(
     ctx: NodeContext,
     basePath: string,
     projection: ProjectionState,
-    options: { allowReservedKeys?: boolean } = {}
+    options: { nodeWrapper?: boolean } = {}
 ): FinalizedObjectNode {
     const entries = new Map<string, FinalizedNode>();
     for (const binding of bindings) {
         const key = binding.key;
-        const entryPath = `${basePath}.${key}`;
-        if (!shouldIncludeProjectedPath(entryPath, projection)) {
+        const entryPath = options.nodeWrapper && key === '$children' ? basePath
+            : options.nodeWrapper && key === '@' ? `${basePath}.@`
+            : appendMemberPath(basePath, key);
+        if (!(options.nodeWrapper && key === '$node') && !shouldIncludeProjectedPath(entryPath, projection)) {
             continue;
         }
-        if (!options.allowReservedKeys && isReservedObjectKey(key)) {
+        if (!options.nodeWrapper && isReservedObjectKey(key)) {
             ctx.errors.push(reservedKeyDiagnostic(key, entryPath, binding.span));
             continue;
         }
@@ -413,25 +424,12 @@ function listNode(
     };
 }
 
-function buildAnnotations(attributes: readonly Attribute[]): ReadonlyMap<string, AnnotationEntry> {
-    const result = new Map<string, AnnotationEntry>();
-    for (const attr of attributes) {
-        for (const [key, entry] of attr.entries) {
-            const nested = buildAnnotations(entry.attributes);
-            result.set(key, {
-                ...(entry.structuralId !== null ? { structuralId: entry.structuralId } : {}),
-                value: entry.value,
-                ...(entry.datatype ? { datatype: formatDatatypeAnnotation(entry.datatype) } : {}),
-                ...(nested.size > 0 ? { annotations: nested } : {}),
-            });
-        }
-    }
-    return result;
+function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', key: string): string {
+    return appendMemberPath(scope === 'full' ? `$.${branch}` : '$', key);
 }
 
-function scopedTopLevelPath(scope: FinalizeScope, branch: 'header' | 'payload', key: string): string {
-    if (scope === 'full') return `$.${branch}.${key}`;
-    return `$.${key}`;
+function appendMemberPath(path: string, key: string): string {
+    return path + formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
 }
 
 function isHeaderEvent(event: AssignmentEvent, key: string, header: FinalizeHeader | undefined): boolean {

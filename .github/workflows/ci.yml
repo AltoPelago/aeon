@@ -90,7 +90,22 @@ jobs:
       - name: Phase fuzz (CI)
         run: pnpm test:fuzz
 
-      - name: Stress tests
+      # These fixtures compare against runtimes that still use the previous grammar.
+      - name: Checkout pre-revision TypeScript for legacy suites
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 0431fcdeea75e377ba0212b3fa03a543ee45b3ed
+          path: legacy-node-baseline
+          persist-credentials: false
+
+      - name: Build pre-revision TypeScript
+        working-directory: legacy-node-baseline/implementations/typescript
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Stress tests against the shared legacy fixtures
+        working-directory: legacy-node-baseline/implementations/typescript
         run: pnpm test:stress
 
       - name: Checkout aeonite-cts
@@ -100,12 +115,24 @@ jobs:
           ref: d63e5713d77702b8d1738744ca66f917b3c22ffa # Draft generic admission targets
           path: aeonite-cts
 
+      - name: Checkout revised node CTS fixtures
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: aeonite-org/aeonite-cts
+          ref: ddf5c1b3428f75ddd2857feb3184354deb2a1d34
+          path: node-model-cts
+
       - name: Checkout aeonite-specs for the GP profile contract
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-specs
           ref: f236adf070f5ba351abc8d2454c6e7fb551d4db6 # Official GP profile artifact 1.1.0
           path: aeonite-specs
+
+      - name: TypeScript revised node model CTS
+        env:
+          AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
+        run: node ../../scripts/test-typescript-node-model-cts.mjs
 
       - name: CTS claim validation
         working-directory: .
@@ -119,11 +146,11 @@ jobs:
           python-version: "3.12"
 
       - name: Build Rust adapter for the 52-Cards pilot
-        working-directory: implementations/rust
+        working-directory: legacy-node-baseline/implementations/rust
         run: cargo build --locked -p aeon-canonical --example reference_pairs
 
       - name: 52-Cards paired canonicalization pilot
-        working-directory: .
+        working-directory: legacy-node-baseline
         run: npm --prefix stress-tests/tools/aeon-52-cards run cards-pairs -- --check-detector
 
       - name: Pure-Python reference tests and transport conformance
@@ -157,30 +184,36 @@ jobs:
           python3 -m mypy --strict implementations/rust/crates/aeon-python/tests/typing/canonical.py
 
       - name: Installed native Python reference-safe canonical API and TypeScript parity
+        working-directory: legacy-node-baseline/implementations/typescript
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs python-native
 
       - name: CTS development lanes and immutable snapshot audit
+        working-directory: legacy-node-baseline/implementations/typescript
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
           AEONITE_SPECS_ROOT: ${{ github.workspace }}/aeonite-specs
         run: pnpm test:cts:all
 
       - name: Core escaped-path public CLI parity
+        working-directory: legacy-node-baseline/implementations/typescript
         run: node ../../scripts/test-core-path-escaping.mjs
 
       - name: Canonical CTS 0.4 TypeScript default and explicit API
+        working-directory: legacy-node-baseline/implementations/typescript
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs
 
       - name: Canonical CTS 0.4 Python default API and TypeScript parity
+        working-directory: legacy-node-baseline/implementations/typescript
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs python
 
       - name: Committed WASM reference-safe canonical API and TypeScript parity
+        working-directory: legacy-node-baseline/implementations/typescript
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/aeonite-cts/cts
         run: node ../../scripts/test-canonical-reference-ordering.mjs wasm
@@ -266,22 +299,29 @@ jobs:
         with:
           toolchain: 1.93.1
 
-      - name: Install TypeScript workspace dependencies
-        working-directory: implementations/typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Checkout pre-revision TypeScript for legacy suites
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 0431fcdeea75e377ba0212b3fa03a543ee45b3ed
+          path: legacy-node-baseline
+          persist-credentials: false
 
-      - name: Build TypeScript workspace
-        working-directory: implementations/typescript
-        run: pnpm build
+      - name: Build pre-revision TypeScript
+        working-directory: legacy-node-baseline/implementations/typescript
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
 
       - name: Build Rust CLI
-        working-directory: implementations/rust
+        working-directory: legacy-node-baseline/implementations/rust
         run: cargo build -p aeon-cli
 
       - name: Canonical CTS lane
+        working-directory: legacy-node-baseline
         run: bash ./scripts/canonical-cts.sh --mode all --brief
 
       - name: Canonical CTS 0.4 Rust default API and TypeScript parity
+        working-directory: legacy-node-baseline
         run: node scripts/test-canonical-reference-ordering.mjs rust
 
   reference-path-runtimes:

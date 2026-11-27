@@ -1,0 +1,86 @@
+[
+  {
+    "id": "attribute-node-child-invalid",
+    "source": "mask@{<tag(:radix[2.5]=%1)>}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.tag[0]"
+      }
+    ]
+  },
+  {
+    "id": "attribute-node-child-valid",
+    "source": "mask@{<tag(:radix[2e0]=%1)>}:n=0",
+    "errors": []
+  },
+  {
+    "id": "attribute-node-head-invalid",
+    "source": "mask@{<tag@{base:radix[2.5]=%1}>}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.tag.@.base"
+      }
+    ]
+  },
+  {
+    "id": "attribute-node-head-valid",
+    "source": "mask@{<tag@{base:radix[2e0]=%1}>}:n=0",
+    "errors": []
+  },
+  {
+    "id": "payload-node-head-invalid",
+    "source": "<mask@{base:radix[2.5]=%1}:node>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-node-head-valid",
+    "source": "<mask@{base:radix[2e0]=%1}:node>",
+    "errors": []
+  },
+  {
+    "id": "payload-node-child-invalid",
+    "source": "<mask:node(@{base:radix[2.5]=%1}:n=0)>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "payload-node-child-valid",
+    "source": "<mask:node(@{base:radix[2e0]=%1}:n=0)>",
+    "errors": []
+  },
+  {
+    "id": "key-and-tag-metadata-remain-distinct",
+    "source": "<mask@{base:radix[2.5]=%1}(<tag@{base:radix[2.5]=%1}>)>",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.base"
+      },
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask[0].@.base"
+      }
+    ]
+  },
+  {
+    "id": "metadata-node-head-generic",
+    "source": "mask@{<tag:node<radix[2.5]>>}:n=0",
+    "errors": [
+      {
+        "code": "PROFILE_DATATYPE_CLARIFIER_INVALID",
+        "path": "$.mask.@.tag"
+      }
+    ]
+  }
+]

@@ -117,12 +117,8 @@ export function referenceSafeOrders(
             attributesAndValue(payload.attributes, payload.value, path, membership, targetable);
             return;
         }
-        if (payload.type === 'ObjectNode' || payload.type === 'ListNode' || payload.type === 'TupleLiteral') {
+        if ('attributes' in payload) {
             attributes(payload.attributes, path, membership, targetable);
-        } else if (payload.type === 'NodeLiteral') {
-            // Implicit node-head attributes have no addressable source path.
-            // Their references still constrain all enclosing sortable scopes.
-            attributes(payload.attributes, path, membership, false);
         }
         if (payload.type === 'CloneReference' || payload.type === 'PointerReference') {
             claims.push({ target: payload.path, membership });

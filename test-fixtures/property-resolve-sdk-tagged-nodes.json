@@ -1,0 +1,151 @@
+{
+  "source": "aeon:title = \"header\"\n\"\" = 9\ngroup = { \"\" = 7, name = \"x\", <inner(\"deep\")> }\n<tag@{note = \"outer\", role = \"button\"}(\"hello\")>\nplain = { tag = \"tag\" }\nitems = [ { name = \"one\" }, { name = \"two\" } ]\nwild = { \"a*\" = 1 }",
+  "cases": [
+    {
+      "address": "$&key(\"\")",
+      "paths": []
+    },
+    {
+      "address": "$.*&key(\"\")",
+      "paths": [
+        "$.[\"\"]"
+      ]
+    },
+    {
+      "address": "$.group.*&key(\"\")",
+      "paths": [
+        "$.group.[\"\"]"
+      ]
+    },
+    {
+      "address": "$.items.*&key(\"0\")",
+      "paths": []
+    },
+    {
+      "address": "$.items.*.name&key(\"name\")",
+      "paths": [
+        "$.items[0].name",
+        "$.items[1].name"
+      ]
+    },
+    {
+      "address": "$.wild.*&key(\"a*\")",
+      "paths": [
+        "$.wild.[\"a*\"]"
+      ]
+    },
+    {
+      "address": "$.wild.*&key(\"a\")",
+      "paths": []
+    },
+    {
+      "address": "$.tag&tag(\"tag\")",
+      "paths": [
+        "$.tag"
+      ]
+    },
+    {
+      "address": "$.plain&tag(\"tag\")",
+      "paths": []
+    },
+    {
+      "address": "$.group&tag(\"inner\")",
+      "paths": []
+    },
+    {
+      "address": "$.group.inner&tag(\"inner\")",
+      "paths": [
+        "$.group.inner"
+      ]
+    },
+    {
+      "address": "$.tag&tag(\"tag\").@.*&key(\"role\")",
+      "paths": [
+        "$.tag.@.role"
+      ]
+    },
+    {
+      "address": "$.tag.@&key(\"tag\")",
+      "paths": []
+    },
+    {
+      "address": "$.tag.@.*&key(\"note\")",
+      "paths": [
+        "$.tag.@.note"
+      ]
+    },
+    {
+      "address": "?&key(\"group\")",
+      "context": "$.group",
+      "paths": []
+    },
+    {
+      "address": "?.name&key(\"name\")",
+      "context": "$.group",
+      "paths": [
+        "$.group.name"
+      ]
+    },
+    {
+      "address": "?&tag(\"tag\")",
+      "context": "$.tag",
+      "paths": [
+        "$.tag"
+      ]
+    },
+    {
+      "address": "?.^&key(\"group\")",
+      "context": "$.group.name",
+      "paths": []
+    },
+    {
+      "address": "$.tag.@.^&key(\"tag\")",
+      "code": "SANSA_RESOLVE_PROPERTY_SCOPE_VIOLATION"
+    },
+    {
+      "address": "$.tag&tag(\"tag\")",
+      "limit": 0,
+      "code": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+      "observed": 1
+    },
+    {
+      "address": "$.tag&tag(\"tag\")",
+      "limit": 1,
+      "paths": [
+        "$.tag"
+      ]
+    },
+    {
+      "address": "$.tag&key(\"tag\")",
+      "limit": 0,
+      "code": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+      "observed": 1
+    },
+    {
+      "address": "$.group.*.^&key(\"group\")",
+      "paths": [
+        "$.group",
+        "$.group",
+        "$.group"
+      ]
+    },
+    {
+      "address": "$.group.*.^&key(\"group\")",
+      "limit": 2,
+      "code": "SANSA_RESOLVE_PROPERTY_LIMIT_EXCEEDED",
+      "observed": 3
+    },
+    {
+      "address": "$.tag[0]&tag(\"tag\")",
+      "paths": []
+    },
+    {
+      "address": "$.tag&headTag(\"tag\")",
+      "parseCode": "SANSA_UNKNOWN_PROPERTY_SELECTOR"
+    },
+    {
+      "address": "$.tag.**&tag(\"tag\")",
+      "paths": []
+    }
+  ]
+}

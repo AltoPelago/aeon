@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createPortableEventPathMap, projectPortableEvents } from '@altopelago/aeon-core';
 import { readAeon } from './index.js';
@@ -36,6 +37,7 @@ interface PortableTopologyCase {
     readonly path: string;
     readonly kind: string;
     readonly identity?: string;
+    readonly tag?: string;
     readonly datatype?: string;
     readonly value?: string;
   }[];
@@ -185,28 +187,82 @@ test('document-projection contract declares independent fidelity capabilities', 
   }
 });
 
-for (const fixture of contract.portableTopologyCases) {
+const taggedTopologyCases: readonly PortableTopologyCase[] = [
+  {
+    id: 'named-node-metadata-and-child',
+    source: String.raw`<tag\NODE\@{keyMeta\KEY_META\ = "outer", role\ROLE\ = "button"}:node(\CHILD\ = "hello")>`,
+    sourceToEventPaths: {'$.tag': '$.tag', '$.tag[0]': '$.tag[0]'},
+    events: [
+      { path: '$.tag', kind: 'NodeLiteral', identity: 'NODE', datatype: 'node', tag: 'tag' },
+      { path: '$.tag.@.keyMeta', kind: 'StringLiteral', identity: 'KEY_META', value: 'outer' },
+      { path: '$.tag.@.role', kind: 'StringLiteral', identity: 'ROLE', value: 'button' },
+      { path: '$.tag[0]', kind: 'StringLiteral', identity: 'CHILD', value: 'hello' },
+    ],
+  },
+  {
+    id: 'attribute-node-reference-paths',
+    source: 'a@{<tag(1, ~a.@.tag[0])>} = 1\ncopy = ~a.@.tag[0]',
+    sourceToEventPaths: {'$.a': '$.a', '$.copy': '$.copy'},
+    events: [
+      { path: '$.a', kind: 'NumberLiteral', value: '1' },
+      { path: '$.a.@.tag', kind: 'NodeLiteral', tag: 'tag' },
+      { path: '$.a.@.tag[0]', kind: 'NumberLiteral', value: '1' },
+      { path: '$.a.@.tag[1]', kind: 'CloneReference', value: '$.a.@.tag[0]' },
+      { path: '$.copy', kind: 'CloneReference', value: '$.a.@.tag[0]' },
+    ],
+  },
+];
+
+for (const fixture of taggedTopologyCases) {
   test(`document-projection portable topology: ${fixture.id}`, () => {
     const { compile } = readAeon(fixture.source);
     assert.deepEqual(compile.errors, []);
     assert.deepEqual(Object.fromEntries(createPortableEventPathMap(compile.events)), fixture.sourceToEventPaths);
-    assert.deepEqual(
-      projectPortableEvents(compile.events).map(({ path, kind, identity, datatype, value }) => ({
-        path,
-        kind,
-        ...(identity !== undefined ? { identity } : {}),
-        ...(datatype !== undefined ? { datatype } : {}),
-        ...(value !== undefined ? { value } : {}),
-      })),
-      fixture.events,
-    );
+    assert.deepEqual(projectPortableEvents(compile.events).map(({ path, kind, identity, datatype, value, tag }) => ({
+      path,
+      kind,
+      ...(identity !== undefined ? { identity } : {}),
+      ...(datatype !== undefined ? { datatype } : {}),
+      ...(value !== undefined ? { value } : {}),
+      ...(tag !== undefined ? { tag } : {}),
+    })), fixture.events);
   });
 }
 
 for (const fixture of contract.fixtures) {
-  for (const [scope, expected] of Object.entries(fixture.scopes)) {
+  for (const [scope, historical] of Object.entries(fixture.scopes)) {
     test(`document-projection contract: ${fixture.id} (${scope})`, () => {
-      const { namespace } = readAeonNamespace(fixture.source, {
+      const original = 'nodeValue:node = <tag("hello")>';
+      const declaration = '<tag:node("hello")>';
+      const source = fixture.source.replace(original, declaration);
+      let expected = historical;
+      if (source !== fixture.source) {
+        // Other runtimes still use the shared historical fixture. Adjust its
+        // independent byte coordinates for the one revised declaration.
+        const origin = `sha256:${createHash('sha256').update(source).digest('hex')}`;
+        const start = Buffer.byteLength(source.slice(0, source.indexOf(declaration)));
+        const delta = Buffer.byteLength(declaration) - Buffer.byteLength(original);
+        const shift = (offset: number) => offset > start ? offset + delta : offset;
+        const rows = historical as readonly (Record<string, unknown> & { address: string; span?: string })[];
+        expected = rows.flatMap(row => {
+          const path = '$.containers.nodeValue';
+          if (row.address === `${path}[0]`) return [];
+          let next = row;
+          if (row.address === path) {
+            next = { ...row, address: '$.containers.tag', name: 'tag', children: ['$.containers.tag[0]'] };
+          } else if (row.address === `${path}[0][0]`) {
+            next = { ...row, address: '$.containers.tag[0]', parent: '$.containers.tag' };
+          } else if (row.address === '$.containers') {
+            next = { ...row, children: ['$.containers.series', '$.containers.pair', '$.containers.tag'] };
+          }
+          if (row.span) {
+            const [from, to] = row.span.split(':').map(Number) as [number, number];
+            next = { ...next, origin, span: `${shift(from)}:${shift(to)}` };
+          }
+          return [next];
+        });
+      }
+      const { namespace } = readAeonNamespace(source, {
         compile: fixture.compileOptions,
         namespace: { scope: scope as AeonNamespaceScope },
       });

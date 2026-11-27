@@ -3,11 +3,11 @@ import assert from 'node:assert';
 import { finalizeNode } from './node.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
-import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
+import { resolvePaths, emitEvents, resolveRefs } from '@altopelago/aeon-aes';
 
-function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {
+function compileToEvents(input: string, _legacySyntaxFlag: boolean = false, maxAttributeDepth = 1) {
     const tokens = tokenize(input).tokens;
-    const ast = parse(tokens);
+    const ast = parse(tokens, { maxAttributeDepth });
     if (!ast.document) throw new Error('Parse failed');
     const resolved = resolvePaths(ast.document, { indexedPaths: true });
     const emitted = emitEvents(resolved, { recovery: true });
@@ -15,6 +15,34 @@ function compileToEvents(input: string, _legacySyntaxFlag: boolean = false) {
 }
 
 describe('Finalization (Node)', () => {
+    it('keeps intrinsic metadata on a node in an attribute of an object member', () => {
+        const events = compileToEvents('box={host@{<tag\\ID\\@{x=1}:node>} = 0}', false, 2);
+        const box = finalizeNode(events).document.root.entries.get('box');
+        assert.ok(box?.type === 'Object');
+        const tag = box.entries.get('host')?.annotations?.get('tag');
+        assert.equal(tag?.structuralId, 'ID');
+        assert.equal(tag?.datatype, 'node');
+        assert.equal(tag?.annotations?.get('x')?.value.type, 'NumberLiteral');
+    });
+
+    it('retains receiver identity and datatype when finalizing an eager node clone', () => {
+        const events = compileToEvents('<target:node<number>(1)>\ncopy\\COPY\\:node<string> = ~target');
+        const copy = finalizeNode(resolveRefs(events).aes).document.root.entries.get('copy');
+        assert.equal(copy?.structuralId, 'COPY');
+        assert.equal(copy?.datatype, 'node<string>');
+    });
+
+    it('projects direct node indices into the presentation children field', () => {
+        const events = compileToEvents('<tag("skip", "keep")>');
+        const tag = finalizeNode(events, {
+            materialization: 'projected', includePaths: ['$.tag[1]'],
+        }).document.root.entries.get('tag');
+        assert.ok(tag?.type === 'Object');
+        const children = tag.entries.get('$children');
+        assert.ok(children?.type === 'List');
+        assert.deepEqual(children.items.map(child => child.type === 'String' && child.value), ['keep']);
+    });
+
     it('materializes a node tree', () => {
         const events = compileToEvents(
             [
@@ -45,16 +73,16 @@ describe('Finalization (Node)', () => {
     });
 
     it('preserves every structural identity location in node materialization', () => {
-        const events = compileToEvents(String.raw`root\ROOT\@{meta\META\ = "x"} = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>`);
+        const events = compileToEvents(String.raw`<tag\ROOT\@{meta\META\ = "x", role\ROLE\ = "button"}(\CHILD\:string = "v")>`);
         const result = finalizeNode(events);
-        const root = result.document.root.entries.get('root');
+        const root = result.document.root.entries.get('tag');
 
         assert.ok(root);
         assert.strictEqual(root.structuralId, 'ROOT');
         assert.strictEqual(root.annotations?.get('meta')?.structuralId, 'META');
         assert.strictEqual(root.type, 'Object');
         if (root.type !== 'Object') assert.fail('Expected node literal object projection');
-        assert.strictEqual(root.entries.get('$node')?.structuralId, 'HEAD');
+        assert.strictEqual(root.entries.get('$node')?.structuralId, undefined);
 
         const attributes = root.entries.get('@');
         assert.strictEqual(attributes?.type, 'Object');
@@ -105,9 +133,9 @@ describe('Finalization (Node)', () => {
     });
 
     it('materializes node literals with @ and $children', () => {
-        const events = compileToEvents('view = <div@{id="main"}("hello")>');
+        const events = compileToEvents('<div@{id="main"}("hello")>');
         const result = finalizeNode(events);
-        const view = result.document.root.entries.get('view');
+        const view = result.document.root.entries.get('div');
         assert.ok(view);
         assert.strictEqual(view?.type, 'Object');
 

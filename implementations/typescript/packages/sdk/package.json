@@ -56,6 +56,6 @@
     "@altopelago/aeon-core": "workspace:*",
     "@altopelago/aeon-finalize": "workspace:*",
     "@altopelago/aeon-canonical": "workspace:*",
-    "@altopelago/sansa": "0.15.0"
+    "@altopelago/sansa": "git+https://github.com/AltoPelago/sansa.git#eb31cd0d7b9d926663896de7530706ed71229ac5"
   }
 }

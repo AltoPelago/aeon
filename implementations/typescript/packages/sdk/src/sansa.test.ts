@@ -82,7 +82,7 @@ types:object = {
 containers:object = {
   series:list<number> = [1, 2]
   pair:tuple = ("x", 1)
-  nodeValue:node = <tag("hello")>
+  <tag:node("hello")>
 }
 
 annotated\ROOT\@{meta\META\@{deep\DEEP\ = 3}:string = "source"}:number = 1`;
@@ -392,14 +392,10 @@ test('adapts references, containers, identities, and nested attributes', () => {
   });
   assert.equal(bindingAt(namespace, '$.containers.series').representationKind, 'ListNode');
   assert.equal(bindingAt(namespace, '$.containers.pair').representationKind, 'TupleLiteral');
-  const node = bindingAt(namespace, '$.containers.nodeValue');
+  const node = bindingAt(namespace, '$.containers.tag');
   assert.equal(node.representationKind, 'NodeLiteral');
   assert.equal(node.nodeTag, 'tag');
-  const head = bindingAt(namespace, '$.containers.nodeValue[0]');
-  assert.equal(head.representationKind, 'NodeHead');
-  assert.equal(head.nodeTag, 'tag');
-  assert.equal(head.value, 'tag');
-  assert.equal(bindingAt(namespace, '$.containers.nodeValue[0][0]').value, 'hello');
+  assert.equal(bindingAt(namespace, '$.containers.tag[0]').value, 'hello');
 
   const annotated = bindingAt(namespace, '$.annotated');
   assert.equal(annotated.identity, 'ROOT');
@@ -413,53 +409,49 @@ test('adapts references, containers, identities, and nested attributes', () => {
   assert.equal(namespace.parent?.(deep), meta.attributeSpace);
 });
 
-test('separates binding, node-head, and content metadata in portable topology', () => {
-  const source = String.raw`value\BINDING\@{keyMeta\KEY_META\ = "outer"} = <tag\HEAD\@{role\ROLE\ = "button"}:node(\CHILD\ = "hello")>`;
-  const { namespace } = readAeonNamespace(source, { compile: { maxAttributeDepth: 8 } });
-
-  const node = bindingAt(namespace, '$.value');
-  assert.equal(node.identity, 'BINDING');
+test('keeps node metadata, intrinsic tag and direct child on their own occurrences', () => {
+  const source = String.raw`<tag\NODE\@{role\ROLE\ = "button"}:node(\CHILD\ = "hello")>`;
+  const { namespace } = readAeonNamespace(source);
+  const node = bindingAt(namespace, '$.tag');
+  assert.equal(node.identity, 'NODE');
   assert.equal(node.representationKind, 'NodeLiteral');
-  assert.equal(bindingAt(namespace, '$.value.@.keyMeta').identity, 'KEY_META');
-
-  const head = bindingAt(namespace, '$.value[0]');
-  assert.equal(head.identity, 'HEAD');
-  assert.equal(head.representationKind, 'NodeHead');
-  assert.equal(head.datatype, 'node');
-  assert.equal(head.value, 'tag');
-  assert.equal(bindingAt(namespace, '$.value[0].@.role').identity, 'ROLE');
-
-  const content = bindingAt(namespace, '$.value[0][0]');
+  assert.equal(node.datatype, 'node');
+  assert.equal(node.nodeTag, 'tag');
+  assert.equal(node.span, `0:${source.length}`);
+  assert.equal(bindingAt(namespace, '$.tag.@.role').identity, 'ROLE');
+  const content = bindingAt(namespace, '$.tag[0]');
   assert.equal(content.identity, 'CHILD');
   assert.equal(content.value, 'hello');
 });
 
-test('resolves explicit node heads and translates references across their portable level', () => {
-  const { namespace } = readAeonNamespace(String.raw`value = <tag("first", "second")>
-copy = ~value[0]`);
+test('exact SANSA paths and symbolic AEON references target the same children', () => {
+  const { namespace } = readAeonNamespace(`<tag("first", "second")>
+clone = ~tag[0]
+pointer = ~>tag[1]
+copy:node = ~tag`);
 
-  const head = resolveAddress('$.value[0]%NodeHead', namespace);
-  assert.equal(head.ok, true);
-  if (!head.ok) return;
-  assert.equal(head.bindings.length, 1);
-  assert.equal(head.bindings[0]?.value, 'tag');
-
-  assert.deepEqual(bindingAt(namespace, '$.copy').value, {
-    type: 'CloneReference',
-    path: '$.value[0][0]',
-    canonical: '~$.value[0][0]',
-  });
+  for (const [path, target, value] of [
+    ['$.clone', '$.tag[0]', 'first'],
+    ['$.pointer', '$.tag[1]', 'second'],
+    ['$.copy', '$.tag', undefined],
+  ] as const) {
+    assert.equal((bindingAt(namespace, path).value as { path: string }).path, target);
+    assert.equal(bindingAt(namespace, target).value, value);
+  }
+  assert.deepEqual(resolveAddress('$.tag[0][0]', namespace).bindings, []);
 });
 
-test('translates references into node-valued attribute content', () => {
-  const { namespace } = readAeonNamespace('a@{x = <tag("child")>} = 1\ncopy = ~a.@.x[0]');
-
+test('references reach direct children and attributes of a node in attribute space', () => {
+  const { namespace } = readAeonNamespace('a@{<tag@{role = "r"}("child")>} = 1\ncopy = ~a.@.tag[0]', {
+    compile: { maxAttributeDepth: 2 },
+  });
   assert.deepEqual(bindingAt(namespace, '$.copy').value, {
     type: 'CloneReference',
-    path: '$.a.@.x[0][0]',
-    canonical: '~$.a.@.x[0][0]',
+    path: '$.a.@.tag[0]',
+    canonical: '~$.a.@.tag[0]',
   });
-  assert.equal(bindingAt(namespace, '$.a.@.x[0][0]').value, 'child');
+  assert.equal(bindingAt(namespace, '$.a.@.tag[0]').value, 'child');
+  assert.equal(bindingAt(namespace, '$.a.@.tag.@.role').value, 'r');
 });
 
 test('derives portable provenance from exact source text', () => {
@@ -607,21 +599,10 @@ test('SDK identity selection fails closed on duplicate and malformed adapter met
   assert.deepEqual(malformed.bindings, []);
 });
 
-test('SDK identities distinguish binding, exposed node head and content occurrences', () => {
-  const namespace = readAeonNamespace(String.raw`value\BINDING\ = <tag\HEAD\:node(\CHILD\ = "hello")>`).namespace;
-  for (const [selector, path] of [
-    ['$.\\BINDING\\', '$.value'],
-    ['$.\\BINDING\\.\\HEAD\\', '$.value[0]'],
-    ['$.\\BINDING\\.\\HEAD\\.\\CHILD\\', '$.value[0][0]'],
-  ]) {
-    const result = resolveAddress(selector!, namespace);
-    assert.equal(result.ok, true);
-    assert.equal(result.bindings[0], bindingAt(namespace, path!));
-  }
-  assert.equal(resolveAddress('$.\\HEAD\\', namespace).bindings.length, 0);
-  const contextual = bindingAt(namespace, '$.value[0]');
-  assert.equal(resolveAddress('?.\\HEAD\\', namespace, { contextualRoot: contextual }).bindings.length, 0);
-  assert.equal(resolveAddress('?.\\CHILD\\', namespace, { contextualRoot: contextual }).bindings[0], bindingAt(namespace, '$.value[0][0]'));
+test('SDK identities distinguish the node and its indexed content', () => {
+  const namespace = readAeonNamespace(String.raw`<tag\NODE\:node(\CHILD\ = "hello")>`).namespace;
+  assert.equal(resolveAddress('$.\\NODE\\', namespace).bindings[0]?.address, '$.tag');
+  assert.equal(resolveAddress('$.tag.\\CHILD\\', namespace).bindings[0]?.address, '$.tag[0]');
 });
 
 test('SDK constrained identity activation requires a proven parent grant', () => {

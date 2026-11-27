@@ -64,8 +64,8 @@ describe('Reference Resolution (Resolved AES)', () => {
     }
 
     it('preserves typed targets and strips identities when cloning attribute payloads', () => {
-        const events = compileToEvents(String.raw`x@{y = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>}=1
-z=~x.@.y`);
+        const events = compileToEvents(String.raw`x@{<tag\NODE\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>}=1
+z=~x.@.tag`);
         const result = resolveRefs(events);
         assert.deepStrictEqual(result.meta?.errors ?? [], []);
         const value = result.aes.find(event => event.key === 'z')?.value;
@@ -77,6 +77,13 @@ z=~x.@.y`);
         if (value.children[0]?.type !== 'TypedValue') assert.fail('Expected typed child');
         assert.strictEqual(value.children[0].structuralId, null);
         assert.strictEqual(value.children[0].datatype?.name, 'string');
+    });
+
+    it('reports unresolved node attribute references once', () => {
+        const result = resolveRefs(compileToEvents('<tag@{a = ~missing}>'), { mode: 'loose' });
+        assert.deepEqual(result.meta?.warnings?.map(({ code, path }) => [code, path]), [
+            ['RESOLVE_MISSING_TARGET', '$.tag.@.a'],
+        ]);
     });
 
     it('preserves pointer references to attributes rather than cloning them', () => {
@@ -102,7 +109,7 @@ z=~x.@.y`);
     });
 
     it('does not duplicate structural identities when materializing clones', () => {
-        const events = compileToEvents(String.raw`original\ORIGINAL\@{meta\META\ = "x"} = <tag\HEAD\@{role\ROLE\ = "button"}(\CHILD\:string = "v")>
+        const events = compileToEvents(String.raw`<original\ORIGINAL\@{meta\META\ = "x", role\ROLE\ = "button"}(\CHILD\:string = "v")>
 copy\COPY\ = ~original`);
         const result = resolveRefs(events, { mode: 'strict' });
         const original = result.aes.find((event) => event.key === 'original');

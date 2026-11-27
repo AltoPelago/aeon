@@ -2,7 +2,8 @@ import type { Span } from '@altopelago/aeon-lexer';
 import type { Attribute, Binding, Value } from '@altopelago/aeon-parser';
 import { formatDatatypeAnnotation } from './datatype.js';
 import type { AssignmentEvent, AttributeEntry } from './events.js';
-import { formatPath, type CanonicalPath, type PathSegment } from './paths.js';
+import { formatPath, type CanonicalPath } from './paths.js';
+import { formatReferenceTargetPath } from './reference-target.js';
 import { sha256Hex } from './sha256.js';
 import {
     parseDatatypeDescriptor,
@@ -33,7 +34,6 @@ export type PortableAesKind =
     | 'ListNode'
     | 'TupleLiteral'
     | 'NodeLiteral'
-    | 'NodeHead'
     | 'CloneReference'
     | 'PointerReference';
 
@@ -48,6 +48,7 @@ export interface PortableAesEvent {
     readonly generics?: readonly AesDatatypeDescriptor[];
     readonly clarifiers?: readonly (AesStringLiteral | AesNumberLiteral)[];
     readonly value?: string;
+    readonly tag?: string;
     readonly origin?: string;
     readonly span?: string;
 }
@@ -184,11 +185,8 @@ export function adaptTypeScriptAssignmentEventsToPortableAes(
 /**
  * Project legacy TypeScript AssignmentEvents into the portable flat shape.
  *
- * Every NodeLiteral becomes a value-less `NodeLiteral` event followed by one
- * synthetic `NodeHead` event. Source child paths gain the NodeHead index,
- * recursively, while ordinary member/list/tuple paths remain unchanged.
- * Binding, anonymous-head, and node-head attributes are emitted as ordinary
- * events beneath their owning path's `.@` address space. The default portable
+ * Nodes retain their source paths and intrinsic tags. Attributes are emitted
+ * beneath their owning path in the `.@` address space. The default portable
  * projection is body-only; use the named compatibility adapter with
  * `includeHeaders: true` to select the explicit document projection.
  */
@@ -213,45 +211,26 @@ interface PortableEventWithLocalSpan {
 function projectPortableEventsWithLocalSpans(
     events: readonly AssignmentEvent[],
 ): readonly PortableEventWithLocalSpan[] {
-    const nodeSourcePaths = collectNodeSourcePaths(events);
     const projected: PortableEventWithLocalSpan[] = [];
-
     for (const event of events) {
-        const translatedPath = translateNodePath(event.path, nodeSourcePaths);
-        const translatedPathText = formatPath(translatedPath);
+        const path = formatPath(event.path);
         const value = unwrapTypedValue(event.value);
-        pushProjected(projected, projectEvent(event, translatedPath, value, nodeSourcePaths), event.span);
-        projectMappedAttributes(event.annotations, translatedPathText, projected, nodeSourcePaths);
-
-        if (value.type === 'NodeLiteral') {
-            const headPath = `${translatedPathText}[0]`;
-            pushProjected(projected, {
-                path: headPath,
-                kind: 'NodeHead',
-                ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
-                ...projectDatatype(value.datatype === null ? undefined : formatDatatypeAnnotation(value.datatype)),
-                value: value.tag,
-            }, value.headSpan);
-            projectParserAttributes(value.attributes, headPath, projected, nodeSourcePaths);
+        pushProjected(projected, projectEvent(event, event.path, value), event.span);
+        if (event.annotations !== undefined) {
+            projectMappedAttributes(event.annotations, path, projected);
+        } else if (value.type === 'NodeLiteral') {
+            projectParserAttributes(value.attributes, path, projected);
         }
     }
-
     return projected;
 }
 
-/**
- * Map native AssignmentEvent paths to their portable AES occurrence paths.
- *
- * The map is structure-aware: every indexed source segment beneath a node
- * gains the synthetic NodeHead index. Synthetic NodeHead paths themselves do
- * not have a native AssignmentEvent counterpart and are therefore absent.
- */
+/** Map native AssignmentEvent paths to their portable AES occurrence paths. */
 export function createPortableEventPathMap(events: readonly AssignmentEvent[]): ReadonlyMap<string, string> {
-    const nodeSourcePaths = collectNodeSourcePaths(events);
-    return new Map(events.map((event) => [
-        formatPath(event.path),
-        formatPath(translateNodePath(event.path, nodeSourcePaths)),
-    ]));
+    return new Map(events.map(event => {
+        const path = formatPath(event.path);
+        return [path, path];
+    }));
 }
 
 /** Compatibility name retained while downstream callers adopt the complete projection name. */
@@ -261,7 +240,6 @@ function projectMappedAttributes(
     attributes: ReadonlyMap<string, AttributeEntry> | undefined,
     ownerPath: string,
     projected: PortableEventWithLocalSpan[],
-    nodeSourcePaths: ReadonlySet<string>,
 ): void {
     if (!attributes) return;
     for (const [key, entry] of attributes) {
@@ -275,7 +253,6 @@ function projectMappedAttributes(
                 ...(entry.span !== undefined ? { sourceSpan: entry.span } : {}),
             },
             projected,
-            nodeSourcePaths,
         );
     }
 }
@@ -284,7 +261,6 @@ function projectParserAttributes(
     attributes: readonly Attribute[],
     ownerPath: string,
     projected: PortableEventWithLocalSpan[],
-    nodeSourcePaths: ReadonlySet<string>,
 ): void {
     for (const attribute of attributes) {
         for (const [key, entry] of attribute.entries) {
@@ -298,7 +274,6 @@ function projectParserAttributes(
                     ...(entry.span !== undefined ? { sourceSpan: entry.span } : {}),
                 },
                 projected,
-                nodeSourcePaths,
             );
         }
     }
@@ -317,47 +292,38 @@ function projectValueTree(
     rawValue: Value,
     metadata: ValueTreeMetadata,
     projected: PortableEventWithLocalSpan[],
-    nodeSourcePaths: ReadonlySet<string>,
 ): void {
     const value = unwrapTypedValue(rawValue);
-    const portableValue = projectValue(value, nodeSourcePaths);
+    const portableValue = projectValue(value);
     pushProjected(projected, {
         path,
-        kind: portableValue.kind,
-        ...(metadata.identity !== undefined ? { identity: metadata.identity } : {}),
-        ...projectDatatype(metadata.datatype),
-        ...(portableValue.value !== undefined ? { value: portableValue.value } : {}),
+        ...portableValue,
+        ...projectNodeMetadata(value, metadata.identity, metadata.datatype),
     }, metadata.sourceSpan ?? rawValue.span);
-    projectMappedAttributes(metadata.mappedAttributes, path, projected, nodeSourcePaths);
-    projectParserAttributes(metadata.parserAttributes ?? [], path, projected, nodeSourcePaths);
+    projectMappedAttributes(metadata.mappedAttributes, path, projected);
+    if (value.type === 'NodeLiteral' && metadata.mappedAttributes === undefined) {
+        projectParserAttributes(value.attributes, path, projected);
+    } else {
+        projectParserAttributes(metadata.parserAttributes ?? [], path, projected);
+    }
 
     switch (value.type) {
         case 'ObjectNode':
             for (const binding of value.bindings) {
-                projectBindingTree(appendMember(path, binding.key), binding, projected, nodeSourcePaths);
+                projectBindingTree(appendMember(path, binding.key), binding, projected);
             }
             return;
         case 'ListNode':
         case 'TupleLiteral':
             for (let index = 0; index < value.elements.length; index += 1) {
-                projectAnonymousTree(`${path}[${index}]`, value.elements[index]!, projected, nodeSourcePaths);
+                projectAnonymousTree(`${path}[${index}]`, value.elements[index]!, projected);
             }
             return;
-        case 'NodeLiteral': {
-            const headPath = `${path}[0]`;
-            pushProjected(projected, {
-                path: headPath,
-                kind: 'NodeHead',
-                ...(value.structuralId !== null ? { identity: value.structuralId } : {}),
-                ...projectDatatype(value.datatype === null ? undefined : formatDatatypeAnnotation(value.datatype)),
-                value: value.tag,
-            }, value.headSpan);
-            projectParserAttributes(value.attributes, headPath, projected, nodeSourcePaths);
+        case 'NodeLiteral':
             for (let index = 0; index < value.children.length; index += 1) {
-                projectAnonymousTree(`${headPath}[${index}]`, value.children[index]!, projected, nodeSourcePaths);
+                projectAnonymousTree(`${path}[${index}]`, value.children[index]!, projected);
             }
             return;
-        }
         default:
             return;
     }
@@ -367,7 +333,6 @@ function projectBindingTree(
     path: string,
     binding: Binding,
     projected: PortableEventWithLocalSpan[],
-    nodeSourcePaths: ReadonlySet<string>,
 ): void {
     projectValueTree(
         path,
@@ -379,7 +344,6 @@ function projectBindingTree(
             sourceSpan: binding.span,
         },
         projected,
-        nodeSourcePaths,
     );
 }
 
@@ -387,10 +351,9 @@ function projectAnonymousTree(
     path: string,
     rawValue: Value,
     projected: PortableEventWithLocalSpan[],
-    nodeSourcePaths: ReadonlySet<string>,
 ): void {
     if (rawValue.type !== 'TypedValue') {
-        projectValueTree(path, rawValue, { sourceSpan: rawValue.span }, projected, nodeSourcePaths);
+        projectValueTree(path, rawValue, { sourceSpan: rawValue.span }, projected);
         return;
     }
     projectValueTree(
@@ -403,7 +366,6 @@ function projectAnonymousTree(
             sourceSpan: rawValue.span,
         },
         projected,
-        nodeSourcePaths,
     );
 }
 
@@ -415,39 +377,25 @@ function appendAttribute(ownerPath: string, key: string): string {
     return `${ownerPath}.@${formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1)}`;
 }
 
-function translateNodePath(path: CanonicalPath, nodeSourcePaths: ReadonlySet<string>): CanonicalPath {
-    const sourceSegments: PathSegment[] = [];
-    const targetSegments: PathSegment[] = [];
-
-    for (const segment of path.segments) {
-        if (
-            segment.type === 'index'
-            && sourceSegments.length > 0
-            && nodeSourcePaths.has(formatPath({ segments: sourceSegments }))
-        ) {
-            targetSegments.push({ type: 'index', index: 0 });
-        }
-        sourceSegments.push(segment);
-        targetSegments.push(segment);
-    }
-
-    return { segments: targetSegments };
-}
-
 function projectEvent(
     event: AssignmentEvent,
     path: CanonicalPath,
     value: Value,
-    nodeSourcePaths: ReadonlySet<string>,
 ): PortableAesEvent {
-    const projectedValue = projectValue(value, nodeSourcePaths);
+    const projectedValue = projectValue(value);
     return {
         path: formatPath(path),
-        kind: projectedValue.kind,
-        ...(event.structuralId != null ? { identity: event.structuralId } : {}),
-        ...projectDatatype(event.datatype),
-        ...(projectedValue.value !== undefined ? { value: projectedValue.value } : {}),
+        ...projectedValue,
+        ...projectNodeMetadata(value, event.structuralId ?? undefined, event.datatype),
     };
+}
+
+function projectNodeMetadata(value: Value, identity?: string, datatype?: string): Partial<PortableAesEvent> {
+    if (value.type === 'NodeLiteral') {
+        identity = value.structuralId ?? undefined;
+        datatype = value.datatype ? formatDatatypeAnnotation(value.datatype) : undefined;
+    }
+    return { ...(identity !== undefined ? { identity } : {}), ...projectDatatype(datatype) };
 }
 
 function projectDatatype(datatype: string | undefined): Partial<PortableAesEvent> {
@@ -462,11 +410,10 @@ function projectDatatype(datatype: string | undefined): Partial<PortableAesEvent
 
 function projectValue(
     value: Value,
-    nodeSourcePaths: ReadonlySet<string>,
-): { readonly kind: PortableAesKind; readonly value?: string } {
+): Pick<PortableAesEvent, 'kind' | 'value' | 'tag'> {
     switch (value.type) {
         case 'TypedValue':
-            return projectValue(value.value, nodeSourcePaths);
+            return projectValue(value.value);
         case 'StringLiteral':
             return { kind: 'StringLiteral', value: value.value };
         case 'NumberLiteral':
@@ -506,113 +453,13 @@ function projectValue(
         case 'TupleLiteral':
             return { kind: 'TupleLiteral' };
         case 'NodeLiteral':
-            return { kind: 'NodeLiteral' };
+            return { kind: 'NodeLiteral', tag: value.tag };
         case 'CloneReference':
         case 'PointerReference':
             if ((value as unknown as { selection?: unknown }).selection !== undefined) {
                 throw new PortableAesSourceError('AES_UNSUPPORTED_REFERENCE_SELECTION', 'Structural references cannot contain semantic selections.');
             }
-            return { kind: value.type, value: translateReferenceTarget(value.path, nodeSourcePaths) };
-    }
-}
-
-function translateReferenceTarget(
-    segments: Extract<Value, { type: 'CloneReference' | 'PointerReference' }>['path'],
-    nodeSourcePaths: ReadonlySet<string>,
-): string {
-    let sourcePath = '$';
-    let out = '$';
-
-    for (const segment of segments) {
-        if (typeof segment === 'number') {
-            if (nodeSourcePaths.has(sourcePath)) {
-                out += '[0]';
-            }
-            out += `[${segment}]`;
-            sourcePath += `[${segment}]`;
-            continue;
-        }
-
-        const key = typeof segment === 'string' ? segment : segment.key;
-        const member = formatPath({ segments: [{ type: 'root' }, { type: 'member', key }] }).slice(1);
-        if (typeof segment === 'string') {
-            out += member;
-            sourcePath += member;
-        } else {
-            out += `.@${member}`;
-            sourcePath += `.@${member}`;
-        }
-    }
-
-    return out;
-}
-
-function collectNodeSourcePaths(events: readonly AssignmentEvent[]): ReadonlySet<string> {
-    const paths = new Set<string>();
-    for (const event of events) {
-        const path = formatPath(event.path);
-        collectValueNodeSourcePaths(event.value, path, paths);
-        collectMappedAttributeNodeSourcePaths(event.annotations, path, paths);
-    }
-    return paths;
-}
-
-function collectValueNodeSourcePaths(rawValue: Value, path: string, paths: Set<string>): void {
-    if (rawValue.type === 'TypedValue') {
-        collectParserAttributeNodeSourcePaths(rawValue.attributes, path, paths);
-        collectValueNodeSourcePaths(rawValue.value, path, paths);
-        return;
-    }
-
-    switch (rawValue.type) {
-        case 'ObjectNode':
-            for (const binding of rawValue.bindings) {
-                const childPath = appendMember(path, binding.key);
-                collectParserAttributeNodeSourcePaths(binding.attributes, childPath, paths);
-                collectValueNodeSourcePaths(binding.value, childPath, paths);
-            }
-            return;
-        case 'ListNode':
-        case 'TupleLiteral':
-            for (let index = 0; index < rawValue.elements.length; index += 1) {
-                collectValueNodeSourcePaths(rawValue.elements[index]!, `${path}[${index}]`, paths);
-            }
-            return;
-        case 'NodeLiteral':
-            paths.add(path);
-            for (let index = 0; index < rawValue.children.length; index += 1) {
-                collectValueNodeSourcePaths(rawValue.children[index]!, `${path}[${index}]`, paths);
-            }
-            return;
-        default:
-            return;
-    }
-}
-
-function collectMappedAttributeNodeSourcePaths(
-    attributes: ReadonlyMap<string, AttributeEntry> | undefined,
-    ownerPath: string,
-    paths: Set<string>,
-): void {
-    if (!attributes) return;
-    for (const [key, entry] of attributes) {
-        const path = appendAttribute(ownerPath, key);
-        collectValueNodeSourcePaths(entry.value, path, paths);
-        collectMappedAttributeNodeSourcePaths(entry.annotations, path, paths);
-    }
-}
-
-function collectParserAttributeNodeSourcePaths(
-    attributes: readonly Attribute[],
-    ownerPath: string,
-    paths: Set<string>,
-): void {
-    for (const attribute of attributes) {
-        for (const [key, entry] of attribute.entries) {
-            const path = appendAttribute(ownerPath, key);
-            collectValueNodeSourcePaths(entry.value, path, paths);
-            collectParserAttributeNodeSourcePaths(entry.attributes, path, paths);
-        }
+            return { kind: value.type, value: formatReferenceTargetPath(value.path) };
     }
 }
 
@@ -682,36 +529,6 @@ function compatibilityChanges(
                 targetPath: sourcePath,
                 requiresAuthorization: false,
             });
-        } else if (targetPath !== undefined && targetPath !== sourcePath) {
-            changes.push({
-                kind: 'transformed',
-                code: 'AES_COMPAT_PATH_TRANSLATED',
-                field: 'path',
-                message: 'The source occurrence path is translated through the explicit portable node-head level.',
-                sourcePath,
-                targetPath,
-                requiresAuthorization: false,
-            });
-        }
-
-        const value = unwrapTypedValue(event.value);
-        if (value.type === 'CloneReference' || value.type === 'PointerReference') {
-            const sourceTarget = translateReferenceTarget(value.path, new Set());
-            const nodePaths = new Set(bodyEvents
-                .filter((candidate) => unwrapTypedValue(candidate.value).type === 'NodeLiteral')
-                .map((candidate) => formatPath(candidate.path)));
-            const portableTarget = translateReferenceTarget(value.path, nodePaths);
-            if (sourceTarget !== portableTarget) {
-                changes.push({
-                    kind: 'transformed',
-                    code: 'AES_COMPAT_REFERENCE_TRANSLATED',
-                    field: 'value.path',
-                    message: `The reference target is translated from ${sourceTarget} to ${portableTarget}.`,
-                    sourcePath,
-                    ...(targetPath !== undefined ? { targetPath } : {}),
-                    requiresAuthorization: false,
-                });
-            }
         }
     }
 
@@ -730,16 +547,6 @@ function compatibilityChanges(
                 code: 'AES_COMPAT_UTF8_SPAN_CONVERTED',
                 field: 'span',
                 message: 'The native UTF-16 source range is converted to an exact UTF-8 byte range.',
-                ...(targetPath !== undefined ? { targetPath } : {}),
-                requiresAuthorization: false,
-            });
-        }
-        if (event.kind === 'NodeHead') {
-            changes.push({
-                kind: 'synthesized',
-                code: 'AES_COMPAT_NODE_HEAD_SYNTHESIZED',
-                field: 'NodeHead',
-                message: 'The implicit implementation node tag is emitted as an explicit portable NodeHead event.',
                 ...(targetPath !== undefined ? { targetPath } : {}),
                 requiresAuthorization: false,
             });

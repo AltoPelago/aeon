@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { finalizeJson, finalizeLinkedJson } from './json.js';
 import { tokenize } from '@altopelago/aeon-lexer';
 import { parse } from '@altopelago/aeon-parser';
-import { resolvePaths, emitEvents } from '@altopelago/aeon-aes';
+import { resolvePaths, emitEvents, resolveRefs } from '@altopelago/aeon-aes';
 
 function compileToEvents(input: string, _legacySyntaxFlag: boolean = false, maxAttributeDepth: number = 1) {
     const lexed = tokenize(input);
@@ -29,6 +29,83 @@ function compileHeader(input: string) {
         form: ast.document.header.form,
     };
 }
+
+
+describe('Tagged node JSON finalization', () => {
+    it('links pointers from and to direct node children', () => {
+        const events = compileToEvents('source = "first"\n<tag(~>source)>\nreceiver = ~>tag[0]');
+        const result = finalizeLinkedJson(events);
+        assert.deepEqual(result.meta?.errors ?? [], []);
+        assert.equal(result.document.receiver, 'first');
+        result.document.receiver = 'updated';
+        assert.equal(result.document.source, 'updated');
+        assert.deepEqual(result.document.tag, { $node: 'tag', $children: ['updated'] });
+    });
+
+    it('uses authored indices when linking projected node children', () => {
+        const source = '<tag("first", "second")>\nkept = ~>tag[1]\nexcluded = ~>tag[0]';
+        const result = finalizeLinkedJson(compileToEvents(source), {
+            materialization: 'projected', includePaths: ['$.tag[1]', '$.kept', '$.excluded'],
+        });
+        assert.equal(result.document.kept, 'second');
+        assert.deepEqual(result.meta?.errors?.map(error => [error.code, error.path]), [
+            ['POINTER_TARGET_NOT_MATERIALIZED', '$.excluded'],
+        ]);
+        result.document.kept = 'updated';
+        assert.deepEqual(result.document.tag, { $node: 'tag', $children: ['updated'] });
+        assert.equal(result.document.excluded, '~>tag[0]');
+    });
+
+    it('preserves indexed child annotations on nodes in attributes', () => {
+        const events = compileToEvents('host@{<tag(@{x=1} = 2)>} = 0');
+        const result = finalizeJson(events);
+        assert.deepEqual(result.document, {
+            host: 0, '@': { host: { tag: { $node: 'tag', $children: [2] },
+                '@': { tag: { '@items': { '0': { x: 1 } } } } } },
+        });
+    });
+
+    it('includes indexed child annotations when the attribute owner is also a node', () => {
+        const result = finalizeJson(compileToEvents('<outer@{<tag(@{x=1} = 2)>}>'));
+        assert.deepEqual(result.document, {
+            outer: { $node: 'outer', '@': {
+                tag: { $node: 'tag', $children: [2] }, '@': { tag: { '@items': { '0': { x: 1 } } } },
+            }, $children: [] },
+        });
+    });
+
+    it('preserves receiver annotations when a clone resolves to a node', () => {
+        const events = compileToEvents('<target(1)>\n<host@{b@{flag:n=2}:node=~target}>', false, 2);
+        const resolved = resolveRefs(events);
+        const receiver = resolved.aes.find(event => event.key === 'host')?.annotations?.get('b');
+        assert.equal(receiver?.datatype, 'node');
+        assert.equal(receiver?.annotations?.get('flag')?.datatype, 'n');
+        const ordinary = compileToEvents('<target(1)>\nhost@{b@{flag:n=2}:node=~target}:n=0', false, 2);
+        assert.deepEqual(finalizeJson(resolveRefs(ordinary).aes).document, finalizeJson(ordinary).document);
+    });
+
+    it('charges indexed child annotation leaves emitted inside a cloned node attribute', () => {
+        const events = compileToEvents('<outer@{<tag(@{x=1}=2)>}>\ncopy = ~outer');
+        const limited = finalizeJson(events, { maxMaterializedWeight: 3 });
+        assert.equal(limited.document.copy, '~outer');
+        assert.ok(limited.meta?.errors?.some(error => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+        const complete = finalizeJson(events, { maxMaterializedWeight: 4 });
+        assert.deepEqual(complete.meta?.errors ?? [], []);
+        assert.deepEqual(complete.document.copy, complete.document.outer);
+    });
+
+    it('charges the materialized children of a projected node clone', () => {
+        const events = compileToEvents('<big(1,2,3)>\ncopy:node=~big');
+        const result = finalizeJson(events, {
+            materialization: 'projected', includePaths: ['$.copy[0]'], maxMaterializedWeight: 2,
+        });
+        assert.deepEqual(result.meta?.errors ?? [], []);
+        assert.deepEqual(result.document, { copy: { $node: 'big', $children: [1] } });
+        assert.ok(finalizeJson(events, { maxMaterializedWeight: 2 }).meta?.errors?.some(
+            error => error.code === 'FINALIZE_REFERENCE_BUDGET_EXCEEDED'));
+    });
+});
+
 
 describe('Finalization (JSON)', { concurrency: false }, () => {
     it('builds JSON output from top-level bindings', () => {
@@ -213,7 +290,7 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
     });
 
     it('projects indexed child attributes under @items for node children', () => {
-        const events = compileToEvents('page:node = <page(@{role:string="title"} = "Hello")>');
+        const events = compileToEvents('<page:node(@{role:string="title"} = "Hello")>');
         const result = finalizeJson(events, { mode: 'strict' });
         assert.deepStrictEqual(result.document, {
             page: {
@@ -265,10 +342,10 @@ describe('Finalization (JSON)', { concurrency: false }, () => {
     });
 
     it('uses @ and $children for node JSON projection', () => {
-        const events = compileToEvents('view = <div@{id="main"}("hello")>');
+        const events = compileToEvents('<div@{id="main"}("hello")>');
         const result = finalizeJson(events, { mode: 'strict' });
         assert.deepStrictEqual(result.document, {
-            view: {
+            div: {
                 $node: 'div',
                 '@': {
                     id: 'main',

@@ -126,6 +126,18 @@ describe('internal incremental Telex pipeline', () => {
         assert.equal(update.completion?.canonical, false);
     });
 
+    it('decodes a tagged node and its direct child across field chunks', () => {
+        const decoder = new IncrementalTelexDecoder();
+        const first = decoder.push(UTF8_ENCODER.encode('telex.aes=1\n\npath=$.tag\nkind=NodeLiteral\nta'));
+        assert.deepEqual(first.records, []);
+        const final = decoder.push(UTF8_ENCODER.encode('g=tag\n\npath=$.tag[0]\nkind=StringLiteral\nvalue=child\n'), { final: true });
+        assert.equal(final.completion?.canonical, true);
+        assert.deepEqual(final.records, [
+            { path: '$.tag', kind: 'NodeLiteral', tag: 'tag' },
+            { path: '$.tag[0]', kind: 'StringLiteral', value: 'child' },
+        ]);
+    });
+
     it('copies an unfinished caller line before the caller buffer expires', () => {
         const decoder = new IncrementalTelexDecoder();
         const first = UTF8_ENCODER.encode('telex.aes=1\n\npath=$.answer\nkind=StringLiteral\nvalue=hel');

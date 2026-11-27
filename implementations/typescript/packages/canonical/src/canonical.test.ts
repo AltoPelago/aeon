@@ -11,11 +11,11 @@ test('canonicalizes Telex independently of AEON source canonicalization', () => 
 });
 
 test('preserves structural identities on attribute-entry and node heads', () => {
-    const result = canonicalize(String.raw`value@{source\META\:string = "user"} = <tag\HEAD\>`);
+    const result = canonicalize(String.raw`<tag\NODE\@{source\META\:string = "user"}>`);
 
     assert.deepEqual(result.errors, []);
     assert.match(result.text, /source\\META\\:string = "user"/);
-    assert.match(result.text, /<tag\\HEAD\\>/);
+    assert.match(result.text, /<tag\\NODE\\@/);
 });
 
 test('keeps time scalars inline in lists and tuples', () => {
@@ -233,16 +233,16 @@ test('preserves one-line trimticks in lists', () => {
 
 test('preserves multiline trimticks inside inline attribute objects', () => {
     const input = [
-        'a@{ nested:object = { note:trimtick = > `',
+        '<box@{ nested:object = { note:trimtick = > `',
         '    hello',
         '',
         '    world',
-        '  ` } }:node = <box>',
+        '  ` } }:node>',
     ].join('\n');
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('a@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node = <box>'));
+    assert.ok(result.text.includes('<box@{nested:object = { note:trimtick = >` hello\\n\\n world` }}:node>'));
     const repeated = canonicalize(result.text);
     assert.deepEqual(repeated.errors, []);
     assert.equal(repeated.text, result.text);
@@ -362,13 +362,13 @@ test('preserves structural identities before attributes and datatypes', () => {
 test('canonicalizes nested node attribute values without truncation', () => {
     const input = [
         'd@{',
-        '  n = <a(<a(<a()>)>)>',
+        '  <a(<a(<a()>)>)>',
         '}:string = "hello"',
     ].join('\n');
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('d@{n = <a(<a(<a>)>)>}:string = "hello"'));
+    assert.ok(result.text.includes('d@{<a(<a(<a>)>)>}:string = "hello"'));
 });
 
 test('canonicalizes structured header bindings with normal binding rules', () => {
@@ -378,7 +378,7 @@ test('canonicalizes structured header bindings with normal binding rules', () =>
         '  mode:number = "strict"',
         '  a = { c:n = 0 }',
         '  b@{a:n = 2} = 2',
-        '  n:node = <a(<a(<a@{g:string = "h"}()>)>)>',
+        '  n:list = [<a(<a(<a@{g:string = "h"}()>)>)>]',
         '}',
     ].join('\n');
     const result = canonicalize(input);
@@ -389,8 +389,8 @@ test('canonicalizes structured header bindings with normal binding rules', () =>
     assert.ok(result.text.includes('  a = {'));
     assert.ok(result.text.includes('    c:n = 0'));
     assert.ok(result.text.includes('  b@{a:n = 2} = 2'));
-    assert.ok(result.text.includes('  n:node = <a('));
-    assert.ok(result.text.includes('      <a@{g:string = "h"}>'));
+    assert.ok(result.text.includes('  n:list = ['));
+    assert.ok(result.text.includes('<a@{g:string = "h"}>'));
 });
 
 test('rejects structured headers that appear after body bindings', () => {
@@ -628,55 +628,55 @@ test('sorts escaped quoted keys by decoded codepoint order', () => {
 });
 
 test('quotes non-identifier node heads canonically', () => {
-    const input = ['a = <"a">', 'b = <"\\n">', 'c = <" ">', 'd = <"º">'].join('\n');
+    const input = ['<"a">', '<"\\n">', '<" ">', '<"º">'].join('\n');
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('a = <a>'));
-    assert.ok(result.text.includes('b = <"\\n">'));
-    assert.ok(result.text.includes('c = <" ">'));
-    assert.ok(result.text.includes('d = <"º">'));
+    assert.ok(result.text.includes('<a>'));
+    assert.ok(result.text.includes('<"\\n">'));
+    assert.ok(result.text.includes('<" ">'));
+    assert.ok(result.text.includes('<"º">'));
 });
 
 test('canonicalizes node introducer syntax', () => {
-    const input = 'content:html = <div(<span@{class="dark", id="text"}:node("hello", <br()>, "world")>)>';
+    const input = '<div:html(<span@{class="dark", id="text"}:node("hello", <br()>, "world")>)>';
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('content:html = <div('));
+    assert.ok(result.text.includes('<div:html('));
     assert.ok(result.text.includes('<span@{class = "dark", id = "text"}:node('));
     assert.ok(result.text.includes('<br>'));
 });
 
 test('canonicalizes empty nodes to shorthand', () => {
-    const input = 'icon:node = <glyph()>\nbadge:node = <glyph@{tone="info"}()>';
+    const input = '<icon:node()>\n<badge@{tone="info"}:node()>';
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('icon:node = <glyph>'));
-    assert.ok(result.text.includes('badge:node = <glyph@{tone = "info"}>'));
+    assert.ok(result.text.includes('<icon:node>'));
+    assert.ok(result.text.includes('<badge@{tone = "info"}:node>'));
 });
 
 test('canonicalizes nested node, list, and tuple children inside node introducers', () => {
     const input = [
-        'b = <a(<a(1,2,3)>)>',
-        'c = <a([1,2])>',
-        'd = <a((1,2))>',
+        '<b(<a(1,2,3)>)>',
+        '<c([1,2])>',
+        '<d((1,2))>',
     ].join('\n');
     const result = canonicalize(input);
 
     assert.equal(result.errors.length, 0);
-    assert.ok(result.text.includes('b = <a('));
+    assert.ok(result.text.includes('<b('));
     assert.ok(result.text.includes('  <a(1, 2, 3)>'));
-    assert.ok(result.text.includes('c = <a('));
+    assert.ok(result.text.includes('<c('));
     assert.ok(result.text.includes('  [1, 2]'));
-    assert.ok(result.text.includes('d = <a('));
+    assert.ok(result.text.includes('<d('));
     assert.ok(result.text.includes('  (1, 2)'));
 });
 
 test('canonicalizes anonymous typed values inside value containers', () => {
     const input = [
-        'page:node = <page(',
+        '<page:node(',
         '  :string = "hello world"',
         '  <tag>',
         '  :int32 = 3',
@@ -727,7 +727,7 @@ test('canonicalizes node head references inside attributes', () => {
     const input = [
         'aeon:mode = "custom"',
         'target:number = 1',
-        'scene:node = <panel@{ "z.k":lookup = ~$.target, alpha:number = 1 }:node(',
+        '<panel@{ "z.k":lookup = ~$.target, alpha:number = 1 }:node(',
         '  <button@{ action:lookup = ~>$.target }:node>',
         ')>',
     ].join('\n');
@@ -788,7 +788,7 @@ test('strips surrounding comments from multiline node layouts during canonicaliz
         'aeon:mode = "custom"',
         '/* header note */',
         'target:number = 1',
-        'scene:node = <panel@{ meta:object = { deep:number = 1 } }:node(',
+        '<panel@{ meta:object = { deep:number = 1 } }:node(',
         '  <button@{ action:lookup = ~>$.target }:node> // trailing child comment',
         ')> // trailing node comment',
     ].join('\n');
@@ -802,7 +802,7 @@ test('strips surrounding comments from multiline node layouts during canonicaliz
             '  mode = "custom"',
             '}',
             'target:number = 1',
-            'scene:node = <panel@{meta:object = { deep:number = 1 }}:node(',
+            '<panel@{meta:object = { deep:number = 1 }}:node(',
             '  <button@{action:lookup = ~>target}:node>',
             ')>',
         ].join('\n') + '\n'

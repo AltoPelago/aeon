@@ -99,6 +99,7 @@ class Parser {
     private current: number = 0;
     private readonly errors: ParserError[] = [];
     private structuralIdentities: Map<string, Span> | undefined;
+    private recoveryBraceEnds: ReadonlyMap<number, number> | undefined;
 
     constructor(tokens: readonly Token[], options: ParserOptions = {}) {
         this.tokens = tokens;
@@ -119,6 +120,7 @@ class Parser {
             // Error stacks may retain this receiver; operation scratch is done.
             this.tokens = emptyParserTokens;
             this.structuralIdentities = undefined;
+            this.recoveryBraceEnds = undefined;
             this.referenceReader = undefined;
             return {
                 document,
@@ -131,6 +133,7 @@ class Parser {
             // Error stacks may retain this receiver; operation scratch is done.
             this.tokens = emptyParserTokens;
             this.structuralIdentities = undefined;
+            this.recoveryBraceEnds = undefined;
             this.referenceReader = undefined;
             return {
                 document: null,
@@ -260,7 +263,7 @@ class Parser {
                 hasStructured = true;
                 // The structured header groups fields. Depth starts at each field value,
                 // as in the shorthand header, and counts any containers inside that value.
-                const value = this.check(TokenType.LeftBrace) ? this.parseObject() : this.parseValue();
+                const value = this.check(TokenType.LeftBrace) ? this.parseObject(true) : this.parseAssignedValue();
                 // Extract fields from structured header
                 if (value.type === 'ObjectNode') {
                     for (const binding of value.bindings) {
@@ -270,7 +273,7 @@ class Parser {
                 }
             } else {
                 hasShorthand = true;
-                const value = this.parseValue();
+                const value = this.parseAssignedValue();
                 const bindingSpan = createSpan(fieldStart, value.span.end);
                 bindings.push({
                     type: 'Binding',
@@ -315,6 +318,19 @@ class Parser {
         if (this.isAtEnd()) return null;
 
         const start = this.peek().span.start;
+
+        if (this.check(TokenType.LeftAngle)) {
+            const value = this.parseValue() as NodeLiteral;
+            return {
+                type: 'Binding',
+                key: value.tag,
+                structuralId: null,
+                value,
+                datatype: null,
+                attributes: [],
+                span: value.span,
+            };
+        }
 
         // Parse key
         if (!this.isKeyToken(this.peek())) {
@@ -364,7 +380,7 @@ class Parser {
         this.advance(); // consume =
 
         // Parse value
-        const value = this.parseValue();
+        const value = this.parseAssignedValue();
 
         const end = this.previous().span.end;
         return {
@@ -389,6 +405,20 @@ class Parser {
         const entries = new Map<string, AttributeValue>();
 
         while (!this.check(TokenType.RightBrace) && !this.isAtEnd()) {
+            if (this.check(TokenType.LeftAngle)) {
+                const value = this.parseValue(depth + 1) as NodeLiteral;
+                if (RESERVED_ATTRIBUTE_KEYS.has(value.tag)) {
+                    throw new SyntaxError(
+                        `Reserved attribute key: ${value.tag}`, value.headSpan ?? value.span, 'non-reserved attribute key', value.tag
+                    );
+                }
+                if (entries.has(value.tag)) {
+                    this.errors.push(new DuplicateKeyError(value.tag, value.headSpan ?? value.span));
+                }
+                entries.set(value.tag, { structuralId: null, value, datatype: null, attributes: [], span: value.span });
+                this.consumeSeparatorOrLineBreak(TokenType.RightBrace, 'Expected a comma or newline between attribute entries');
+                continue;
+            }
             const attrKeyToken = this.consumeKeyToken("Expected attribute key");
             const entryStart = attrKeyToken.span.start;
             const attrKey = this.keyFromToken(attrKeyToken);
@@ -422,7 +452,7 @@ class Parser {
             }
 
             this.consume(TokenType.Equals, "Expected '=' in attribute");
-            const attrValue = this.parseValue();
+            const attrValue = this.parseAssignedValue();
 
             if (entries.has(attrKey)) {
                 this.errors.push(new DuplicateKeyError(attrKey, attrKeyToken.span));
@@ -595,12 +625,22 @@ class Parser {
     // Value parsing
     // ============================================
 
-    private parseValue(): Value {
+    private parseAssignedValue(): Value {
+        if (this.check(TokenType.LeftAngle)) {
+            throw new SyntaxError(
+                'A node declaration carries its own tag and metadata',
+                this.peek().span, 'non-node value', this.peek().value
+            );
+        }
+        return this.parseValue();
+    }
+
+    private parseValue(nodeAttributeDepth = 1): Value {
         const type = this.peek().type;
         // Only container openings own nesting state; scalars need no finally.
         if (type !== TokenType.LeftAngle && type !== TokenType.LeftBrace
             && type !== TokenType.LeftBracket && type !== TokenType.LeftParen) {
-            return this.doParseValue();
+            return this.doParseValue(nodeAttributeDepth);
         }
         this.currentNestingDepth++;
         const projectedDepth = this.projectedOpeningContainerDepth();
@@ -614,7 +654,7 @@ class Parser {
             throw new NestingDepthExceededError(observedDepth, this.maxValueNestingDepth, this.peek().span);
         }
         try {
-            return this.doParseValue();
+            return this.doParseValue(nodeAttributeDepth);
         } finally {
             this.currentNestingDepth--;
         }
@@ -647,7 +687,7 @@ class Parser {
         }
 
         this.consume(TokenType.Equals, "Expected '=' after anonymous value head");
-        const value = this.parseValue();
+        const value = this.parseAssignedValue();
 
         return {
             type: 'TypedValue',
@@ -685,10 +725,10 @@ class Parser {
         return this.currentNestingDepth + Math.max(extraDepth - 1, 0);
     }
 
-    private doParseValue(): Value {
+    private doParseValue(nodeAttributeDepth: number): Value {
         switch (this.peek().type) {
             case TokenType.LeftAngle:
-                return this.parseNode();
+                return this.parseNode(nodeAttributeDepth);
             case TokenType.Identifier:
                 // Node values must begin with the '<' introducer.
                 if (this.peekNext()?.type === TokenType.LeftAngle) {
@@ -717,7 +757,7 @@ class Parser {
         }
     }
 
-    private parseNode(): NodeLiteral {
+    private parseNode(attributeDepth: number): NodeLiteral {
         const start = this.peek().span.start;
         this.consume(TokenType.LeftAngle, "Expected '<' to start node literal");
         const headStart = this.peek().span.start;
@@ -728,7 +768,7 @@ class Parser {
 
         const attributes: Attribute[] = [];
         if (this.check(TokenType.At)) {
-            attributes.push(this.parseAttribute(1));
+            attributes.push(this.parseAttribute(attributeDepth));
             headEnd = attributes[attributes.length - 1]!.span.end;
             if (this.check(TokenType.At)) {
                 throw new SyntaxError(
@@ -810,7 +850,7 @@ class Parser {
         return token.value;
     }
 
-    private parseObject(): ObjectNode {
+    private parseObject(headerFields = false): ObjectNode {
         const start = this.peek().span.start;
         this.advance(); // consume {
 
@@ -829,6 +869,10 @@ class Parser {
             }
 
             if (this.check(TokenType.RightBrace)) break;
+
+            if (headerFields && this.check(TokenType.LeftAngle)) {
+                throw new SyntaxError('Expected a header field assignment', this.peek().span, 'header field', this.peek().value);
+            }
 
             const binding = this.parseBinding();
             if (binding) {
@@ -1492,15 +1536,58 @@ class Parser {
 
         while (!this.isAtEnd()) {
             // If we see what looks like the start of a new binding, stop synchronizing
+            const next = this.peekNext();
+            if (this.check(TokenType.LeftAngle) && next && this.isKeyToken(next)
+                && this.peek().span.start.line > this.previous().span.end.line) {
+                if (next.span.start.line === this.peek().span.start.line || this.looksLikeMultilineNode()) {
+                    return;
+                }
+            }
             if (this.isBareKeyToken(this.peek())) {
                 // Peek ahead to see if this is a binding (identifier followed by = or :)
-                const next = this.peekNext();
                 if (next && (next.type === TokenType.Equals || next.type === TokenType.Colon || next.type === TokenType.At)) {
                     return;
                 }
             }
             this.advance();
         }
+    }
+
+    private looksLikeMultilineNode(): boolean {
+        let index = this.current + 2;
+        if (this.tokens[index]?.type === TokenType.StructuralIdentity) index += 1;
+        if (this.tokens[index]?.type === TokenType.At) {
+            if (this.tokens[index + 1]?.type !== TokenType.LeftBrace) return false;
+            if (!this.recoveryBraceEnds) {
+                const opens: number[] = [];
+                const ends = new Map<number, number>();
+                for (const [offset, token] of this.tokens.entries()) {
+                    if (token.type === TokenType.LeftBrace) opens.push(offset);
+                    if (token.type === TokenType.RightBrace) {
+                        const open = opens.pop();
+                        if (open !== undefined) ends.set(open, offset);
+                    }
+                }
+                this.recoveryBraceEnds = ends;
+            }
+            const end = this.recoveryBraceEnds.get(index + 1);
+            if (end === undefined) return false;
+            index = end + 1;
+        }
+        if (this.tokens[index]?.type === TokenType.Colon) {
+            const saved = this.current;
+            try {
+                this.current = index + 1;
+                this.parseTypeAnnotation();
+                index = this.current;
+            } catch (error) {
+                if (error instanceof ParserError) return false;
+                throw error;
+            } finally {
+                this.current = saved;
+            }
+        }
+        return this.tokens[index]?.type === TokenType.LeftParen || this.tokens[index]?.type === TokenType.RightAngle;
     }
 
     private consumeSeparatorOrLineBreak(closeType: TokenType, message: string): void {

@@ -58,10 +58,10 @@ describe('Reference Validation', () => {
         });
 
         it('reports a node-child reference once at its owned source occurrence', () => {
-            const result = validate('view:node = <panel:node(~missing)>', true);
+            const result = validate('<panel:node(~missing)>', true);
 
             assert.strictEqual(result.errors.length, 1);
-            assert.strictEqual(result.errors[0]!.sourcePath, '$.view[0]');
+            assert.strictEqual(result.errors[0]!.sourcePath, '$.panel[0]');
         });
     });
 
@@ -158,7 +158,7 @@ describe('Reference Validation', () => {
         });
 
         it('should allow backward references to indexed node children', () => {
-            const result = validate('page:node = <page({a:n=1, b:n=2})>\nref = ~page[0].a', true);
+            const result = validate('<page:node({a:n=1, b:n=2})>\nref = ~page[0].a', true);
 
             assert.strictEqual(result.errors.length, 0);
         });

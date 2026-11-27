@@ -285,14 +285,32 @@ describe('Mode Enforcement', () => {
             assert.ok(result.errors.some((e) => e.code === 'CUSTOM_DATATYPE_NOT_ALLOWED'));
         });
 
-        it('should reject non-node inline node head datatypes in strict mode', () => {
-            const result = enforce('aeon:mode = "strict"\nwidget:node = <tag:contact("x")>');
+        it('should reject non-node inline node datatypes in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\n<tag:contact("x")>');
 
-            assert.ok(result.errors.some((e) => e.code === 'INVALID_NODE_HEAD_DATATYPE'));
+            assert.ok(result.errors.some((e) => e.code === 'INVALID_NODE_DATATYPE'));
         });
 
-        it('should allow :node inline node head datatype in strict mode', () => {
-            const result = enforce('aeon:mode = "strict"\nwidget:node = <tag:node("x")>');
+        it('reports one mismatched leaf beneath a chain of projected nodes', () => {
+            for (const depth of [4, 16]) {
+                const source = 'aeon:mode = "strict"\n' + '<nest('.repeat(depth) + ':string = 1' + ')>'.repeat(depth);
+                const result = enforceIndexed(source);
+                assert.deepEqual(result.errors.map(error => [error.code, error.path]), [
+                    ['DATATYPE_LITERAL_MISMATCH', '$.nest' + '[0]'.repeat(depth)],
+                ]);
+            }
+        });
+
+        it('validates the inline datatype of a node in an attribute value tree', () => {
+            const result = enforceIndexed('aeon:mode = "strict"\nhost@{payload:list = [<leaf:custom>]}:number = 1');
+            assert.deepEqual(result.errors.map(error => [error.code, error.path]), [
+                ['INVALID_NODE_DATATYPE', '$.host.@.payload[0]'],
+            ]);
+            assert.deepEqual(result.events, []);
+        });
+
+        it('should allow :node inline node datatype in strict mode', () => {
+            const result = enforce('aeon:mode = "strict"\n<tag:node("x")>');
 
             assert.strictEqual(result.errors.length, 0);
         });
@@ -310,7 +328,7 @@ describe('Mode Enforcement', () => {
         });
 
         it('should allow untyped anonymous node children in strict mode', () => {
-            const result = enforce('aeon:mode = "strict"\npage:node = <page(\"hello\", 3)>');
+            const result = enforce('aeon:mode = "strict"\n<page(\"hello\", 3)>');
 
             assert.strictEqual(result.errors.length, 0);
         });
@@ -364,8 +382,8 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should allow custom inline node head datatypes in transport mode', () => {
-            const result = enforce('aeon:mode = "transport"\nwidget:node = <tag:pair("x", "y")>');
+        it('should allow custom inline node datatypes in transport mode', () => {
+            const result = enforce('aeon:mode = "transport"\n<tag:pair("x", "y")>');
 
             assert.strictEqual(result.errors.length, 0);
         });
@@ -390,8 +408,8 @@ describe('Mode Enforcement', () => {
             assert.strictEqual(result.errors.length, 0);
         });
 
-        it('should allow custom inline node head datatypes in custom mode', () => {
-            const result = enforce('aeon:mode = "custom"\nwidget:node = <tag:pair("x", "y")>');
+        it('should allow custom inline node datatypes in custom mode', () => {
+            const result = enforce('aeon:mode = "custom"\n<tag:pair("x", "y")>');
 
             assert.strictEqual(result.errors.length, 0);
         });
@@ -402,7 +420,7 @@ describe('Mode Enforcement', () => {
                 'scores:object<number> = {',
                 '  alice:string = "ten"',
                 '}',
-                'title:node = <title:node<string>(<span("hello")>)>',
+                '<title:node<string>(<span("hello")>)>',
             ].join('\n'));
 
             assert.strictEqual(result.errors.length, 0);

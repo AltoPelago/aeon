@@ -227,9 +227,6 @@ function materializeRecord(
         case 'PointerReference':
             report(ctx, `Pointer reference remains symbolic during JSON materialization: ${referenceToken('~>', record.value ?? '')}`, 'FINALIZE_UNRESOLVED_REFERENCE', outputPath);
             return referenceToken('~>', record.value ?? '');
-        case 'NodeHead':
-            report(ctx, 'NodeHead can only be materialized through its owning NodeLiteral', 'FINALIZE_ORPHAN_NODE_HEAD', outputPath, true);
-            return record.value ?? '';
         default:
             report(ctx, `Unsupported portable AES kind '${String(record.kind)}'`, 'FINALIZE_UNSUPPORTED_AES_KIND', outputPath, true);
             return null;
@@ -272,29 +269,11 @@ function materializeIndexed(indexed: IndexedRecord, ctx: MaterializeContext, out
 }
 
 function materializeNode(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonValue {
-    const index = planeFor(indexed, ctx);
-    const heads = structuralChildren(index, indexed.address)
-        .filter((child): child is IndexedRecord & { segment: { type: 'index'; index: bigint } } => child.segment.type === 'index')
-        .sort((left, right) => left.segment.index < right.segment.index ? -1 : left.segment.index > right.segment.index ? 1 : 0);
-
-    if (heads.length !== 1 || heads[0]!.segment.index !== 0n || heads[0]!.record.kind !== 'NodeHead') {
-        report(
-            ctx,
-            'The JSON output profile requires exactly one NodeHead at index 0',
-            'FINALIZE_UNREPRESENTABLE_NODE_HEADS',
-            outputPath,
-            true,
-        );
-        return null;
-    }
-
-    const head = heads[0]!;
-    const headPath = descendantPath(indexed, head, outputPath);
-    const headAttributes = attributesToJson(head, ctx, headPath);
+    const attributes = attributesToJson(indexed, ctx, outputPath);
     return {
-        $node: head.record.value ?? '',
-        ...(headAttributes !== null ? { '@': headAttributes } : {}),
-        $children: materializeIndexed(head, ctx, headPath),
+        $node: indexed.record.tag ?? '',
+        ...(attributes !== null ? { '@': attributes } : {}),
+        $children: materializeIndexed(indexed, ctx, outputPath),
     };
 }
 
@@ -339,28 +318,37 @@ function materializeClone(
     }
 }
 
-function measureWeight(indexed: IndexedRecord, ctx: MaterializeContext, stack: Set<string>): number {
-    const cached = ctx.materializedWeightCache.get(indexed.address);
+function measureWeight(
+    indexed: IndexedRecord, ctx: MaterializeContext, stack: Set<string>, includeMetadata = false,
+): number {
+    const cacheKey = `${includeMetadata ? 'member' : 'value'}:${indexed.address}`;
+    const cached = ctx.materializedWeightCache.get(cacheKey);
     if (cached !== undefined) return cached;
     if (stack.has(indexed.address)) return 1;
     const nextStack = new Set(stack);
     nextStack.add(indexed.address);
     const index = planeFor(indexed, ctx);
+    const kind = indexed.record.kind;
     let weight: number;
 
-    switch (indexed.record.kind) {
+    switch (kind) {
         case 'ObjectNode':
+            weight = structuralChildren(index, indexed.address)
+                .reduce((sum, child) => sum + measureWeight(child, ctx, nextStack, true), 0);
+            break;
         case 'ListNode':
         case 'TupleLiteral':
-            weight = structuralChildren(index, indexed.address).reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0)
-                + attributeChildren(index, indexed.address).reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0);
-            break;
         case 'NodeLiteral': {
-            const heads = structuralChildren(index, indexed.address);
-            weight = heads.reduce((sum, head) => sum
-                + 1
-                + structuralChildren(index, head.address).reduce((childSum, child) => childSum + measureWeight(child, ctx, nextStack), 0)
-                + attributeChildren(index, head.address).reduce((attrSum, child) => attrSum + measureWeight(child, ctx, nextStack), 0), 0);
+            const children = structuralChildren(index, indexed.address);
+            weight = children.reduce((sum, child) => sum + measureWeight(child, ctx, nextStack), 0);
+            if (kind === 'NodeLiteral') weight += 1;
+            if (includeMetadata) {
+                for (const child of children) {
+                    if (child.segment.type === 'index' && child.record.kind !== 'NodeLiteral') {
+                        weight += measureAttributeWeight(child, ctx, index, nextStack);
+                    }
+                }
+            }
             break;
         }
         case 'CloneReference': {
@@ -371,12 +359,23 @@ function measureWeight(indexed: IndexedRecord, ctx: MaterializeContext, stack: S
         default:
             weight = 1;
     }
-    ctx.materializedWeightCache.set(indexed.address, weight);
+    if (kind === 'NodeLiteral' || includeMetadata) {
+        weight += measureAttributeWeight(indexed, ctx, index, nextStack);
+    }
+    ctx.materializedWeightCache.set(cacheKey, weight);
     return weight;
 }
 
+function measureAttributeWeight(
+    indexed: IndexedRecord, ctx: MaterializeContext, index: PlaneIndex, stack: Set<string>,
+): number {
+    return attributeChildren(index, indexed.address)
+        .reduce((sum, child) => sum + measureWeight(child, ctx, stack, true), 0);
+}
+
 function recordMetadata(indexed: IndexedRecord, ctx: MaterializeContext, outputPath = indexed.address): JsonObject | null {
-    const own = attributesToJson(indexed, ctx, outputPath);
+    // The node JSON value already contains its own attributes.
+    const own = indexed.record.kind === 'NodeLiteral' ? null : attributesToJson(indexed, ctx, outputPath);
     const itemAttributes = indexedItemAttributes(indexed, ctx, outputPath);
     if (own !== null && itemAttributes !== null) return { ...own, '@items': itemAttributes };
     if (own !== null) return own;
@@ -402,14 +401,12 @@ function attributesToJson(indexed: IndexedRecord, ctx: MaterializeContext, outpu
 
 function indexedItemAttributes(indexed: IndexedRecord, ctx: MaterializeContext, outputPath: string): JsonObject | null {
     const index = planeFor(indexed, ctx);
-    const owners = indexed.record.kind === 'NodeLiteral'
-        ? structuralChildren(index, indexed.address).flatMap((head) => structuralChildren(index, head.address))
-        : indexed.record.kind === 'ListNode' || indexed.record.kind === 'TupleLiteral'
-            ? structuralChildren(index, indexed.address)
-            : [];
+    const owners = indexed.record.kind === 'NodeLiteral' || indexed.record.kind === 'ListNode' || indexed.record.kind === 'TupleLiteral'
+        ? structuralChildren(index, indexed.address)
+        : [];
     const object: JsonObject = {};
     for (const owner of owners) {
-        if (owner.segment.type !== 'index') continue;
+        if (owner.segment.type !== 'index' || owner.record.kind === 'NodeLiteral') continue;
         const attributes = attributesToJson(owner, ctx, descendantPath(indexed, owner, outputPath));
         if (attributes !== null) object[String(owner.segment.index)] = attributes;
     }

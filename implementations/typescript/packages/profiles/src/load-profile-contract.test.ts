@@ -70,11 +70,11 @@ test('reads generic admission and clarifier decisions from the artifact', () => 
     assert.equal(error('a:number<time> = 1', original), genericNotAllowed);
     assert.equal(error('a:number<time> = 1', revised), undefined);
     assert.equal(error('a:symbol<time> = |1min|', revised), genericNotAllowed);
-    assert.equal(error('a:node<number> = <tag>', original), genericNotAllowed);
-    assert.equal(error('a:node<number> = <tag>', revised), undefined);
-    assert.equal(error('a:node = <tag:node<number>>', original), undefined);
-    assert.equal(error('a:node = <tag:node<number>>', revised), genericNotAllowed);
-    assert.equal(error('a:node = <tag:list<number>>', revised), undefined);
+    assert.equal(error('<tag>\na:node<number> = ~tag', original), genericNotAllowed);
+    assert.equal(error('<tag>\na:node<number> = ~tag', revised), undefined);
+    assert.equal(error('<tag:node<number>>', original), undefined);
+    assert.equal(error('<tag:node<number>>', revised), genericNotAllowed);
+    assert.equal(error('<tag:list<number>>', revised), 'DATATYPE_LITERAL_MISMATCH');
 
     const customSource = 'aeon:mode = "custom"\nv:rational<number> = |1/3|';
     assert.equal(error(customSource, original), 'DATATYPE_LITERAL_MISMATCH');
@@ -124,7 +124,7 @@ test('checks the declared literal family of an admitted alias', () => {
         ['a@{part:separator["."] = "a.b"}:n = 1', 'transport', 'reserved_only', '$.a.@.part'],
         ['a:list = [:separator["."] = "a.b"]', 'transport', 'reserved_only', '$.a[0]'],
         ['a:sep["."] = "a.b"', 'strict', 'allow_custom', '$.a'],
-        ['a@{meta:node = <tag("wrong")>}:n=1\nb@{p:separator["."] = ~a.@.meta[0]}:n=2',
+        ['a@{<tag:node("wrong")>}:n=1\nb@{p:separator["."] = ~a.@.tag[0]}:n=2',
             'strict', 'allow_custom', '$.b.@.p'],
     ] as const) {
         const result = compile(source, { profile, effectiveMode, datatypePolicy });
@@ -132,7 +132,7 @@ test('checks the declared literal family of an admitted alias', () => {
             [{ code: 'DATATYPE_LITERAL_MISMATCH', path }], source);
         assert.deepEqual(result.aes, []);
     }
-    const result = compile('b@{meta:node = <tag(^a.b)>}:n=1\na:separator["."] = ~b.@.meta[0]', {
+    const result = compile('b@{<tag:node(^a.b)>}:n=1\na:separator["."] = ~b.@.tag[0]', {
         profile, effectiveMode: 'strict', datatypePolicy: 'allow_custom',
     });
     assert.deepEqual(result.meta?.errors ?? [], []);
