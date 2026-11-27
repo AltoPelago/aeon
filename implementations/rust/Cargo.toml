@@ -22,7 +22,7 @@ version = "0.17.0"
 
 [workspace.dependencies]
 # Tagged-node development provider; switch to its coordinated registry release before publication.
-aes-telex = { package = "altopelago-aes-telex", git = "https://github.com/AltoPelago/aes", rev = "4276bfb240986e93d9b5c1995121a1fd8c2da03d" }
+aes-telex = { package = "altopelago-aes-telex", version = "=0.3.2", git = "https://github.com/AltoPelago/aes", rev = "4276bfb240986e93d9b5c1995121a1fd8c2da03d" }
 aeon-sdk = { package = "altopelago-aeon", path = "crates/aeon-sdk", version = "0.17.0" }
 aeon-aeos = { package = "altopelago-aeon-aeos", path = "crates/aeon-aeos", version = "0.17.0" }
 aeon-annotations = { path = "crates/aeon-annotations", version = "0.17.0" }
@@ -33,7 +33,7 @@ aeon-document = { package = "altopelago-aeon-document", path = "crates/aeon-docu
 aeon-finalize = { package = "altopelago-aeon-finalize", path = "crates/aeon-finalize", version = "0.17.0" }
 aeon-wasm = { path = "crates/aeon-wasm", version = "0.17.0" }
 # Tagged-node development provider; switch to its coordinated registry release before publication.
-sansa-runtime = { package = "altopelago-sansa-runtime", git = "https://github.com/AltoPelago/sansa", rev = "e21811f08cfefddaa7e4991652b83218acb3829f" }
+sansa-runtime = { package = "altopelago-sansa-runtime", version = "=0.15.0", git = "https://github.com/AltoPelago/sansa", rev = "e21811f08cfefddaa7e4991652b83218acb3829f" }
 sha2 = "0.11.0"
 
 [workspace.lints.clippy]
