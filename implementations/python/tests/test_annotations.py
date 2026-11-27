@@ -106,11 +106,36 @@ class AnnotationStreamTests(unittest.TestCase):
                 '<root@{docs = {<"x.y"("a"/#left#/, "b"/#right#/)>}}>',
                 ['$.root.@.docs.["x.y"][0]', '$.root.@.docs.["x.y"][1]'],
             ),
+            (
+                '<root@{<doc>,\na\n/#gap#/ = 1\nb/#next#/ = 2}>',
+                ["$.root.@.a", "$.root.@.b"],
+            ),
         )
         for source, expected in cases:
             with self.subTest(source=source):
                 annotations = self.annotations_for(source)
                 self.assertEqual(expected, [annotation["target"]["path"] for annotation in annotations])
+
+    def test_index_keeps_an_annotated_members_nested_payload(self) -> None:
+        source = '<root@{data={inner@{flag=1}={<leaf@{a=1\n<extra("x"/#note#/)>}>}}}>'
+        result = compile_source(source, CompileOptions(max_attribute_depth=3))
+        self.assertEqual([], result.errors)
+        annotations = build_annotation_stream(source, result.events)
+        self.assertEqual("$.root.@.data.inner.leaf.@.extra[0]", annotations[0]["target"]["path"])
+
+    def test_deep_metadata_objects_do_not_use_the_python_call_stack(self) -> None:
+        depth = 192
+        source = "root@{a={" + "n@{a={" * depth + "z/#target#/ = 1" + "}}=1" * depth + "}}=0"
+        annotations = self.annotations_for(source)
+        self.assertEqual("$.root.@.a" + ".n.@.a" * depth + ".z", annotations[0]["target"]["path"])
+
+    def test_deep_attribute_heads_do_not_use_the_python_call_stack(self) -> None:
+        depth = 510
+        source = "root@{" + "k@{" * (depth - 1) + "leaf/#target#/=1" + "}=0" * depth
+        compiled = compile_source(source, CompileOptions(max_attribute_depth=depth))
+        self.assertEqual([], compiled.errors)
+        annotations = build_annotation_stream(source, compiled.events)
+        self.assertEqual("$.root" + ".@.k" * (depth - 1) + ".@.leaf", annotations[0]["target"]["path"])
 
     def test_binding_head_gap_comments_report_placement(self) -> None:
         annotations = self.annotations_for(

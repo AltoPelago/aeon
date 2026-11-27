@@ -165,6 +165,8 @@ class PositionLookup:
     line_starts: list[int]
     node_values: dict[int, dict[str, object]] = field(default_factory=dict)
     attribute_values: dict[int, dict[str, object]] = field(default_factory=dict)
+    metadata_bindings: list[tuple[dict[str, object], str, object]] = field(default_factory=list)
+    attribute_blocks: list[tuple[int, int, str]] = field(default_factory=list)
     tokens: list[Token] = field(default_factory=list)
     token_starts: list[int] = field(default_factory=list)
     closing_tokens: dict[int, int] = field(default_factory=dict)
@@ -257,6 +259,16 @@ def build_path_bindables(
             )
         )
         bindables.extend(attribute_bindables(source, event, positions, index * 1000 + 1))
+    while positions.metadata_bindings or positions.attribute_blocks:
+        if positions.attribute_blocks:
+            at, end, owner = positions.attribute_blocks.pop()
+            _, entries, _ = scan_attribute_block(source, at, end, owner, positions, make_bindables=True)
+        else:
+            payload, path, binding_span = positions.metadata_bindings.pop()
+            entries = metadata_value_bindables(source, payload, path, positions, binding_span)
+        for entry in entries:
+            entry.order = len(bindables)
+            bindables.append(entry)
     return bindables
 
 
@@ -287,11 +299,11 @@ def index_annotation_values(events: list[dict[str, object]], positions: Position
             for entry in annotations.values():
                 if not isinstance(entry, dict):
                     continue
-                value = entry.get("value")
+                entry_value = entry.get("value")
                 span = entry.get("span")
-                if isinstance(value, dict) and isinstance(span, dict):
-                    positions.attribute_values[parse_span(span).start.offset] = value
-                pending.append((value, entry.get("annotations")))
+                if isinstance(entry_value, dict) and isinstance(span, dict):
+                    positions.attribute_values[parse_span(span).start.offset] = entry_value
+                pending.append((entry_value, entry.get("annotations")))
                 for block in entry.get("attributes") or []:
                     if isinstance(block, dict):
                         pending.append((None, block.get("entries")))
@@ -669,7 +681,7 @@ def attribute_bindables(
     path = str(event["path"])
     entries = attribute_entry_bindables(source, head_start, head_end, path, positions)
     if event_value_type(event) == "NodeLiteral":
-        entries.extend(node_attribute_entry_bindables(source, value_span, path, positions))
+        enqueue_node_attributes(value_span, path, positions)
     for index, entry in enumerate(entries):
         entry.order = order_start + index
     return entries
@@ -712,39 +724,21 @@ def attribute_entry_bindables(
     return entries
 
 
-def node_attribute_entry_bindables(
-    source: str,
+def enqueue_node_attributes(
     value_span: Span,
     owner_path: str,
     positions: PositionLookup,
-) -> list[BindableRecord]:
-    entries: list[BindableRecord] = []
-    offset = value_span.start.offset
-    end = value_span.end.offset
-    if offset >= end or source[offset] != "<":
-        return entries
-    offset += 1
-    offset = skip_node_layout(source, offset, end)
-    key_span = scan_key_span(source, offset, positions)
-    if key_span is None:
-        return entries
-    offset = key_span.end.offset
-    offset = skip_node_layout(source, offset, end)
-    if offset < end and source[offset] == "\\":
-        close = source.find("\\", offset + 1, end)
-        if close != -1:
-            offset = close + 1
-    while offset < end:
-        offset = skip_node_layout(source, offset, end)
-        if offset >= end or source[offset] in {":", "(", ">"}:
-            break
-        if source[offset] == "@":
-            _landmarks, block_entries, next_offset = scan_attribute_block(source, offset, end, owner_path, positions, make_bindables=True)
-            entries.extend(block_entries)
-            offset = max(offset + 1, next_offset)
-            continue
-        offset += 1
-    return entries
+) -> None:
+    positions.index_tokens()
+    start = bisect_left(positions.token_starts, value_span.start.offset)
+    close = positions.closing_tokens.get(start)
+    if close is None or close <= start + 2:
+        return
+    cursor = start + 2
+    if positions.tokens[cursor].kind == "STRUCTURAL_IDENTITY":
+        cursor += 1
+    if positions.tokens[cursor].kind == "AT":
+        positions.attribute_blocks.append((positions.token_starts[cursor], value_span.end.offset, owner_path))
 
 
 def scan_attribute_block(
@@ -812,9 +806,9 @@ def scan_attribute_entry(
             span=value_span, order=0, path=path, value_span=value_span,
             value_type="NodeLiteral", kind="attribute", landmarks=landmarks,
         )]
-        entries.extend(node_attribute_entry_bindables(source, value_span, path, positions))
+        enqueue_node_attributes(value_span, path, positions)
         node = positions.node_values.get(offset, {})
-        entries.extend(metadata_descendants(source, node, path, positions))
+        enqueue_metadata_children(node, path, positions)
         return landmarks, entries, value_end
     key_span = scan_key_span(source, offset, positions)
     if key_span is None:
@@ -828,16 +822,16 @@ def scan_attribute_entry(
     entry_end = scan
     value_span = key_span
     while scan < end:
-        scan = skip_head_trivia(source, scan, end)
-        if scan >= end or source[scan] in {",", "}", "\r", "\n"}:
+        scan = skip_node_layout(source, scan, end)
+        if scan >= end or source[scan] in {",", "}"}:
             entry_end = scan
             break
         if source[scan] == "@":
-            attr_marks, bindables, scan = scan_attribute_block(
-                source, scan, end, path, positions, make_bindables=make_bindables,
-            )
+            at = scan
+            attr_marks, scan = nested_attribute_landmarks(source, at, end, positions)
             landmarks.extend(attr_marks)
-            entries.extend(bindables)
+            if make_bindables and attr_marks:
+                positions.attribute_blocks.append((at, scan, path))
             continue
         if source[scan] == ":":
             landmarks.append(PlacementLandmark("attribute-datatype-colon", Span(positions.position_at(scan), positions.position_at(scan + 1))))
@@ -872,7 +866,7 @@ def scan_attribute_entry(
             landmarks=landmarks,
         ))
         if payload is not None:
-            entries.extend(metadata_descendants(source, payload, path, positions))
+            enqueue_metadata_children(payload, path, positions)
     return landmarks, entries, entry_end
 
 
@@ -884,9 +878,27 @@ def decode_key(raw: str) -> str:
     return raw
 
 
-def add_metadata_value_bindables(
+def nested_attribute_landmarks(
+    source: str, at: int, end: int, positions: PositionLookup,
+) -> tuple[list[PlacementLandmark], int]:
+    positions.index_tokens()
+    opening_offset = skip_node_layout(source, at + 1, end)
+    if opening_offset >= end or source[opening_offset] != "{":
+        return [], opening_offset
+    opening = bisect_left(positions.token_starts, opening_offset)
+    closing = positions.closing_tokens.get(opening)
+    if closing is None or positions.tokens[closing].span.end.offset > end:
+        return [], opening_offset
+    return [
+        PlacementLandmark("attribute-marker", Span(positions.position_at(at), positions.position_at(at + 1))),
+        PlacementLandmark("attribute-open", positions.tokens[opening].span),
+        PlacementLandmark("attribute-close", positions.tokens[closing].span),
+    ], positions.tokens[closing].span.end.offset
+
+
+def metadata_value_bindables(
     source: str, payload: dict[str, object], path: str, positions: PositionLookup,
-    *, binding_span: object = None,
+    binding_span: object,
 ) -> list[BindableRecord]:
     raw_span = binding_span or payload.get("span")
     if not isinstance(raw_span, dict):
@@ -900,27 +912,21 @@ def add_metadata_value_bindables(
         landmarks=binding_landmarks(source, event, positions),
     )]
     result.extend(attribute_bindables(source, event, positions, 0))
-    result.extend(metadata_descendants(source, value, path, positions))
+    enqueue_metadata_children(value, path, positions)
     return result
 
 
-def metadata_descendants(
-    source: str, value: dict[str, object], path: str, positions: PositionLookup,
-) -> list[BindableRecord]:
-    result = []
+def enqueue_metadata_children(value: dict[str, object], path: str, positions: PositionLookup) -> None:
     kind = value.get("type")
     if kind == "ObjectNode":
-        for binding in value.get("bindings") or []:
+        for binding in reversed(value.get("bindings") or []):
             key = binding["key"]
             member = key if is_ascii_identifier(key) else f"[{json.dumps(key, ensure_ascii=False)}]"
-            result.extend(add_metadata_value_bindables(
-                source, binding["value"], f"{path}.{member}", positions, binding_span=binding.get("span"),
-            ))
+            positions.metadata_bindings.append((binding["value"], f"{path}.{member}", binding.get("span")))
     elif kind in {"NodeLiteral", "ListNode", "TupleLiteral"}:
         children = value.get("children" if kind == "NodeLiteral" else "elements") or []
-        for index, item in enumerate(children):
-            result.extend(add_metadata_value_bindables(source, item, f"{path}[{index}]", positions))
-    return result
+        for index in range(len(children) - 1, -1, -1):
+            positions.metadata_bindings.append((children[index], f"{path}[{index}]", None))
 
 
 def scan_attribute_value_end(source: str, start: int, end: int) -> int:
