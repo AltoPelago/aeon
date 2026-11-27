@@ -75,6 +75,8 @@ function checkRead(read, vector, codec) {
             const expected = vector.expected.error;
             if (expected.code !== undefined) assert.equal(error.code, expected.code);
             if (expected.stage !== undefined) assert.equal(error.stage, expected.stage);
+            if (expected.component !== undefined) assert.equal(error.component, expected.component);
+            if (expected.offset !== undefined) assert.equal(error.offset, expected.offset);
             if (expected.diagnostic_codes !== undefined) {
                 assert.deepEqual(error.diagnostics.map(({ code }) => code).sort(),
                     [...expected.diagnostic_codes].sort());
@@ -106,7 +108,8 @@ async function main() {
     else {
         assert.equal(manifest.meta.status, 'experimental');
         assert.ok(manifestPath.endsWith('.next.json'));
-        assert.equal(manifest.meta.snapshot_id, 'film-next-cts-v1-snapshot-0.1');
+        assert.ok(['film-next-cts-v1-snapshot-0.1', 'film-tagged-node-carrier-cts-v1-snapshot-0.1']
+            .includes(manifest.meta.snapshot_id));
     }
 
     let directDecode = 0;
@@ -141,7 +144,7 @@ async function main() {
                 const bytes = fromHex(filmHex);
                 const options = vectorOptions(vector);
                 const expected = checkRead(() => codec.decodeFilm(bytes, options), vector, codec);
-                if (suiteRef.id === 'next-film-logical-generic-depth') {
+                if (suiteRef.id === 'next-film-logical-generic-depth' || suiteRef.id === 'tagged-node-carriers') {
                     for (let split = 0; split <= bytes.length; split += 1) {
                         const actual = checkRead(() => {
                             const decoder = new codec.IncrementalFilmDecoder(options);

@@ -119,7 +119,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: aeonite-org/aeonite-cts
-          ref: ddf5c1b3428f75ddd2857feb3184354deb2a1d34
+          ref: 905db7b6dfecaab05d6d933cfcf3e6eef1f3038f
           path: node-model-cts
 
       - name: Checkout aeonite-specs for the GP profile contract
@@ -133,6 +133,12 @@ jobs:
         env:
           AEONITE_CTS_ROOT: ${{ github.workspace }}/node-model-cts/cts
         run: node ../../scripts/test-typescript-node-model-cts.mjs
+
+      - name: TypeScript tagged node Film reader CTS
+        run: >-
+          node ../../scripts/run-film-cts.mjs
+          --module packages/aes/dist/index.js
+          --cts "${{ github.workspace }}/node-model-cts/cts/film/v1/film-tagged-node-carrier-cts.v1.next.json"
 
       - name: CTS claim validation
         working-directory: .

@@ -38,7 +38,7 @@ export interface FilmSyntaxDatatypeDescriptor extends Omit<AesDatatypeDescriptor
 }
 
 export interface FilmSyntaxRecord extends Pick<TelexRecord,
-    'header' | 'path' | 'kind' | 'datatype' | 'clarifiers' | 'identity' | 'value' | 'origin' | 'span'> {
+    'header' | 'path' | 'kind' | 'tag' | 'datatype' | 'clarifiers' | 'identity' | 'value' | 'origin' | 'span'> {
     readonly generics?: readonly (FilmSyntaxDatatypeDescriptor | AesNumberLiteral)[];
     readonly [extension: string]: unknown;
 }
