@@ -175,9 +175,9 @@ explicitly.
 - Prefer this package for simple application examples.
 - Use `@altopelago/aeon-core` when you only need compile-only behavior.
 - Use `@altopelago/aeon-runtime` when you need the full orchestrated runtime pipeline.
-- Film is reader-only. Revised tagged nodes use the Telex carrier in this
-  TypeScript development slice. Checked Film node reads require the revised
-  Film kind and fixture work tracked for the next slice.
+- Film is reader-only. The tagged-node development mapping reads the intrinsic
+  tag from Film v1 kind `0x19` and exposes the same direct paths as Telex. Use
+  the producing contract revision for historical Film node streams.
 - `aeonicLimits` contributes its shared AES structural and processing values to
   Film. Select Film-local byte ceilings separately with `filmLimits`.
 

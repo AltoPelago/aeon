@@ -132,6 +132,20 @@ test('merges flat and nested Film/AES limit options without crossing domains', (
     });
 });
 
+test('Film reports the exact decoded scalar count for an oversized node tag', () => {
+    const bytes = fromHex('4f5f5fff010008001903242e61016111001906242e615b305d07f09f8c8a65cc81');
+    assert.equal(decodeFilm(bytes, { maxKeySegmentCodepoints: 3 }).records[1]?.tag, '🌊e\u0301');
+
+    assert.throws(() => decodeFilm(bytes, { maxKeySegmentCodepoints: 2 }), (error: unknown) => {
+        assert.ok(error instanceof FilmDecodeError);
+        assert.equal(error.code, 'FILM_AES_INVALID');
+        assert.deepEqual(error.diagnostics.map(({ code, field, counter, observed, limit }) => (
+            { code, field, counter, observed, limit }
+        )), [{ code: 'AES_LIMIT_EXCEEDED', field: 'tag', counter: 'max_key_segment_codepoints', observed: 3, limit: 2 }]);
+        return true;
+    });
+});
+
 test('incremental Film decoding withholds completion until final input', () => {
     const decoder = new IncrementalFilmDecoder();
     const first = decoder.push(CANONICAL_SCALAR.subarray(0, 8));

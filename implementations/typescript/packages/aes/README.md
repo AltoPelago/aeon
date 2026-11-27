@@ -34,8 +34,9 @@ if (result.errors.length === 0) {
 Generic arguments must be recursive datatype descriptors, never tagged numeric
 or string literals. For example, `custom<1.0>` is invalid while
 `custom<child[9007199254740993]>[2.0000000000000001]` preserves exact clarifier
-strings. The selected targets are AES Events CTS 0.2, Telex CTS 0.2, and
-reader-only Film CTS 0.4. TypeScript exposes no Film writer.
+strings. The Film reader in this checkout runs the tagged-node development
+CTS. The published Film 0.4 reader target is verified with the pre-revision
+source pinned in the historical CI lanes. TypeScript exposes a Film reader.
 
 Film syntax inspection and incremental progress remain provisional and can
 expose historical physical numeric generic tags. Their `FilmSyntaxStream` and

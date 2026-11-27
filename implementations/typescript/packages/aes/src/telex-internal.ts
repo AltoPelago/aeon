@@ -961,7 +961,10 @@ function validatePathLimits(path, details, limits, diagnostics, context, field) 
 }
 
 function validateCodepointLimit(counter, value, limit, diagnostics, context, field) {
-  const observed = [...value].length;
+  let observed = 0;
+  for (let offset = 0; offset < value.length; offset += value.codePointAt(offset) > 0xffff ? 2 : 1) {
+    observed += 1;
+  }
   if (observed > limit) diagnostics.push(limitDiagnostic(counter, observed, limit, { ...context, field }));
 }
 

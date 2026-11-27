@@ -44,11 +44,12 @@ const KIND_NAMES = Object.freeze([
   'ObjectNode',
   'ListNode',
   'TupleLiteral',
-  'NodeLiteral',
-  'NodeHead',
+  undefined, // 0x14, former node container
+  undefined, // 0x15, former node head
   'CloneReference',
   'PointerReference',
   'SymbolicLiteral',
+  'NodeLiteral',
 ]);
 
 const VALUELESS_KINDS = new Set([
@@ -565,7 +566,9 @@ function decodeRecord(payload, payloadOffset, recordIndex, filmLimits, aesLimits
   if ((control & RECORD_IDENTITY) !== 0) {
     record.identity = reader.readString(filmLimits, 'identity');
   }
-  if (!VALUELESS_KINDS.has(kind)) {
+  if (kind === 'NodeLiteral') {
+    record.tag = reader.readString(filmLimits, 'tag');
+  } else if (!VALUELESS_KINDS.has(kind)) {
     record.value = reader.readString(filmLimits, 'value');
   }
   if ((control & RECORD_ORIGIN) !== 0) {

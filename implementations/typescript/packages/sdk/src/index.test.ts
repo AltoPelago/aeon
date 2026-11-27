@@ -38,6 +38,25 @@ test('reads and materializes Film through the reader-only SDK boundary', () => {
   assert.equal(materialized.finalized.meta?.errors?.length ?? 0, 0);
 });
 
+test('materializes intrinsic tags and their direct children through the Film SDK', () => {
+  const bytes = Uint8Array.from(
+    '4f5f5fff010013041905242e746167067461672d6964037461671800010c242e7461672e402e6e6f7465086d6574616461746110001908242e7461675b305d04f09f8c8a1400010b242e7461675b305d5b305d056368696c6412001606242e636f707908242e7461675b305d'.match(/../gu) ?? [],
+    (pair) => Number.parseInt(pair, 16),
+  );
+  const result = readFilmDocument(bytes);
+  assert.deepEqual(result.finalized.meta?.errors ?? [], []);
+  const indexed = new Map(result.records.map(record => [record.path, record]));
+  assert.equal(indexed.get('$.tag')?.tag, 'tag');
+  assert.equal(indexed.get('$.tag[0]')?.tag, '🌊');
+  assert.equal(indexed.get('$.tag[0][0]')?.value, 'child');
+  assert.deepEqual(result.finalized.document, {
+    tag: { $node: 'tag', '@': { note: 'metadata' }, $children: [
+      { $node: '🌊', $children: ['child'] },
+    ] },
+    copy: { $node: '🌊', $children: ['child'] },
+  });
+});
+
 test('applies the common structural limits document to Film reads', () => {
   const policySource = fs.readFileSync(
     new URL('../../../../../test-fixtures/altopelago.aeonic-limits.v1.aeon', import.meta.url),
