@@ -727,10 +727,12 @@ impl<'a> TokenParser<'a> {
                     if self.check(TokenKind::Colon) {
                         self.advance();
                         self.skip_newlines();
-                        let field = self.consume(
-                            TokenKind::Identifier,
-                            "Expected header field after `aeon:`",
-                        )?;
+                        if !is_bare_key_kind(self.peek().kind) {
+                            return Err(
+                                self.error_at_current("Expected header field after `aeon:`")
+                            );
+                        }
+                        let field = self.advance();
                         return Ok((format!("aeon:{}", field.text), true));
                     }
                     self.current = saved;

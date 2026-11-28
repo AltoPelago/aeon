@@ -97,6 +97,24 @@ describe('API Surface', () => {
         assert.doesNotMatch(result.telex ?? '', /path=\$\.\["aeon:metadata"\]/u);
     });
 
+    it('should preserve literal-word shorthand fields and their value kinds in the header plane', () => {
+        const source = 'aeon:yes = "yes"\naeon:true = false\naeon:on = off\n"aeon:yes" = "body"';
+        const result = compileToTelex(source, { includeHeaders: true });
+
+        assert.deepStrictEqual(result.compile.errors, []);
+        const records = result.records.map((record) => [
+            'header' in record ? ['header', record.header] : ['body', record.path],
+            record.kind,
+            record.value,
+        ]);
+        assert.deepStrictEqual(records, [
+            [['header', '$.["aeon:yes"]'], 'StringLiteral', 'yes'],
+            [['header', '$.["aeon:true"]'], 'BooleanLiteral', 'false'],
+            [['header', '$.["aeon:on"]'], 'ToggleLiteral', 'off'],
+            [['body', '$.["aeon:yes"]'], 'StringLiteral', 'body'],
+        ]);
+    });
+
     it('should preserve quoted aeon-prefixed payload keys beside actual headers', () => {
         const source = 'aeon:mode = "transport"\n"aeon:mode" = 1';
         const body = compileToTelex(source);

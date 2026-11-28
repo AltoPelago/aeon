@@ -1008,7 +1008,7 @@ impl<'tokens, 'state> Parser<'tokens, 'state> {
                     if self.check(TokenKind::Colon) {
                         self.advance();
                         self.skip_newlines();
-                        if !self.check(TokenKind::Identifier) {
+                        if !is_bare_key_kind(self.peek().kind) {
                             return Err(
                                 self.error_at_current("Expected header field after `aeon:`")
                             );
