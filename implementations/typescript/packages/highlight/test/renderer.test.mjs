@@ -127,6 +127,19 @@ test('lexer presentation restores established key, type, tag, symbol and referen
 
 });
 
+test('inline node descriptors end before children or the closing angle', () => {
+  const source = '<tag:node<string>("value")>\n<true:node>\n<"?xml"@{<on>}>\n' +
+    '<aeon:header>\n<list:node<list<string>>>\n<head(~>tag[0])>';
+  const html = highlighter.highlightAeon(source);
+  assert.equal(plain(html), source);
+  assert.deepEqual(Array.from(html.matchAll(/class="tok-tag">([^<]+)/g), match => match[1]),
+    ['tag', 'true', '"?xml"', 'on', 'aeon', 'list', 'head']);
+  assert.deepEqual(Array.from(html.matchAll(/class="tok-type">([^<]+)/g), match => match[1]),
+    ['node', '&lt;', 'string', '&gt;', 'node', 'header', 'node', '&lt;', 'list', '&lt;', 'string', '&gt;', '&gt;']);
+  assert.match(html, /class="tok-string">"value"<\/span>/);
+  assert.match(html, /class="tok-binding">0<\/span><span class="tok-binding">\]<\/span><span class="tok-punct">\)/);
+});
+
 test('escaped symbolic pipes use one lexer pass for closed and unfinished literals',()=>{
   let calls=0;
   const h=createAeonHighlighter({...lexer,tokenize:(...args)=>{calls++;return lexer.tokenize(...args);}});
