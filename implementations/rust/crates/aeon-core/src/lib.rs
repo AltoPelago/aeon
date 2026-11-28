@@ -4478,6 +4478,41 @@ other:number = ~>source.shared.@.metadata"#;
     }
 
     #[test]
+    fn accepts_literal_words_as_shorthand_header_field_names() {
+        let source =
+            "aeon:yes = \"yes\"\naeon:true = false\naeon:on = off\n\"aeon:yes\" = \"body\"";
+        for implementation in [ParserImplementation::Baseline, ParserImplementation::Sofia] {
+            let result = compile_owned_with_implementation(
+                source.to_owned(),
+                CompileOptions::default(),
+                implementation,
+            );
+            assert!(
+                result.errors.is_empty(),
+                "{implementation:?}: {:?}",
+                result.errors
+            );
+            let header = result.header.expect("shorthand header");
+            assert_eq!(header.order, ["yes", "true", "on"]);
+            assert!(matches!(
+                header.fields.get("yes"),
+                Some(Value::StringLiteral { value, .. }) if value == "yes"
+            ));
+            assert!(matches!(
+                header.fields.get("true"),
+                Some(Value::BooleanLiteral { raw }) if raw == "false"
+            ));
+            assert!(matches!(
+                header.fields.get("on"),
+                Some(Value::ToggleLiteral { raw }) if raw == "off"
+            ));
+            assert_eq!(result.events.len(), 1);
+            assert_eq!(result.events[0].source_plane, SourcePlane::Body);
+            assert_eq!(result.events[0].key, "aeon:yes");
+        }
+    }
+
+    #[test]
     fn rejects_mixed_structured_and_shorthand_headers_with_message_and_span_details() {
         let result = compile(
             "aeon:header = { profile = \"core\" }\naeon:mode = \"strict\"\na:int32 = 1\n",

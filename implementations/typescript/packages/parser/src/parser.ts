@@ -255,7 +255,11 @@ class Parser {
             const fieldStart = this.peek().span.start;
             this.advance(); // consume 'aeon'
             this.consume(TokenType.Colon, "Expected ':' after 'aeon'");
-            const fieldToken = this.consume(TokenType.Identifier, "Expected header field name");
+            const fieldToken = this.peek();
+            if (!this.isBareKeyToken(fieldToken)) {
+                throw new SyntaxError('Expected header field name', fieldToken.span, 'bare key', fieldToken.value);
+            }
+            this.advance();
             const fieldName = fieldToken.value;
             this.consume(TokenType.Equals, "Expected '=' in header");
 
