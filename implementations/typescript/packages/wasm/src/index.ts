@@ -1,5 +1,5 @@
 export interface CanonicalizeOptions {
-  /** Defaults to reference-safe-v1; lexical-v1 preserves historical source bytes. */
+  /** Defaults to reference-safe-v1. lexical-v1 uses lexical ordering with the current grammar. */
   ordering?: 'lexical-v1' | 'reference-safe-v1';
   /** Distinct projected dependency edges; non-negative uint32. Default: 1,000,000. */
   maxOrderingEdges?: number;
@@ -190,7 +190,11 @@ export interface EventSummary {
   key: string;
   datatype: string | null;
   valueType: string;
+  /** Intrinsic tag of a node occurrence, including an indexed node. */
+  tag?: string;
   structuralId?: string;
+  /** Header events may share an address with a payload occurrence. */
+  sourcePlane?: 'header';
 }
 
 export interface AeonStreamOptions extends Omit<
@@ -344,7 +348,7 @@ export async function processAeon(
   return runtime.processAeon(source, options);
 }
 
-/** Canonical-only operation; defaults to reference-safe-v1 (canonical CTS 0.4). */
+/** Canonical-only operation. Defaults to reference-safe-v1. */
 export async function canonicalize(
   source: string,
   options: CanonicalizeOptions = {},

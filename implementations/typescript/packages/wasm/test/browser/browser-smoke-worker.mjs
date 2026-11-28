@@ -52,10 +52,13 @@ self.onmessage = async ({ data }) => {
     const terminal = stream.takeTerminal();
 
     invariant(terminal.status === 'accepted', 'worker stream was not accepted');
-    invariant(terminal.eventCount === 3, 'worker terminal event count drifted');
-    invariant(events.length === 3, 'worker delivered event count drifted');
+    invariant(terminal.eventCount === 5, 'worker terminal event count drifted');
+    invariant(events.length === 5, 'worker delivered event count drifted');
     invariant(events[1]?.path === '$.beta', 'worker event ordering drifted');
     invariant(events[1]?.valueType === 'StringLiteral', 'worker Unicode event kind drifted');
+    invariant(events[3]?.tag === 'people', 'worker named node tag drifted');
+    invariant(events[4]?.path === '$.people[0]', 'worker indexed node path drifted');
+    invariant(events[4]?.tag === '🌊', 'worker indexed node tag drifted');
     invariant(sequences.every((sequence, index) => sequence === index), 'worker batch sequence drifted');
 
     self.postMessage({

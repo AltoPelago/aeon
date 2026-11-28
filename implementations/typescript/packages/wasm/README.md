@@ -53,6 +53,13 @@ tools:
 For compatibility, `errors` and `warnings` are also exposed as top-level aliases
 of `diagnostics.errors` and `diagnostics.warnings`.
 
+Node event summaries expose the intrinsic `tag` at the binding's path. For
+example, `<tag("Hello")>` emits the node at `$.tag` and its direct child at
+`$.tag[0]`. An indexed node retains its tag in the summary while its path uses
+the index. In one-shot results, compiled header descendants remain visible when
+finalizing the payload. Header summaries carry `sourcePlane: 'header'` so
+callers can distinguish paths shared by both planes.
+
 For Core conformance or event-processing workloads that do not need a JSON
 document, pass `finalize: false`. This compiles Sofia directly and returns Core
 events and diagnostics with `canonical.text` empty and
@@ -95,18 +102,17 @@ shapes/unknown fields throw `TypeError`; invalid ordering/limits throw
 `RangeError`. The raw generated `canonicalize_aeon(source, optionsJson)` export
 independently rejects invalid configuration. Omitted limits use the defaults.
 
-Omitting `ordering` selects `reference-safe-v1` (canonical CTS 0.4).
-Explicit `lexical-v1` retains historical source bytes and behavior, including
-the absence of authored-reference validation. Limits are validated but only
-applied by the reference-safe contract. `processAeon` canonical output uses the
-new default too, while retaining its existing profile/materialization stages.
-Streams and Telex are unchanged. Integrity event hashing/receipt verification
-remains historical; do not silently mix hashes/signatures across contracts.
+Omitting `ordering` selects `reference-safe-v1`. Explicit `lexical-v1` orders
+named bindings lexically and skips authored-reference validation. Both options
+use the tagged-node grammar. The reference-safe contract applies the ordering
+and metadata limits. `processAeon` uses reference-safe ordering before profile
+validation and materialization.
 
-PR CI checks the actual committed binary against immutable canonical CTS 0.4 and
-TypeScript parity corpus. The browser smoke page checks the standalone API on
-the main thread and in a module worker, including Unicode symbols, fixed-point
-bytes and fail-closed reference/budget errors.
+PR CI checks the current committed binary against the tagged-node Core and
+Canonical CTS. The frozen pre-revision checkout runs the historical canonical
+CTS 0.4 and TypeScript parity corpus. The browser smoke page exercises the
+standalone API on the main thread and in a module worker, including Unicode
+symbols, fixed-point bytes and fail-closed reference and budget errors.
 
 ## Progressive streams
 
@@ -229,9 +235,12 @@ by `implementations/rust/rust-toolchain.toml`. After generation, the build
 script synchronizes `pkg/package.json` to the TypeScript wrapper version; the
 wrapper and Rust crate can therefore remain separate release units. A Rust
 toolchain or generator-version change is a reviewed build-input change and must
-regenerate the committed `pkg/` artifacts.
+regenerate the committed `pkg/` artifacts. After building the wrapper, run
+`node scripts/test-wasm-node-model-cts.mjs` from the repository root to qualify
+the committed binary against the pinned tagged-node Core and Canonical suites
+used by CI.
 
-## Property address literals (0.17 source line)
+## Property address literals
 
 The generated Rust Core binary accepts inert SANSA `&key("...")` / `&tag("...")`
 values through existing process, canonicalization and Telex operations. Quoted

@@ -19,7 +19,7 @@ assert.ok(observed.errors.length > 0);
 assert.equal(typeof observed.errors[0].phase, 'string');
 assert.ok(observed.errors[0].phase.length > 0);
 
-function runControl(phaseLabel) {
+function runControl(phaseLabel, excluded = []) {
   const directory = mkdtempSync(join(tmpdir(), 'aeon-wasm-cts-label-'));
   try {
     const suite = {
@@ -43,6 +43,7 @@ function runControl(phaseLabel) {
         id: suite.id,
         file: 'suite.json',
         content_sha256: createHash('sha256').update(bytes).digest('hex'),
+        exclude_tests: excluded,
       }],
     };
     const path = join(directory, 'manifest.json');
@@ -67,4 +68,12 @@ test('WASM CTS rejects a contradicted phase label with the same diagnostic code'
   assert.ifError(result.error);
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stdout, /pass=0 fail=1/);
+});
+
+test('WASM CTS rejects a selection with every Core vector excluded', () => {
+  const result = runControl(observed.errors[0].phase, ['phase-label-witness']);
+  assert.ifError(result.error);
+  assert.equal(result.status, 3, result.stdout + result.stderr);
+  assert.match(result.stdout, /pass=0 fail=0 manifest-excluded=1/);
+  assert.match(result.stderr, /Core CTS must exercise at least one vector/);
 });

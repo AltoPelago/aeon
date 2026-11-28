@@ -65,6 +65,7 @@ for (const suiteRef of manifest.suites ?? []) {
 }
 
 console.log(`\nGenerated WASM Core CTS: pass=${passed} fail=${failed} manifest-excluded=${excluded}`);
+if (passed + failed === 0) fail('Core CTS must exercise at least one vector');
 process.exitCode = failed === 0 ? 0 : 1;
 
 function runVector(runtimeValue, vector) {
