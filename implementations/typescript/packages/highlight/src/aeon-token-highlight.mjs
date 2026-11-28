@@ -20,6 +20,10 @@ export function createAeonHighlighter({tokenize, TokenType}) {
       'LeftAngle', 'RightAngle', 'Colon', 'Comma', 'Dot', 'At', 'Caret', 'Hash', 'Dollar',
       'Question', 'Percent', 'Ampersand', 'Semicolon', 'Symbol'].map(name => [TokenType[name], 'punct']),
   ].filter(([type]) => type !== undefined));
+  const nodeTagTypes = new Set([
+    TokenType.Identifier, TokenType.String, TokenType.True, TokenType.False,
+    TokenType.Yes, TokenType.No, TokenType.On, TokenType.Off,
+  ].filter(type => type !== undefined));
   const comments = new Map([
     ['plain', 'comment'], ['doc', 'comment-doc'], ['annotation', 'comment-annotation'],
     ['hint', 'comment-hint'], ['host', 'comment-host'],
@@ -42,7 +46,8 @@ export function createAeonHighlighter({tokenize, TokenType}) {
       const type = token.type;
       const adjacent = previous && previous.span.end.offset === token.span.start.offset;
       if (reference && ((!adjacent && previous?.type !== TokenType.TildeArrow) || (referenceDepth === 0 &&
-        [TokenType.Comma, TokenType.RightBrace, TokenType.RightAngle, TokenType.RightBracket, TokenType.Equals].includes(type)))) reference = false;
+        [TokenType.Comma, TokenType.RightBrace, TokenType.RightAngle, TokenType.RightBracket,
+          TokenType.RightParen, TokenType.Equals].includes(type)))) reference = false;
       if (type === TokenType.Tilde || type === TokenType.TildeArrow) {
         reference = true; referenceDepth = 0;
       }
@@ -52,15 +57,17 @@ export function createAeonHighlighter({tokenize, TokenType}) {
         if (type === TokenType.RightBracket) referenceDepth--;
       } else {
         if (type === TokenType.Equals || type === TokenType.At ||
-          (typeDepth === 0 && [TokenType.LeftBrace, TokenType.RightBrace, TokenType.Comma].includes(type))) datatype = false;
+          (typeDepth === 0 && [TokenType.LeftBrace, TokenType.RightBrace, TokenType.Comma,
+            TokenType.LeftParen, TokenType.RightAngle].includes(type))) datatype = false;
         if (type === TokenType.Colon) { datatype = true; typeDepth = 0; }
         else if (datatype) {
           roles.set(token, 'type');
           if (type === TokenType.LeftAngle || type === TokenType.LeftBracket) typeDepth++;
           if (type === TokenType.RightAngle || type === TokenType.RightBracket) typeDepth--;
+        } else if (previous?.type === TokenType.LeftAngle && nodeTagTypes.has(type)) {
+          roles.set(token, 'tag');
         } else if (type === TokenType.Identifier || type === TokenType.String) {
-          if (previous?.type === TokenType.LeftAngle) roles.set(token, 'tag');
-          else if ([TokenType.Colon, TokenType.StructuralIdentity, TokenType.Equals, TokenType.At].includes(next?.type)) roles.set(token, 'key');
+          if ([TokenType.Colon, TokenType.StructuralIdentity, TokenType.Equals, TokenType.At].includes(next?.type)) roles.set(token, 'key');
           else if (type === TokenType.Identifier && ['NaN', 'Infinity'].includes(token.value)) roles.set(token, 'number');
           else if (previous?.type === TokenType.Symbol && previous.value === '!') roles.set(token, 'literal');
         }
@@ -76,7 +83,7 @@ export function createAeonHighlighter({tokenize, TokenType}) {
     }
     for (let i = 0; i + 2 < significant.length; i++) {
       if (significant[i].type === TokenType.Identifier && significant[i].value === 'aeon' &&
-        significant[i + 1].type === TokenType.Colon && significant[i + 2].type === TokenType.Identifier) {
+        roles.get(significant[i]) !== 'tag' && significant[i + 1].type === TokenType.Colon && significant[i + 2].type === TokenType.Identifier) {
         for (const t of significant.slice(i, i + 3)) roles.set(t, 'directive');
       }
     }
