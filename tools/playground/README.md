@@ -20,6 +20,11 @@ pnpm --dir implementations/typescript install --frozen-lockfile
 npm run playground
 ```
 
+If your setup has Corepack but no `pnpm` command, install the dependencies with
+`(cd implementations/typescript && corepack pnpm install --frozen-lockfile)`.
+The launcher also uses Corepack when `pnpm` is unavailable, so `npm run playground`
+works with the pnpm version pinned in the TypeScript workspace.
+
 Open <http://127.0.0.1:4175/tools/playground/>. The command builds the required
 browser packages before serving, then watches package sources and TypeScript
 configuration. A successful rebuild reloads the browser's modules, retaining the

@@ -88,14 +88,26 @@ export function createPlaygroundServer({repoRoot = defaultRoot, buildState = {re
   });
 }
 
-export function buildWorkspace(repoRoot = defaultRoot) {
-  return new Promise((fulfil, reject) => {
-    const child = spawn(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
-      ['--filter', '@altopelago/aeon-runtime...', '--filter', '@altopelago/aeon-canonical...', '--filter', '@altopelago/aeon-sdk...', '--filter', '@altopelago/aeon-highlight...', 'build'],
-      {cwd:join(repoRoot, 'implementations/typescript'), stdio:'inherit'});
+export async function buildWorkspace(repoRoot = defaultRoot) {
+  const cwd = join(repoRoot, 'implementations/typescript');
+  const args = ['--filter', '@altopelago/aeon-runtime...', '--filter', '@altopelago/aeon-canonical...', '--filter', '@altopelago/aeon-sdk...', '--filter', '@altopelago/aeon-highlight...', 'build'];
+  const suffix = process.platform === 'win32' ? '.cmd' : '';
+  const runBuild = (command, commandArgs) => new Promise((fulfil, reject) => {
+    const child = spawn(command + suffix, commandArgs, {cwd, stdio:'inherit'});
     child.once('error', reject);
     child.once('exit', (code, signal) => code === 0 ? fulfil() : reject(new Error(`Workspace build failed (${signal ?? code}).`)));
   });
+  try {
+    await runBuild('pnpm', args);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    try {
+      await runBuild('corepack', ['pnpm', ...args]);
+    } catch (fallbackError) {
+      if (fallbackError.code !== 'ENOENT') throw fallbackError;
+      throw new Error('Playground builds require pnpm. Install the version declared in implementations/typescript/package.json or make Corepack available on PATH.');
+    }
+  }
 }
 
 export function watchWorkspace(repoRoot, rebuild, onError = console.error, createWatcher = watch) {
